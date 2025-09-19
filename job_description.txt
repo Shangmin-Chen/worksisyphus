@@ -1,0 +1,70 @@
+ Job Description
+
+About the Role
+
+We are looking for a motivated Software Engineer to join our engineering team. This role is ideal for someone eager to learn, grow, and contribute to real-world projects in a collaborative, fast-paced environment. You will work closely with senior engineers and your manager to design, build, and debug software systems while developing full-stack skills across backend, frontend, and data technologies.
+What You’ll Do
+
+    Contribute to the design, development, and testing of software components and features under the guidance of senior engineers.
+
+    Collaborate with your team to troubleshoot, debug, and resolve issues using centralized logging and monitoring tools.
+
+    Write clean, maintainable, and testable code across multiple layers of the stack.
+
+    Learn and apply best practices in Agile software development, including code reviews, unit testing, and CI/CD processes.
+
+    Work with engineers and product teams to design SQL queries and analyze data effectively.
+
+    Document processes, designs, and learnings to help build a strong engineering knowledge base.
+
+Technologies You May Work With
+
+(Experience with all of these is not required—interest and willingness to learn is key)
+
+    Languages: Python, Golang, Java, JavaScript
+
+    Frameworks & Frontend: React or modern frontend frameworks
+
+    Databases: SQL, Neo4j (Cypher queries)
+
+    Messaging & Streaming: Apache Kafka and related technologies
+
+    Infrastructure: Linux environments, CI/CD pipelines, centralized logging systems
+
+About You
+
+    2-4 years of professional software engineering experience, or relevant internship/personal project work.
+
+    Strong interest in full stack development (frontend + backend).
+
+    Experience with at least one programming language (Python, Golang, Java, or JavaScript).
+
+    Experience with React, ES6, or other modern frontend frameworks.
+
+    Basic understanding of SQL and ability to write queries.
+
+    Familiarity with debugging techniques and a curiosity to learn new tools and technologies.
+
+    Excellent communication skills—able to explain technical concepts clearly and work well in a team.
+
+    Proactive learner who thrives in a collaborative, evolving environment.
+
+Nice to Have
+
+    Exposure to Kafka, graph databases (Neo4j), or cloud platforms (AWS).
+
+    Knowledge of Agile workflows (Scrum/Kanban).
+
+    Familiarity with Git/GitHub workflows and CI/CD tools (Jenkins).
+
+Why Join Us
+
+    Opportunity to work on impactful, modern software systems that power marketing and technology solutions.
+
+    Mentorship from experienced engineers with room for growth.
+
+    A collaborative and supportive team culture where your contributions matter.
+
+    Flexible and dynamic work environment that encourages innovation and learning.
+
+This role is a great fit for someone early in their career who is passionate about technology, eager to learn, and excited to grow into a well-rounded full stack engineer.
