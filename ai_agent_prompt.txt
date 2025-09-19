@@ -28,11 +28,14 @@ Within each role, reorder bullet points by relevance score (1-10).
 - Order selected projects by relevance (highest first)
 - Reorder bullet points within projects by relevance
 
-### 3. Technical Skills Section
-- **Source pool**: Only skills appearing elsewhere in resume
-- **Prioritize**: Skills explicitly mentioned in job description
-- **Structure**: Maintain 4 existing categories, reorder contents within each
-- **Optimize**: Move most relevant skills to front of each category
+### 3. Technical Skills Section - FLEXIBLE CATEGORIZATION
+- **Source pool**: ONLY skills that appear elsewhere in the resume (experience bullets, project descriptions, existing skills section)
+- **Categories**: Create exactly 4 categories with any logical grouping that best highlights job-relevant skills
+- **Prioritization**: 
+  - Put most job-relevant skills at the front of each category
+  - Order categories themselves by job relevance
+  - Skills explicitly mentioned in job description get highest priority
+- **NO FABRICATION**: Every skill must be found somewhere else in the resume content
 
 ## Available Projects Pool
 1. Audio Transcription Platform (Java Spring Boot, Python FastAPI, React, PostgreSQL)
@@ -42,15 +45,17 @@ Within each role, reorder bullet points by relevance score (1-10).
 
 ## Execution Process
 1. **Parse & Classify**: Extract job requirements, determine IT/Infrastructure vs SWE focus
-2. **Score Everything**: Rate experiences (bullet points), projects, skills (1-10 relevance)
-3. **Select & Reorder**: Apply modification rules above
-4. **Quality Check**: Verify no fabrication, logical flow, complete LaTeX output
+2. **Extract Skills**: Collect ALL skills mentioned throughout entire resume
+3. **Score Everything**: Rate experiences (bullet points), projects, skills (1-10 relevance)
+4. **Categorize Skills**: Group extracted skills into 4 logical, job-relevant categories
+5. **Select & Reorder**: Apply modification rules above
+6. **Quality Check**: Verify no fabrication, logical flow, complete LaTeX output
 
 ## Success Criteria
 ✅ Most relevant experience appears first  
 ✅ Top 3 most relevant projects included  
-✅ Job-critical skills prominently featured  
+✅ Skills categorized and prioritized for maximum job relevance  
 ✅ Perfect LaTeX compilation  
-✅ Zero fabricated content
+✅ Zero fabricated content - all skills sourced from resume
 
 **Core Principle**: Reorganize existing truth to maximize impact, never invent qualifications.
