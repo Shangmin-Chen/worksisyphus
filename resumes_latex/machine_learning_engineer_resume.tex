@@ -1,0 +1,213 @@
+%-------------------------
+% Resume in Latex
+% Author : Jake Gutierrez
+% Based off of: https://github.com/sb2nov/resume
+% License : MIT
+%------------------------
+
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+
+%----------FONT OPTIONS----------
+% sans-serif
+% \usepackage[sfdefault]{FiraSans}
+% \usepackage[sfdefault]{roboto}
+% \usepackage[sfdefault]{noto-sans}
+% \usepackage[default]{sourcesanspro}
+
+% serif
+% \usepackage{CormorantGaramond}
+% \usepackage{charter}
+
+
+\pagestyle{fancy}
+\fancyhf{} % clear all header and footer fields
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% Ensure that generate pdf is machine readable/ATS parsable
+\pdfgentounicode=1
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubSubheading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \textit{\small#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+%%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\begin{document}
+
+%----------HEADING----------
+% \begin{tabular*}{\textwidth}{l@{\extracolsep{\fill}}r}
+%   \textbf{\href{http://sourabhbajaj.com/}{\Large Sourabh Bajaj}} & Email : \href{mailto:sourabh@sourabhbajaj.com}{sourabh@sourabhbajaj.com}\\
+%   \href{http://sourabhbajaj.com/}{http://www.sourabhbajaj.com} & Mobile : +1-123-456-7890 \\
+% \end{tabular*}
+
+\begin{center}
+    \textbf{\Huge \scshape Shangmin Chen} \\ \vspace{1pt}
+    \small 347-322-4133 $|$ \href{mailto:shangminch@gmail.com}{\underline{shangminch@gmail.com}} $|$ 
+    \href{https://linkedin.com/in/shangmin-chen}{\underline{linkedin.com/in/shangmin-chen}} $|$
+    \href{https://github.com/shangmin-chen}{\underline{github.com/shangmin-chen}}
+\end{center}
+
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+ \resumeSubheading
+      {Boston University}{Boston, MA}
+      {Bachelor of Arts in Computer Science} {September 2022 -- May 2026}
+  \resumeSubHeadingListEnd
+
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Software Engineer}{September 2024 -- December 2024}
+      {BU Spark!}{Boston, MA}
+      \resumeItemListStart
+        \resumeItem{Developed full-stack food waste platform using Django, JavaScript, and SQLite, connecting 500+ students and reducing campus waste by 10\%}
+        \resumeItem{Built RESTful API with sub-100ms query times and deployed via CI/CD pipelines on Heroku}
+        \resumeItem{Implemented Auth0 authentication and Django security middleware, ensuring zero security incidents}
+        \resumeItem{Accelerated release by 1 week using Agile methodology in team of 5, contributing to 7 iterations}
+    \resumeItemListEnd
+      
+% -----------Multiple Positions Heading-----------
+%    \resumeSubSubheading
+%     {Software Engineer I}{Oct 2014 - Sep 2016}
+%     \resumeItemListStart
+%        \resumeItem{Apache Beam}
+%          {Apache Beam is a unified model for defining both batch and streaming data-parallel processing pipelines}
+%     \resumeItemListEnd
+%    \resumeSubHeadingListEnd
+%-------------------------------------------
+    \resumeSubheading
+      {IT Consultant}{January 2024 -- July 2025}
+      {Boston University Engineering IT}{Boston, MA}
+      \resumeItemListStart
+        \resumeItem{Automated software deployment for 100+ devices using Microsoft Deployment Toolkit and created custom USB deployment solution for Windows 11, reducing deployment time by 40\%}
+        \resumeItem{Managed 200+ user accounts and permissions via NAS, conducting access audits and boosting system uptime by 15\%}
+        \resumeItem{Enhanced endpoint security with CrowdStrike for 50+ devices, resolving 20+ tickets/week with 100\% incident resolution rate}
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
+
+
+%-----------PROJECTS-----------
+\section{Projects}
+\resumeSubHeadingListStart
+    \resumeProjectHeading
+        {\textbf{Crime Analytics \& Forecasting Platform} $|$ \emph{Python, Streamlit, Prophet, Scikit-learn, GeoPandas}}{December 2024}
+        \resumeItemListStart
+            \resumeItem{Built crime analytics platform processing 500K+ Boston crime records with Prophet time-series forecasting and DBSCAN clustering for hotspot identification across 12+ police districts}
+            \resumeItem{Implemented advanced data pipeline with seasonal decomposition and confidence intervals, generating 2-month crime predictions with train/test validation}
+            \resumeItem{Developed interactive dashboard using Streamlit and Plotly, creating 121 crime-type heat maps with Folium and real-time geospatial visualizations}
+        \resumeItemListEnd
+
+    % Existing Projects
+    \resumeProjectHeading
+        {\textbf{Audio Transcription Platform} $|$ \emph{Java Spring Boot, Python FastAPI, React, PostgreSQL}}{September 2025}
+        \resumeItemListStart
+            \resumeItem{Built microservices platform with Spring Boot API, Python FastAPI service, and React frontend, implementing async audio processing with OpenAI Whisper and real-time status polling}
+            \resumeItem{Designed PostgreSQL database with 4 related tables, Flyway migrations, and optimized indexing, supporting multiple audio formats with comprehensive error handling}
+            \resumeItem{Deployed containerized application using Docker Compose with inter-service communication, CORS configuration, and health monitoring endpoints}
+        \resumeItemListEnd
+
+    \resumeProjectHeading
+        {\textbf{Decentralized ML Model Marketplace} $|$ \emph{Solidity, Circom, IPFS, Express.js, TensorFlow}}{May 2024}
+        \resumeItemListStart
+            \resumeItem{Built decentralized marketplace using Solidity smart contracts with ERC-20 tokens, implementing 6-state transaction management, automated candidate selection, and economic incentive mechanisms with stake slashing}
+            \resumeItem{Integrated IPFS distributed storage with Ethereum blockchain using Thirdweb SDK, enabling secure model uploads with SHA256 hash verification and automated ML training workflows}
+            \resumeItem{Implemented zero-knowledge proof system using Circom and Groth16 protocol for privacy-preserving accuracy verification, with MetaMask integration and real-time blockchain event monitoring}
+        \resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
+
+
+
+%
+%-----------PROGRAMMING SKILLS-----------
+\section{Technical Skills}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+     \textbf{Languages}{: Python, Java, JavaScript, TypeScript, SQL (PostgreSQL), HTML/CSS} \\
+     \textbf{ML/AI Frameworks}{: TensorFlow, Scikit-learn, Prophet, OpenAI Whisper, Pandas, NumPy, Time-Series Analysis} \\
+     \textbf{ML Pipeline \& Deployment}{: Model Training, Validation, Deployment, Microservices Integration, Real-Time Inference} \\
+     \textbf{Data Processing}{: Large Dataset Processing (500K+ records), ETL Pipelines, DBSCAN Clustering, Geospatial Analysis} \\
+     \textbf{Blockchain \& ML Integration}{: Solidity, Smart Contracts, IPFS, Zero-Knowledge Proofs, Decentralized ML Model Management} \\
+     \textbf{Tools \& Infrastructure}{: Docker, Docker Compose, Streamlit, Plotly, Folium, PostgreSQL, Health Monitoring}
+    }}
+ \end{itemize}
+
+
+%-------------------------------------------
+\end{document}

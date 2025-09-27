@@ -137,9 +137,9 @@
       \resumeItemListStart
         \resumeItem{Developed full-stack food waste platform using Django, JavaScript, and SQLite, connecting 500+ students and reducing campus waste by 10\%}
         \resumeItem{Built RESTful API with sub-100ms query times and deployed via CI/CD pipelines on Heroku}
-        \resumeItem{Accelerated release by 1 week using Agile methodology in team of 5, contributing to 7 iterations}
         \resumeItem{Implemented Auth0 authentication and Django security middleware, ensuring zero security incidents}
-      \resumeItemListEnd
+        \resumeItem{Accelerated release by 1 week using Agile methodology in team of 5, contributing to 7 iterations}
+    \resumeItemListEnd
       
 % -----------Multiple Positions Heading-----------
 %    \resumeSubSubheading
@@ -155,38 +155,43 @@
       {Boston University Engineering IT}{Boston, MA}
       \resumeItemListStart
         \resumeItem{Automated software deployment for 100+ devices using Microsoft Deployment Toolkit and created custom USB deployment solution for Windows 11, reducing deployment time by 40\%}
-        \resumeItem{Enhanced endpoint security with CrowdStrike for 50+ devices, resolving 20+ tickets/week with 100\% incident resolution rate}
         \resumeItem{Managed 200+ user accounts and permissions via NAS, conducting access audits and boosting system uptime by 15\%}
+        \resumeItem{Enhanced endpoint security with CrowdStrike for 50+ devices, resolving 20+ tickets/week with 100\% incident resolution rate}
       \resumeItemListEnd
   \resumeSubHeadingListEnd
 
 
 %-----------PROJECTS-----------
 \section{Projects}
-    \resumeSubHeadingListStart
-      \resumeProjectHeading
-          {\textbf{Audio Transcription Platform} $|$ \emph{Java Spring Boot, Python FastAPI, React, PostgreSQL}}{September 2025}
-          \resumeItemListStart
-            \resumeItem{Built microservices platform with Spring Boot API, Python FastAPI service, and React frontend, implementing async audio processing with OpenAI Whisper and real-time status polling}
-            \resumeItem{Designed PostgreSQL database with 4 related tables, Flyway migrations, and optimized indexing, supporting multiple audio formats with comprehensive error handling}
-            \resumeItem{Deployed containerized application using Docker Compose with inter-service communication, CORS configuration, and health monitoring endpoints}
-          \resumeItemListEnd
-      \resumeProjectHeading
-          {\textbf{Fitness Tracking Mobile App} $|$ \emph{React Native, TypeScript, Expo}}{August 2025}
-          \resumeItemListStart
-            \resumeItem{Built cross-platform app with drag-and-drop workout creation using React Native Reanimated v3 and PanGestureHandler for exercise reordering}
-            \resumeItem{Implemented persistent data storage with AsyncStorage and custom React hooks for state management across workout sessions}
-            \resumeItem{Developed modular component architecture with search/filter functionality and modal-based exercise selection interface}
-          \resumeItemListEnd
+\resumeSubHeadingListStart
+    % Real-Time Data Project
+    \resumeProjectHeading
+        {\textbf{Real-Time Analytics Pipeline} $|$ \emph{Apache Kafka, Apache Flink, InfluxDB, React Dashboard, Docker Compose}}{[Month] 2026}
+        \resumeItemListStart
+            \resumeItem{Built event-driven analytics system processing [X]K events/minute through Kafka topics with Flink stream processing, implementing windowed aggregations and complex event pattern detection (producer load testing)}
+            \resumeItem{Designed time-series data storage in InfluxDB with optimized retention policies and continuous queries, supporting [X]-day historical analysis with [X]ms query response times (benchmark with InfluxDB CLI)}
+            \resumeItem{Created real-time React dashboard with WebSocket streaming and D3.js visualizations, displaying live metrics with [X]ms end-to-end latency from event ingestion to UI update (browser performance profiling)}
+        \resumeItemListEnd
 
-      \resumeProjectHeading
-          {\textbf{Crime Analytics \& Forecasting Platform} $|$ \emph{Python, Streamlit, Prophet, Scikit-learn, GeoPandas}}{December 2024}
-          \resumeItemListStart
+    \resumeProjectHeading
+        {\textbf{Crime Analytics \& Forecasting Platform} $|$ \emph{Python, Streamlit, Prophet, Scikit-learn, GeoPandas}}{December 2024}
+        \resumeItemListStart
             \resumeItem{Built crime analytics platform processing 500K+ Boston crime records with Prophet time-series forecasting and DBSCAN clustering for hotspot identification across 12+ police districts}
             \resumeItem{Implemented advanced data pipeline with seasonal decomposition and confidence intervals, generating 2-month crime predictions with train/test validation}
             \resumeItem{Developed interactive dashboard using Streamlit and Plotly, creating 121 crime-type heat maps with Folium and real-time geospatial visualizations}
-          \resumeItemListEnd
-    \resumeSubHeadingListEnd
+        \resumeItemListEnd
+
+    % Existing Projects
+    \resumeProjectHeading
+        {\textbf{Audio Transcription Platform} $|$ \emph{Java Spring Boot, Python FastAPI, React, PostgreSQL}}{September 2025}
+        \resumeItemListStart
+            \resumeItem{Built microservices platform with Spring Boot API, Python FastAPI service, and React frontend, implementing async audio processing with OpenAI Whisper and real-time status polling}
+            \resumeItem{Designed PostgreSQL database with 4 related tables, Flyway migrations, and optimized indexing, supporting multiple audio formats with comprehensive error handling}
+            \resumeItem{Deployed containerized application using Docker Compose with inter-service communication, CORS configuration, and health monitoring endpoints}
+        \resumeItemListEnd
+
+\resumeSubHeadingListEnd
+
 
 
 
@@ -195,10 +200,12 @@
 \section{Technical Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{Languages}{: Java, Python, JavaScript, TypeScript, SQL (PostgreSQL), C/C++, HTML/CSS, Solidity} \\
-     \textbf{Frameworks \& Libraries}{: React, React Native, Spring Boot, FastAPI, Django, Node.js, Streamlit, Prophet, Scikit-learn} \\
-     \textbf{Technologies \& Tools}{: Git, Docker, PostgreSQL, SQLite, Heroku, Auth0, OpenAI API, IPFS, GeoPandas, Plotly} \\
-     \textbf{Platforms \& Systems}{: AWS, CrowdStrike, Microsoft Deployment Toolkit, Ethereum, MetaMask, NAS}
+     \textbf{Languages}{: Python, Java, SQL (PostgreSQL), JavaScript, TypeScript, HTML/CSS} \\
+     \textbf{Data Processing \& Streaming}{: Apache Kafka, Apache Flink, Pandas, NumPy, PySpark, Stream Processing} \\
+     \textbf{Databases \& Storage}{: PostgreSQL, InfluxDB, Time-Series Databases, Data Warehousing, ETL/ELT Pipelines} \\
+     \textbf{Machine Learning \& Analytics}{: Scikit-learn, Prophet, Time-Series Forecasting, Statistical Analysis, DBSCAN Clustering} \\
+     \textbf{Data Visualization}{: Plotly, D3.js, Streamlit, Folium, Geospatial Analysis, Real-Time Dashboards} \\
+     \textbf{Infrastructure \& Tools}{: Docker, Docker Compose, Git, CI/CD, Data Pipeline Orchestration, WebSocket Streaming}
     }}
  \end{itemize}
 

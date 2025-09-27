@@ -163,37 +163,35 @@
 
 %-----------PROJECTS-----------
 \section{Projects}
-    \resumeSubHeadingListStart
-      \resumeProjectHeading
-          {\textbf{Audio Transcription Platform} $|$ \emph{Java Spring Boot, Python FastAPI, React, PostgreSQL}}{September 2025}
-          \resumeItemListStart
+\resumeSubHeadingListStart
+    % Existing Projects
+    \resumeProjectHeading
+        {\textbf{Audio Transcription Platform} $|$ \emph{Java Spring Boot, Python FastAPI, React, PostgreSQL}}{September 2025}
+        \resumeItemListStart
             \resumeItem{Built microservices platform with Spring Boot API, Python FastAPI service, and React frontend, implementing async audio processing with OpenAI Whisper and real-time status polling}
             \resumeItem{Designed PostgreSQL database with 4 related tables, Flyway migrations, and optimized indexing, supporting multiple audio formats with comprehensive error handling}
             \resumeItem{Deployed containerized application using Docker Compose with inter-service communication, CORS configuration, and health monitoring endpoints}
-          \resumeItemListEnd
-      \resumeProjectHeading
-          {\textbf{Fitness Tracking Mobile App} $|$ \emph{React Native, TypeScript, Expo}}{August 2025}
-          \resumeItemListStart
+        \resumeItemListEnd
+
+    % Cloud Infrastructure Project  
+    \resumeProjectHeading
+        {\textbf{Scalable Chat Platform} $|$ \emph{Go, AWS (ECS, RDS, ElastiCache, ALB), WebSockets, Docker}}{[Month] 2026}
+        \resumeItemListStart
+            \resumeItem{Architected cloud-native messaging platform on AWS ECS with auto-scaling policies, PostgreSQL RDS, and Redis ElastiCache, handling [X] concurrent WebSocket connections (load test with Artillery.js)}
+            \resumeItem{Implemented horizontal scaling with Application Load Balancer and sticky sessions, deploying via GitHub Actions CI/CD with blue-green deployment strategy achieving [X]\% uptime (CloudWatch metrics)}
+            \resumeItem{Integrated comprehensive observability with CloudWatch dashboards, custom metrics, and structured logging, enabling sub-[X]ms P95 response time monitoring (APM traces and database query analysis)}
+        \resumeItemListEnd
+
+    \resumeProjectHeading
+        {\textbf{Fitness Tracking Mobile App} $|$ \emph{React Native, TypeScript, Expo}}{August 2025}
+        \resumeItemListStart
             \resumeItem{Built cross-platform app with drag-and-drop workout creation using React Native Reanimated v3 and PanGestureHandler for exercise reordering}
             \resumeItem{Implemented persistent data storage with AsyncStorage and custom React hooks for state management across workout sessions}
             \resumeItem{Developed modular component architecture with search/filter functionality and modal-based exercise selection interface}
-          \resumeItemListEnd
+        \resumeItemListEnd
 
-      \resumeProjectHeading
-          {\textbf{Crime Analytics \& Forecasting Platform} $|$ \emph{Python, Streamlit, Prophet, Scikit-learn, GeoPandas}}{December 2024}
-          \resumeItemListStart
-            \resumeItem{Built crime analytics platform processing 500K+ Boston crime records with Prophet time-series forecasting and DBSCAN clustering for hotspot identification across 12+ police districts}
-            \resumeItem{Implemented advanced data pipeline with seasonal decomposition and confidence intervals, generating 2-month crime predictions with train/test validation}
-            \resumeItem{Developed interactive dashboard using Streamlit and Plotly, creating 121 crime-type heat maps with Folium and real-time geospatial visualizations}
-          \resumeItemListEnd
-      \resumeProjectHeading
-          {\textbf{Decentralized ML Model Marketplace} $|$ \emph{Solidity, Circom, IPFS, Express.js, TensorFlow}}{May 2024}
-          \resumeItemListStart
-            \resumeItem{Built decentralized marketplace using Solidity smart contracts with ERC-20 tokens, implementing 6-state transaction management, automated candidate selection, and economic incentive mechanisms with stake slashing}
-            \resumeItem{Integrated IPFS distributed storage with Ethereum blockchain using Thirdweb SDK, enabling secure model uploads with SHA256 hash verification and automated ML training workflows}
-            \resumeItem{Implemented zero-knowledge proof system using Circom and Groth16 protocol for privacy-preserving accuracy verification, with MetaMask integration and real-time blockchain event monitoring}
-          \resumeItemListEnd
-    \resumeSubHeadingListEnd
+\resumeSubHeadingListEnd
+
 
 
 
@@ -202,10 +200,12 @@
 \section{Technical Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{Languages}{: Java, Python, C/C++, SQL (PostgreSQL), JavaScript, TypeScript, HTML/CSS, Solidity} \\
-     \textbf{Frameworks \& Libraries}{: React, React Native, Node.js, Spring Boot, FastAPI, Django, Streamlit, Prophet, Scikit-learn} \\
-     \textbf{Technologies \& Tools}{: Docker, Git, PostgreSQL, SQLite, IPFS, Auth0, Heroku, OpenAI API, GeoPandas, Plotly} \\
-     \textbf{Platforms \& Systems}{: AWS, Ethereum, MetaMask, CrowdStrike, Microsoft Deployment Toolkit, NAS}
+     \textbf{Languages}{: Java, Python, JavaScript, TypeScript, Go, SQL (PostgreSQL), HTML/CSS} \\
+     \textbf{Frontend Frameworks \& Libraries}{: React, React Native, Expo, Reanimated, PanGestureHandler} \\
+     \textbf{Backend Frameworks \& Libraries}{: Spring Boot, FastAPI, Django, Node.js} \\
+     \textbf{Cloud \& Infrastructure}{: AWS (ECS, RDS, ElastiCache, ALB, CloudWatch), Docker, Heroku} \\
+     \textbf{Databases \& Storage}{: PostgreSQL, SQLite, Redis, AsyncStorage} \\
+     \textbf{Tools \& DevOps}{: Git, GitHub Actions, CI/CD, Docker Compose, Observability}
     }}
  \end{itemize}
 
