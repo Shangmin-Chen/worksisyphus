@@ -1,0 +1,167 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% Ensure that generate pdf is machine readable/ATS parsable
+\pdfgentounicode=1
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubSubheading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \textit{\small#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+%%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+    \textbf{\Huge \scshape Simon Chen} \\ \vspace{1pt}
+    \small 347-322-4133 $|$ \href{mailto:shangminch@gmail.com}{\underline{shangminch@gmail.com}} $|$ \href{https://linkedin.com/in/shangmin-chen}{\underline{linkedin.com/in/shangmin-chen}} $|$ \href{https://github.com/shangmin-chen}{\underline{github.com/shangmin-chen}}
+\end{center}
+
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Boston University}{Boston, MA}
+      {Bachelor of Arts in Computer Science; GPA: 3.53/4.0}{Expected Graduation: June 2026}
+      \resumeItemListStart
+        \resumeItem{Relevant Coursework: Data Structures \& Algorithms, Operating Systems, Distributed Systems, Databases, OOP}
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
+
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+  \resumeSubHeadingListStart
+
+    \resumeSubheading
+    {Software Engineer}{September 2025 -- Present}
+    {Ezesports}{New York, NY}
+    \resumeItemListStart
+      \resumeItem{Migrating esports league platform from Google Sites to Next.js with Supabase backend, enabling dynamic schedules, live scoring, and automated season management to replace manual content updates}
+      \resumeItem{Designing PostgreSQL database schema supporting 500+ matches across 20+ teams with RESTful API endpoints for player statistics, team standings, and historical data retrieval}
+      \resumeItem{Deploying application on Cloudflare Pages with CI/CD pipeline, achieving 75\% reduction in page load time (3.2s to 0.8s) through code splitting and edge caching}
+    \resumeItemListEnd
+
+    \resumeSubheading
+      {Software Developer}{September 2024 -- December 2024}
+      {Boston University Spark!}{Boston, MA}
+      \resumeItemListStart
+        \resumeItem{Developed food waste reduction platform connecting students with leftover event food, implementing dual authentication (Django + Auth0 OAuth), QR code email delivery system, and many-to-many reservation management with real-time capacity tracking}
+        \resumeItem{Integrated Google Maps JavaScript API for interactive event discovery with user geolocation and distance calculations, implementing multi-criteria filtering across 18 food categories and 8 allergen types using Django class-based views with form validation}
+        \resumeItem{Deployed production Django application with WhiteNoise static file serving and automated Gmail SMTP notifications featuring inline QR code attachments, managing SQLite database with 100+ campus events while implementing comprehensive security features including CSRF protection and input validation}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+
+%-----------PROJECTS-----------
+\section{Projects}
+  \resumeSubHeadingListStart
+
+    \resumeProjectHeading
+      {\textbf{Whisperrr} $|$ \href{https://whisperrr.shangmin.me}{\underline{whisperrr.shangmin.me}} $|$ \emph{Spring Boot, FastAPI, React, Tailwind CSS}}{January 2026}
+      \resumeItemListStart
+        \resumeItem{Built full-stack transcription platform processing audio 4x faster than baseline OpenAI Whisper API, supporting 99+ languages across multiple audio formats with real-time results}
+        \resumeItem{Designed three-tier stateless architecture with HTTP connection pooling to reduce request latency by 70\%, improving reliability for files over 25MB from 60\% to 100\% success rate}
+        \resumeItem{Containerized microservices with Docker Compose health checks and implemented segment-level timestamp generation for subtitle creation at 32x realtime speed}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Crime-Mapper Boston} $|$ \href{https://crime-mapper.shangmin.me}{\underline{crime-mapper.shangmin.me}} $|$ \emph{Python, Prophet, Streamlit, Scikit-learn}}{December 2025}
+      \resumeItemListStart
+        \resumeItem{Developed crime forecasting system analyzing 204,356 incidents across 14 Boston districts using Facebook Prophet time series model, achieving 59.9\% improvement over naive baseline in optimal districts}
+        \resumeItem{Implemented automated model evaluation comparing Prophet against 3 baseline methods (seasonal naive, moving average, linear regression) with reliability indicators when simpler models perform better}
+        \resumeItem{Deployed interactive dashboard with DBSCAN spatial clustering for hotspot identification, automatic API data refresh, and 2-month crime forecasts with confidence intervals}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+
+%-----------TECHNICAL SKILLS-----------
+\section{Technical Skills}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+     \textbf{Languages}{: Java, Python, JavaScript, TypeScript, HTML/CSS, SQL} \\
+     \textbf{Frameworks}{: Next.js, React, Spring Boot, Django, FastAPI, Streamlit, Tailwind CSS} \\
+     \textbf{Tools}{: Supabase, PostgreSQL, Docker, Git, Cloudflare Pages, Auth0, Google Maps API, Nginx}
+    }}
+ \end{itemize}
+
+
+%-------------------------------------------
+\end{document}
