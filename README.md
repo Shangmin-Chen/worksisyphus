@@ -2,31 +2,24 @@
 
 ## Compiling LaTeX Resumes
 
-Uses `latexmk` from MacTeX. Compile all LaTeX files from `resumes_latex/` to PDFs in `resumes/`:
+Uses `latexmk` from MacTeX. Compile the resume LaTeX file from `resumes_latex/` to PDF in `resumes/`:
 
 ```bash
 cd resumes_latex
-for tex_file in *.tex; do
-    latexmk -pdf -interaction=nonstopmode "$tex_file"
-    mv "${tex_file%.tex}.pdf" "../resumes/"
-done
-latexmk -c
-```
-
-Or compile a specific resume:
-```bash
-cd resumes_latex
-latexmk -pdf -interaction=nonstopmode master_resume.tex
-mv master_resume.pdf ../resumes/
+latexmk -pdf -interaction=nonstopmode full_time_resume.tex
+mv full_time_resume.pdf ../resumes/
 latexmk -c
 ```
 
 ## Which Resume to Use
 
-- **fullstack_engineer_resume.pdf**: Use for full-stack, software engineering, or general developer positions. Highlights Audio Transcription Platform, Fitness Tracking App, and Crime Analytics projects.
+- **full_time_resume.pdf**: The primary, comprehensive resume targeting Software Engineering, Full-Stack, and systems/infrastructure roles. 
 
-- **backend_engineer_resume.pdf**: Use for backend, systems, infrastructure, or blockchain roles. Features Audio Transcription Platform, Decentralized ML Marketplace, and backend-focused experience.
-
-- **mobile_engineer_resume.pdf**: Use for mobile development positions (iOS/Android). Showcases Fitness Tracking App, Audio Transcription Platform, and Crime Analytics with mobile emphasis.
-
-- **master_resume.pdf**: Complete resume with all 4 projects. Use when job description doesn't fit specific categories or for academic/research positions.
+### Key Highlights:
+- **Education**: Boston University (B.A. in Computer Science, Graduated June 2026)
+- **Projects**:
+  - **Persephone**: Low-latency production prediction-market trading system integrated with Kalshi (Python, Cython, Rust, FastAPI, React/TypeScript).
+  - **Hermes Letters**: Ephemeral end-to-end invite-only letter-sharing platform (Next.js, TypeScript, Supabase, Drizzle ORM, PostgreSQL).
+- **Experience**:
+  - **RESET Standard** (Software Engineering Intern): React/Vite/Tailwind and Ruby on Rails service engineering with RabbitMQ/Redis pipelines.
+  - **Ezesports** (Software Engineer): Supabase-backed Next.js platform migration deployed on Cloudflare Pages.
