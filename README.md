@@ -1,25 +1,34 @@
-# job-hunt
+# Job Hunt Resume Repository
 
-## Compiling LaTeX Resumes
+This repository contains the structured JSON resume data, LaTeX resume sources, and compiled PDF resumes for Simon Chen.
 
-Uses `latexmk` from MacTeX. Compile the resume LaTeX file from `resumes_latex/` to PDF in `resumes/`:
+## Directory Structure
 
-```bash
-cd resumes_latex
-latexmk -pdf -interaction=nonstopmode full_time_resume.tex
-mv full_time_resume.pdf ../resumes/
-latexmk -c
+```text
+job-hunt/
+├── README.md                 # Project documentation
+├── resume.json               # Centralized, structured resume data in JSON format
+├── compile.sh                # Compilation script for compiling .tex files to resumes/
+├── src/                      # LaTeX source files (.tex)
+│   ├── Simon_Chen_Resume.tex # Primary software engineering resume source
+│   ├── aclu_CRM.tex          # Tailored resume source for ACLU CRM role
+│   └── jakes_resume_template.tex # Standard template base
+└── resumes/                  # Compiled output PDFs
+    ├── Simon_Chen_Resume.pdf # Primary compiled resume
+    └── aclu_CRM.pdf          # Tailored compiled resume for ACLU CRM role
 ```
 
-## Which Resume to Use
+## Compilation
 
-- **full_time_resume.pdf**: The primary, comprehensive resume targeting Software Engineering, Full-Stack, and systems/infrastructure roles. 
+The repository uses `latexmk` from MacTeX. To compile all resumes in `src/` and output them to `resumes/`, run the compilation script from the repository root:
 
-### Key Highlights:
-- **Education**: Boston University (B.A. in Computer Science, Graduated June 2026)
-- **Projects**:
-  - **Persephone**: Low-latency production prediction-market trading system integrated with Kalshi (Python, Cython, Rust, FastAPI, React/TypeScript).
-  - **Hermes Letters**: Ephemeral end-to-end invite-only letter-sharing platform (Next.js, TypeScript, Supabase, Drizzle ORM, PostgreSQL).
-- **Experience**:
-  - **RESET Standard** (Software Engineering Intern): React/Vite/Tailwind and Ruby on Rails service engineering with RabbitMQ/Redis pipelines.
-  - **Ezesports** (Software Engineer): Supabase-backed Next.js platform migration deployed on Cloudflare Pages.
+```bash
+./compile.sh
+```
+
+The script will automatically compile all `.tex` files, move the output PDFs to `resumes/`, and clean up intermediate auxiliary build files.
+
+## Resume Variants
+
+* **Simon_Chen_Resume.pdf**: The primary, comprehensive resume targeting Software Engineering, Full-Stack development, and quantitative systems/infrastructure roles.
+* **aclu_CRM.pdf**: A customized, single-page resume tailored specifically for the ACLU CRM Software Engineer role, highlighting ServiceNow workflows, client registry projects, database schemas, and data pipelines.

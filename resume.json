@@ -1,0 +1,237 @@
+{
+  "education": [
+    {
+      "institution": "Boston University",
+      "location": "Boston, MA",
+      "degree": "Bachelor of Arts in Computer Science",
+      "date": "Graduated: Spring 2026",
+      "coursework": [
+        "Data Structures & Algorithms",
+        "Operating Systems",
+        "Distributed Systems",
+        "Databases"
+      ]
+    }
+  ],
+  "experiences": [
+    {
+      "organization": "Ezesports",
+      "location": "New York, NY",
+      "role": "Technical Director / Software Engineer",
+      "date": "December 2025 -- Present",
+      "bullets": [
+        "Migrated an esports league platform from Google Sites to Next.js with a Supabase backend, replacing manual content updates with live scoring and automated season management.",
+        "Designed a PostgreSQL schema on Supabase using Drizzle ORM, supporting 500+ matches across 20+ teams, and built RESTful endpoints for player statistics, standings, and historical data.",
+        "Cut page load time by 75% (from 3.2s to 0.8s) by implementing edge caching on Cloudflare, route-based code splitting, and asset optimization for the Next.js frontend."
+      ]
+    },
+    {
+      "organization": "RESET Standard",
+      "location": "Shanghai, China",
+      "role": "Software Engineering Intern",
+      "date": "February 2026 -- June 2026",
+      "bullets": [
+        "Doubled the platform's supported environmental data categories (from 2 to 4) by independently implementing end-to-end water and waste data integration, developing Rails backend ingestion pipelines, PostgreSQL schemas, and client-facing React/Vite/Tailwind dashboards.",
+        "Engineered asynchronous data pipelines with RabbitMQ, Redis, and Sidekiq to process long-running ingestion jobs in the background, decoupling external API calls from user-facing requests.",
+        "Implemented a key client-requested feature by redesigning project-device mapping workflows, refactoring legacy forms to streamline the onboarding of environmental monitoring devices."
+      ]
+    },
+    {
+      "organization": "Boston University Engineering IT",
+      "location": "Boston, MA",
+      "role": "IT Consultant",
+      "date": "January 2024 -- July 2025",
+      "bullets": [
+        "Automated software deployment for 100+ devices using Microsoft Deployment Toolkit and created custom USB deployment solution for Windows 11, reducing deployment time by 40%",
+        "Managed 200+ user accounts and permissions via NAS, conducting access audits and boosting system uptime by 15%",
+        "Enhanced endpoint security with CrowdStrike for 50+ devices, resolving 20+ tickets/week with 100% incident resolution rate"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Hermes Letters",
+      "technologies": "Next.js, TypeScript, Supabase, Drizzle ORM, PostgreSQL",
+      "date": "June 2026",
+      "bullets": [
+        "Built a private long-form messaging platform for a group of 20+ friends during a study abroad semester, delivering 30+ letters.",
+        "Ensured consistent letter claims via atomic SQL updates and secured sessions in XSS-resistant httpOnly cookies.",
+        "Derived user connections at query time from kept-letter records using indexed lookups, avoiding a separate relationship table and associated database sync issues.",
+        "Hardened media storage by validating uploads via server-side magic-byte signatures, storing files in a private Supabase bucket, and restricting delivery to 1-hour signed URLs."
+      ]
+    },
+    {
+      "name": "Persephone",
+      "technologies": "Python, Cython/C++17, Rust, Modal, FAISS",
+      "date": "May 2026",
+      "bullets": [
+        "Built and operated a production Kalshi BTC prediction-market trading system that generated $8K net PnL and traded $200K volume in its first 4 live days, owning market-data ingestion, theo serving, strategy evaluation, exchange execution, risk gates, and operator controls.",
+        "Engineered a GBM theo layer to replace KDE inference, reducing model query latency from ~1.5ms to ~20\u03bcs per query (~75x), while preserving the live theo interface used by strategy evaluation, cache publication, and operator tooling.",
+        "Reduced backtest and parameter-sweep iteration from ~14 hours on local MacBook CPUs to ~15 minutes on Modal NVIDIA GPUs by moving diagnostics, tick backtests, and sweeps onto cloud workers with FAISS GPU search and CuPy-vectorized math.",
+        "Optimized KDE serving with cached FAISS IVF indexes and FAISS thread pinning, avoiding OpenMP oversubscription and cutting 155K-row neighbor search from 758us p50 flat FAISS to 154us p50 with IVF.",
+        "Moved 9 live hot-path kernels into native Cython extensions for order-book maintenance, OBI, RTI, event aggregation, threshold storage, scalar math, and theo post-processing, cutting Kalshi book maintenance from 21.8ms to 195us p50 (112x) and RTI from 2.66ms to 323us p50 (8.3x).",
+        "Built a compiled Cython/C++17 SPSC RTI event ring with cache-line-aligned atomic cursors, power-of-two masked slots, packed uint64 event records, per-venue/pair channels, single-producer enforcement, overflow-to-UNSYNCED recovery, and native ring-to-aggregator drains, benchmarked at 584ns enqueue and 703ns/event drain.",
+        "Prevented bad-price quoting with fail-closed market-data and risk-admission gates that block stale, crossed, overflowed, low-venue, or untrusted feeds before quote generation; fused RTI/BRTI metrics benchmarked at 357us p50 / 432us p95 on 8 venues x 500 levels.",
+        "Eliminated duplicate-send and crash-replay risk with a durable-before-wire order layer that journals intent before exchange dispatch, derives deterministic client IDs for idempotent retries, applies final pre-send risk gates, and persists ack/failure state for reconciliation."
+      ]
+    },
+    {
+      "name": "Self-Hosted Media & Application Server",
+      "technologies": "Docker, Linux, Cloudflare, Nginx, Automation",
+      "date": "November 2025",
+      "bullets": [
+        "Architected containerized home server infrastructure using Docker Compose, orchestrating 10+ microservices including Sonarr, Radarr, Prowlarr, Jellyfin, Jellyseerr, and qBittorrent for automated media management and streaming with 99%+ uptime",
+        "Implemented secure external access using Cloudflare Tunnels with zero-trust network architecture, eliminating port forwarding vulnerabilities while hosting personal website and services accessible via custom domain",
+        "Configured automated workflow pipelines with inter-container networking and reverse proxy routing, integrating Slskd to pirate music via Soulseek and establishing centralized monitoring for resource optimization"
+      ]
+    },
+    {
+      "name": "Audio Transcription Platform / Whisperrr",
+      "technologies": "Java Spring Boot, Python FastAPI, React, PostgreSQL / Tailwind CSS",
+      "date": "September 2025",
+      "bullets": [
+        "Built full-stack transcription platform processing audio 4x faster than baseline OpenAI Whisper API, supporting 99+ languages across multiple audio formats with real-time results",
+        "Designed three-tier stateless architecture with HTTP connection pooling to reduce request latency by 70%, improving reliability for files over 25MB from 60% to 100% success rate",
+        "Containerized microservices with Docker Compose health checks and implemented segment-level timestamp generation for subtitle creation at 32x realtime speed"
+      ]
+    },
+    {
+      "name": "Fitness Tracking Mobile App",
+      "technologies": "React Native, TypeScript, Expo",
+      "date": "August 2025",
+      "bullets": [
+        "Built cross-platform app with drag-and-drop workout creation using React Native Reanimated v3 and PanGestureHandler for exercise reordering",
+        "Implemented persistent data storage with AsyncStorage and custom React hooks for state management across workout sessions",
+        "Developed modular component architecture with search/filter functionality and modal-based exercise selection interface"
+      ]
+    },
+    {
+      "name": "Food Waste Platform (BU Spark!)",
+      "technologies": "Django, JS, Auth0",
+      "date": "September 2024 -- December 2024",
+      "bullets": [
+        "Developed food waste reduction platform connecting students with leftover event food, implementing dual authentication (Django + Auth0 OAuth), QR code email delivery system, and many-to-many reservation management with real-time capacity tracking",
+        "Integrated Google Maps JavaScript API for interactive event discovery with user geolocation and distance calculations, implementing multi-criteria filtering across 18 food categories and 8 allergen types using Django class-based views with form validation",
+        "Deployed production Django application with WhiteNoise static file serving and automated Gmail SMTP notifications featuring inline QR code attachments, managing SQLite database with 100+ campus events while implementing comprehensive security features including CSRF protection and input validation"
+      ]
+    },
+    {
+      "name": "Crime Analytics & Forecasting Platform / Crime-Mapper Boston",
+      "technologies": "Python, Streamlit, Prophet, Scikit-learn, GeoPandas",
+      "date": "December 2024",
+      "bullets": [
+        "Developed crime forecasting system analyzing 204,356 incidents across 14 Boston districts using Facebook Prophet time series model, achieving 59.9% improvement over naive baseline in optimal districts",
+        "Implemented automated model evaluation comparing Prophet against 3 baseline methods (seasonal naive, moving average, linear regression) with reliability indicators when simpler models perform better",
+        "Deployed interactive dashboard with DBSCAN spatial clustering for hotspot identification, automatic API data refresh, and 2-month crime forecasts with confidence intervals"
+      ]
+    },
+    {
+      "name": "Decentralized ML Model Marketplace",
+      "technologies": "Solidity, Circom, IPFS, Express.js, TensorFlow",
+      "date": "May 2024",
+      "bullets": [
+        "Built decentralized marketplace using Solidity smart contracts with ERC-20 tokens, implementing 6-state transaction management, automated candidate selection, and economic incentive mechanisms with stake slashing",
+        "Integrated IPFS distributed storage with Ethereum blockchain using Thirdweb SDK, enabling secure model uploads with SHA256 hash verification and automated ML training workflows",
+        "Implemented zero-knowledge proof system using Circom and Groth16 protocol for privacy-preserving accuracy verification, with MetaMask integration and real-time blockchain event monitoring"
+      ]
+    }
+  ],
+  "skills": {
+    "languages": [
+      "C++17",
+      "C/C++",
+      "Cython",
+      "Go",
+      "HTML/CSS",
+      "Java",
+      "JavaScript",
+      "Python",
+      "Ruby",
+      "Rust",
+      "SQL",
+      "Solidity",
+      "TypeScript"
+    ],
+    "frameworks_and_libraries": [
+      "Boost Libraries",
+      "CuPy",
+      "DBSCAN",
+      "Django",
+      "Drizzle ORM",
+      "Express.js",
+      "FAISS",
+      "FastAPI",
+      "Folium",
+      "Next.js",
+      "Node.js",
+      "OpenAI Whisper",
+      "PanGestureHandler",
+      "Plotly",
+      "Prophet",
+      "React",
+      "React Native",
+      "React Native Reanimated v3",
+      "Ruby on Rails",
+      "Scikit-learn",
+      "Spring Boot",
+      "Streamlit",
+      "Tailwind CSS",
+      "TensorFlow",
+      "Vite",
+      "shadcn/ui"
+    ],
+    "databases_and_infrastructure": [
+      "AsyncStorage",
+      "Auth0",
+      "CME MDP 3.0",
+      "Circom",
+      "Cloudflare",
+      "Cloudflare Pages",
+      "Cloudflare Tunnels",
+      "Docker",
+      "Docker Compose",
+      "Flyway migrations",
+      "GeoPandas",
+      "Git",
+      "Google Maps API",
+      "Google Maps JavaScript API",
+      "Groth16",
+      "IPFS",
+      "Jellyfin",
+      "Jellyseerr",
+      "Nginx",
+      "OpenAI API",
+      "OpenMP",
+      "Plotly",
+      "PostgreSQL",
+      "Prowlarr",
+      "RabbitMQ",
+      "Radarr",
+      "Redis",
+      "SBE (Simple Binary Encoding)",
+      "SIMD (AVX-2)",
+      "SQLite",
+      "Sidekiq",
+      "Slskd",
+      "Sonarr",
+      "Soulseek",
+      "Supabase",
+      "WhiteNoise static file serving",
+      "qBittorrent",
+      "zk-SNARKs"
+    ],
+    "platforms_and_systems": [
+      "AWS",
+      "CrowdStrike",
+      "Ethereum",
+      "Heroku",
+      "Kalshi",
+      "MetaMask",
+      "Microsoft Deployment Toolkit",
+      "Modal",
+      "NAS",
+      "ServiceNow",
+      "Thirdweb SDK"
+    ]
+  }
+}
