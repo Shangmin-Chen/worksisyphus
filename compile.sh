@@ -11,7 +11,7 @@ mkdir -p tex_files
 echo "----------------------------------------"
 echo "Compiling JSON resume..."
 echo "----------------------------------------"
-python src/compile.py --resume templates/experiences.json --output tex_files/Simon_Chen_Resume_Compiled.tex
+python src/compile.py --resume templates/experiences.json --output tex_files/Simon_Chen_Resume_Compiled.tex --tex-only
 
 # Compile all .tex files in tex_files/
 for f in tex_files/*.tex; do

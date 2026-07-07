@@ -1,18 +1,52 @@
 #!/usr/bin/env python3
+"""Textual TUI for the worksisyphus resume/cover-letter workflow.
+
+Workflows, one per tab:
+  1. Generate  — paste a job description, pick templates, generate tailored
+                 .tex files into tex_files/ via src/generate.py (Gemini AI).
+  2. Add TeX   — paste raw LaTeX source and save it straight into tex_files/.
+  3. Compile   — check any of the .tex files in tex_files/ and compile them
+                 to PDFs in resumes/.
+  4. Database  — read-only browser for templates/experiences.json.
+
+tex_files/ is the single directory holding every generated or added .tex
+file; resumes/ holds only compiled PDFs; templates/ holds only the two base
+templates (jakes_resume_template, default_cover_letter).
+"""
 from __future__ import annotations
 
 import json
 import os
 import shutil
 import subprocess
+import sys
+import tempfile
 from pathlib import Path
-from typing import Any
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import Screen
-from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, TabbedContent, TabPane, TextArea
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Footer,
+    Header,
+    Input,
+    Label,
+    RichLog,
+    Select,
+    Static,
+    TabbedContent,
+    TabPane,
+    TextArea,
+)
+
+TEX_DIR = Path("tex_files")
+PDF_DIR = Path("resumes")
+RESUME_TEMPLATE_DIR = Path("templates/resumes")
+CL_TEMPLATE_DIR = Path("templates/cover_letters")
+EXPERIENCES_JSON = Path("templates/experiences.json")
+JSON_RESUME_TEX = TEX_DIR / "Simon_Chen_Resume_Compiled.tex"
 
 
 def format_template_filename(name: str, template_type: str) -> str:
@@ -20,622 +54,510 @@ def format_template_filename(name: str, template_type: str) -> str:
     name = name.strip()
     if name.endswith(".tex"):
         name = name[:-4]
-    name = name.strip()
-    
+    name = name.strip().replace(" ", "_")
+
     if template_type == "resume":
         if not name.endswith("_resume"):
             name = f"{name}_resume"
     else:  # cover-letter
         if not name.endswith("_cover_letter"):
             name = f"{name}_cover_letter"
-            
+
     return f"{name}.tex"
 
 
-class DatabaseScreen(Screen):
-    """Screen for browsing the experiences database read-only."""
-    BINDINGS = [
-        Binding("escape,ctrl+d", "back", "Back to Dashboard", show=True),
-    ]
-
-    def compose(self) -> ComposeResult:
-        yield Header()
-        
-        # Load experiences.json
-        exp_path = Path("templates/experiences.json")
-        data = {}
-        if exp_path.is_file():
-            try:
-                with open(exp_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-            except Exception:
-                pass
-
-        education_str = json.dumps(data.get("education", []), indent=2)
-        experiences_str = json.dumps(data.get("experiences", []), indent=2)
-        projects_str = json.dumps(data.get("projects", []), indent=2)
-        skills_str = json.dumps(data.get("skills", {}), indent=2)
-
-        with TabbedContent():
-            with TabPane("Education", id="edu-pane"):
-                yield TextArea(education_str, read_only=True, language="json")
-            with TabPane("Experiences", id="exp-pane"):
-                yield TextArea(experiences_str, read_only=True, language="json")
-            with TabPane("Projects", id="proj-pane"):
-                yield TextArea(projects_str, read_only=True, language="json")
-            with TabPane("Skills", id="skills-pane"):
-                yield TextArea(skills_str, read_only=True, language="json")
-                
-        yield Footer()
-
-    def action_back(self) -> None:
-        self.app.pop_screen()
-
-
-class DashboardScreen(Screen):
-    """Main dashboard screen."""
-    
-    def compose(self) -> ComposeResult:
-        yield Header()
-        with Horizontal(id="dashboard-layout"):
-            with Vertical(id="left-panel"):
-                yield Label("Job Application Inputs & Imports", classes="panel-title")
-                
-                yield Label("Paste Job Description:")
-                yield TextArea(id="jd-input", show_line_numbers=False)
-
-                # Resume templates
-                yield Label("Select Resume Template:")
-                res_dir = Path("templates/resumes")
-                resume_options = []
-                if res_dir.is_dir():
-                    resume_options = [(f.name, f.name) for f in sorted(res_dir.glob("*.tex"))]
-                if not resume_options:
-                    resume_options = [("None", "None")]
-                yield Select(
-                    resume_options,
-                    id="resume-select",
-                    value=resume_options[0][0] if resume_options else None,
-                    allow_blank=False,
-                )
-
-                # Cover letter templates
-                yield Label("Select Cover Letter Template:")
-                cl_dir = Path("templates/cover_letters")
-                cl_options = []
-                if cl_dir.is_dir():
-                    cl_options = [(f.name, f.name) for f in sorted(cl_dir.glob("*.tex"))]
-                if not cl_options:
-                    cl_options = [("None", "None")]
-                yield Select(
-                    cl_options,
-                    id="cl-select",
-                    value=cl_options[0][0] if cl_options else None,
-                    allow_blank=False,
-                )
-
-                yield Label("Output Name Prefix:")
-                yield Input(id="output-name", value="tailored")
-
-                with Horizontal(classes="action-row"):
-                    yield Button("Tailor Both (AI)", variant="primary", id="btn-tailor-both")
-                    yield Button("Tailor Resume Only", variant="success", id="btn-tailor-resume")
-                    yield Button("Tailor Cover Letter Only", variant="success", id="btn-tailor-cl")
-
-                # Manual Template Importer Section
-                yield Label("Import External LaTeX Template", classes="section-divider")
-                
-                yield Select(
-                    [("Import from File Path", "path"), ("Paste LaTeX Code", "paste")],
-                    id="import-mode",
-                    value="path",
-                    allow_blank=False,
-                )
-                
-                # File Path input (default shown)
-                yield Input(id="import-path", placeholder="Path to local .tex file")
-                
-                # Paste LaTeX fields (default hidden)
-                yield Input(id="import-name", placeholder="Template Name (e.g. google_swe)")
-                yield TextArea(id="import-latex-input", show_line_numbers=False)
-                
-                with Horizontal(classes="import-row"):
-                    yield Select(
-                        [("Resume", "resume"), ("Cover Letter", "cover-letter")],
-                        id="import-type",
-                        value="resume",
-                        allow_blank=False,
-                    )
-                    yield Button("Import / Save", variant="success", id="btn-import")
-
-            with Vertical(id="right-panel"):
-                yield Label("Select Target Files to Compile", classes="panel-title")
-                
-                # Checkboxes list for compilation selection (scans tex_files/)
-                with VerticalScroll(id="template-checkboxes-container"):
-                    yield Checkbox("Select All", value=True, id="chk-select-all")
-                    # Dynamic checkboxes will be mounted here
-                
-                yield Button("Compile Selected LaTeX Files", variant="warning", id="btn-compile-standard")
-                
-                yield Label("Activity Logs & Status", classes="panel-title")
-                yield RichLog(id="log-view", highlight=True, markup=True)
-                
-        yield Footer()
-
-    def on_mount(self) -> None:
-        self.app.refresh_template_options()
-        # Initialize display states for import
-        try:
-            self.query_one("#import-name").styles.display = "none"
-            self.query_one("#import-latex-input").styles.display = "none"
-        except Exception:
-            pass
+def template_options(directory: Path) -> list[tuple[str, str]]:
+    """List .tex templates in a directory as (pretty label, filename) options."""
+    options = []
+    if directory.is_dir():
+        for f in sorted(directory.glob("*.tex")):
+            options.append((f.stem.replace("_", " ").title(), f.name))
+    return options
 
 
 class ResumeTUI(App):
-    """Textual TUI for Simon Chen Resumes Tool."""
-    TITLE = "Simon Chen Resumes Dashboard"
-    
+    TITLE = "worksisyphus"
+    SUB_TITLE = "resumes & cover letters"
+
     CSS = """
-    Screen {
-        background: $background;
+    TabbedContent {
+        height: 1fr;
     }
-    
-    #dashboard-layout {
-        layout: grid;
-        grid-size: 2;
-        grid-columns: 1fr 1fr;
-        grid-rows: 1fr;
-        padding: 1;
-        grid-gutter: 1;
+
+    TabPane {
+        padding: 1 2;
     }
-    
-    #left-panel {
-        border: tall $primary;
-        padding: 1;
-        height: 100%;
-    }
-    
-    #right-panel {
-        border: tall $secondary;
-        padding: 1;
-        height: 100%;
-    }
-    
-    .panel-title {
-        text-align: center;
-        background: $boost;
-        padding: 1;
+
+    .hint {
+        color: $text-muted;
         margin-bottom: 1;
-        color: $text;
+    }
+
+    .form-row {
+        height: auto;
+        margin-bottom: 1;
+    }
+
+    .form-col {
+        width: 1fr;
+        height: auto;
+        margin-right: 2;
+    }
+
+    .form-col:last-of-type {
+        margin-right: 0;
+    }
+
+    .form-col Label {
+        color: $text-muted;
+    }
+
+    #jd-input, #add-latex {
+        height: 1fr;
+        border: round $primary;
+        margin-bottom: 1;
+    }
+
+    #compile-list {
+        height: 1fr;
+        border: round $primary;
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    #compile-list Checkbox {
+        border: none;
+        background: transparent;
+        padding: 0;
+        margin: 0;
+    }
+
+    #compile-list Checkbox:focus {
+        background: $boost;
         text-style: bold;
     }
-    
-    .section-divider {
-        text-align: center;
-        text-style: bold;
-        background: $boost;
-        margin-top: 1;
+
+    #chk-select-all {
         margin-bottom: 1;
-        padding: 0 1;
-        color: $accent;
+        color: $text-muted;
     }
-    
-    #jd-input {
-        height: 1fr;
-        border: solid $accent;
-        margin-bottom: 1;
+
+    .empty-hint {
+        color: $text-muted;
+        padding: 1;
     }
-    
-    #import-latex-input {
-        height: 6;
-        border: solid $accent;
-        margin-bottom: 1;
-    }
-    
-    #template-checkboxes-container {
-        height: 180;
-        border: solid $accent;
-        margin-bottom: 1;
-        padding: 0 1;
-    }
-    
-    #log-view {
-        height: 1fr;
-        border: solid $accent;
-        background: $background;
-    }
-    
-    Input {
-        margin-bottom: 1;
-    }
-    
-    Select {
-        margin-bottom: 1;
-    }
-    
-    Button {
+
+    #btn-generate, #btn-add, #btn-compile {
         width: 100%;
-        margin-bottom: 1;
     }
-    
-    .action-row {
-        height: auto;
-        margin-bottom: 1;
-    }
-    
-    .action-row Button {
-        column-span: 1;
+
+    .form-row Button {
         width: 1fr;
-        margin-right: 1;
+        margin-right: 2;
     }
-    
-    .import-row {
-        height: auto;
+
+    .form-row Button:last-of-type {
+        margin-right: 0;
     }
-    
-    .import-row Select {
-        width: 1fr;
-        margin-right: 1;
+
+    #log-view {
+        height: 10;
+        border: round $secondary;
+        padding: 0 1;
     }
-    
-    .import-row Button {
-        width: auto;
+
+    #db-tabs TextArea {
+        height: 1fr;
     }
     """
 
     BINDINGS = [
-        Binding("ctrl+t", "tailor_both", "Tailor Both (AI)", show=True),
-        Binding("ctrl+c", "compile_standard", "Compile Standard", show=True),
-        Binding("ctrl+d", "show_database", "Database Browser", show=True),
-        Binding("ctrl+q", "quit", "Exit", show=True),
+        Binding("ctrl+q", "quit", "Quit", show=True),
+        Binding("ctrl+l", "clear_log", "Clear Log", show=True),
     ]
 
+    # ------------------------------------------------------------- layout
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        with TabbedContent(initial="tab-generate"):
+            with TabPane("Generate from JD", id="tab-generate"):
+                yield Static(
+                    "Paste a job description, pick the templates, and generate "
+                    "tailored .tex files into tex_files/. Compile them from the "
+                    "Compile tab afterwards.",
+                    classes="hint",
+                )
+                yield TextArea(id="jd-input", show_line_numbers=False)
+                with Horizontal(classes="form-row"):
+                    with Vertical(classes="form-col"):
+                        yield Label("Generate")
+                        yield Select(
+                            [
+                                ("Resume + Cover Letter", "both"),
+                                ("Resume only", "resume"),
+                                ("Cover letter only", "cover-letter"),
+                            ],
+                            id="gen-mode",
+                            value="both",
+                            allow_blank=False,
+                        )
+                    with Vertical(classes="form-col"):
+                        yield Label("Resume template")
+                        yield Select(
+                            template_options(RESUME_TEMPLATE_DIR) or [("None found", "")],
+                            id="resume-select",
+                            allow_blank=False,
+                        )
+                    with Vertical(classes="form-col"):
+                        yield Label("Cover letter template")
+                        yield Select(
+                            template_options(CL_TEMPLATE_DIR) or [("None found", "")],
+                            id="cl-select",
+                            allow_blank=False,
+                        )
+                    with Vertical(classes="form-col"):
+                        yield Label("Output name")
+                        yield Input(id="output-name", value="tailored", placeholder="e.g. google_swe")
+                yield Button("Generate", variant="primary", id="btn-generate")
+
+            with TabPane("Add TeX File", id="tab-add"):
+                yield Static(
+                    "Paste raw LaTeX source below and save it into tex_files/. "
+                    "The file is named with the usual _resume / _cover_letter suffix.",
+                    classes="hint",
+                )
+                with Horizontal(classes="form-row"):
+                    with Vertical(classes="form-col"):
+                        yield Label("File name")
+                        yield Input(id="add-name", placeholder="e.g. google_swe")
+                    with Vertical(classes="form-col"):
+                        yield Label("Type")
+                        yield Select(
+                            [("Resume", "resume"), ("Cover letter", "cover-letter")],
+                            id="add-type",
+                            value="resume",
+                            allow_blank=False,
+                        )
+                yield TextArea(id="add-latex", show_line_numbers=False)
+                yield Button("Save to tex_files/", variant="success", id="btn-add")
+
+            with TabPane("Compile", id="tab-compile"):
+                yield Static(
+                    "Every generated or added .tex file lives in tex_files/. "
+                    "Check the ones you want and compile — PDFs land in resumes/.",
+                    classes="hint",
+                )
+                yield VerticalScroll(id="compile-list")
+                with Horizontal(classes="form-row"):
+                    yield Button(
+                        "Rebuild JSON resume (experiences.json)", id="btn-rebuild-json"
+                    )
+                    yield Button("Refresh list", id="btn-refresh")
+                yield Button("Compile selected", variant="warning", id="btn-compile")
+
+            with TabPane("Database", id="tab-database"):
+                data = {}
+                if EXPERIENCES_JSON.is_file():
+                    try:
+                        data = json.loads(EXPERIENCES_JSON.read_text(encoding="utf-8"))
+                    except Exception:
+                        pass
+                with TabbedContent(id="db-tabs"):
+                    for key, title in [
+                        ("education", "Education"),
+                        ("experiences", "Experiences"),
+                        ("projects", "Projects"),
+                        ("skills", "Skills"),
+                    ]:
+                        with TabPane(title):
+                            yield TextArea(
+                                json.dumps(data.get(key, [] if key != "skills" else {}), indent=2),
+                                read_only=True,
+                                show_line_numbers=False,
+                            )
+
+        yield RichLog(id="log-view", highlight=True, markup=True)
+        yield Footer()
+
     def on_mount(self) -> None:
-        self.push_screen(DashboardScreen())
+        self.query_one("#jd-input").border_title = "Job Description"
+        self.query_one("#add-latex").border_title = "LaTeX Source"
+        self.query_one("#compile-list").border_title = "tex_files/"
+        self.query_one("#log-view").border_title = "Activity Log"
+        self.refresh_compile_list()
+        self.log_message("[dim]Ready. Generate from a JD or add a .tex file, then compile.[/dim]")
+
+    # ------------------------------------------------------------ logging
 
     def log_message(self, message: str) -> None:
-        try:
-            log = self.query_one("#log-view", RichLog)
-            log.write(message)
-        except Exception:
-            pass
+        self.query_one("#log-view", RichLog).write(message)
 
-    def mount_template_checkboxes(self) -> None:
-        """Mount compilation checkboxes based on files in tex_files/."""
-        try:
-            container = self.query_one("#template-checkboxes-container")
-        except Exception:
+    def wlog(self, message: str) -> None:
+        """Log from a worker thread."""
+        self.call_from_thread(self.log_message, message)
+
+    def action_clear_log(self) -> None:
+        self.query_one("#log-view", RichLog).clear()
+
+    # ------------------------------------------------------- compile list
+
+    def refresh_compile_list(self) -> None:
+        self.run_worker(self._rebuild_compile_list(), exclusive=True, group="compile-list")
+
+    async def _rebuild_compile_list(self) -> None:
+        container = self.query_one("#compile-list", VerticalScroll)
+        checked = {
+            cb.name: cb.value for cb in container.query(Checkbox) if cb.name
+        }
+        await container.remove_children()
+
+        TEX_DIR.mkdir(parents=True, exist_ok=True)
+        files = sorted(TEX_DIR.glob("*.tex"))
+        if not files:
+            await container.mount(
+                Static(
+                    "No .tex files yet — generate one from a JD or add one first.",
+                    classes="empty-hint",
+                )
+            )
             return
 
-        # Keep only select-all
-        for child in list(container.children):
-            if child.id != "chk-select-all":
-                child.remove()
+        values = [checked.get(f.name, True) for f in files]
+        widgets = [Checkbox("Select all", id="chk-select-all")]
+        widgets += [
+            Checkbox(f.name, name=f.name, classes="file-check") for f in files
+        ]
+        # Set initial values silently: Checkbox posts Changed even from its
+        # constructor, and a Changed from "Select all" would clobber the
+        # restored per-file states.
+        for widget, value in zip(widgets, [all(values)] + values):
+            with widget.prevent(Checkbox.Changed):
+                widget.value = value
+        await container.mount(*widgets)
 
-        # 1. JSON Resume compiler option
-        container.mount(Checkbox("JSON Resume (Compiled)", value=True))
+    def selected_tex_files(self) -> list[Path]:
+        return [
+            TEX_DIR / cb.name
+            for cb in self.query(".file-check")
+            if cb.value and cb.name
+        ]
 
-        # 2. Scan tex_files/ for all other .tex files
-        tex_dir = Path("tex_files")
-        tex_dir.mkdir(parents=True, exist_ok=True)
-        if tex_dir.is_dir():
-            for f in sorted(tex_dir.glob("*.tex")):
-                if f.name == "Simon_Chen_Resume_Compiled.tex":
-                    container.mount(Checkbox("Compiled JSON PDF (Simon_Chen_Resume_Compiled)", value=True))
-                else:
-                    container.mount(Checkbox(f"LaTeX File: {f.name}", value=True))
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "chk-select-all":
+            for cb in self.query(".file-check"):
+                cb.value = event.checkbox.value
+        elif event.checkbox.has_class("file-check"):
+            select_all = self.query_one("#chk-select-all", Checkbox)
+            with select_all.prevent(Checkbox.Changed):
+                select_all.value = all(cb.value for cb in self.query(".file-check"))
 
-    def refresh_template_options(self) -> None:
-        """Refresh template pickers and compilation checkboxes."""
-        # Resume options
-        res_dir = Path("templates/resumes")
-        resume_options = []
-        if res_dir.is_dir():
-            resume_options = [(f.name, f.name) for f in sorted(res_dir.glob("*.tex"))]
-        if not resume_options:
-            resume_options = [("None", "None")]
-        
-        try:
-            resume_select = self.query_one("#resume-select", Select)
-            old_val = resume_select.value
-            resume_select.set_options(resume_options)
-            if old_val in [opt[0] for opt in resume_options]:
-                resume_select.value = old_val
-            elif resume_options:
-                resume_select.value = resume_options[0][0]
-        except Exception:
-            pass
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "gen-mode":
+            mode = event.select.value
+            self.query_one("#resume-select", Select).disabled = mode == "cover-letter"
+            self.query_one("#cl-select", Select).disabled = mode == "resume"
 
-        # Cover letter options
-        cl_dir = Path("templates/cover_letters")
-        cl_options = []
-        if cl_dir.is_dir():
-            cl_options = [(f.name, f.name) for f in sorted(cl_dir.glob("*.tex"))]
-        if not cl_options:
-            cl_options = [("None", "None")]
-            
-        try:
-            cl_select = self.query_one("#cl-select", Select)
-            old_val = cl_select.value
-            cl_select.set_options(cl_options)
-            if old_val in [opt[0] for opt in cl_options]:
-                cl_select.value = old_val
-            elif cl_options:
-                cl_select.value = cl_options[0][0]
-        except Exception:
-            pass
+    # ------------------------------------------------------- job running
 
-        self.mount_template_checkboxes()
+    def set_busy(self, busy: bool) -> None:
+        for bid in ("#btn-generate", "#btn-add", "#btn-compile", "#btn-rebuild-json"):
+            self.query_one(bid, Button).disabled = busy
 
-    def get_selected_compilations(self) -> list[dict[str, Any]]:
-        """Determine which templates are selected for compilation."""
-        selected = []
-        try:
-            container = self.query_one("#template-checkboxes-container")
-            for cb in container.query(Checkbox):
-                if cb.id == "chk-select-all":
-                    continue
-                if cb.value:
-                    label = str(cb.label)
-                    if label == "JSON Resume (Compiled)":
-                        selected.append({"type": "json-resume"})
-                    elif label == "Compiled JSON PDF (Simon_Chen_Resume_Compiled)":
-                        selected.append({"type": "tex-file", "path": Path("tex_files/Simon_Chen_Resume_Compiled.tex")})
-                    elif label.startswith("LaTeX File: "):
-                        filename = label[len("LaTeX File: "):]
-                        selected.append({"type": "tex-file", "path": Path("tex_files") / filename})
-        except Exception:
-            pass
-        return selected
+    def run_job(self, job) -> None:
+        """Run a blocking job in a thread, managing busy state and refresh."""
+
+        def wrapper() -> None:
+            try:
+                job()
+            finally:
+                self.call_from_thread(self.set_busy, False)
+                self.call_from_thread(self.refresh_compile_list)
+
+        self.set_busy(True)
+        self.run_worker(wrapper, thread=True)
 
     def run_subprocess_cmd(self, cmd: list[str]) -> bool:
-        """Run a process and direct its lines to TUI logs."""
+        """Run a process from a worker thread, streaming output to the log."""
         try:
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1
+                bufsize=1,
             )
             if process.stdout:
                 for line in process.stdout:
-                    self.log_message("  " + line.strip())
+                    line = line.strip()
+                    if line:
+                        self.wlog("  " + line)
             process.wait()
             return process.returncode == 0
         except Exception as e:
-            self.log_message(f"  [bold red]Exception:[/bold red] {e}")
+            self.wlog(f"  [bold red]Exception:[/bold red] {e}")
             return False
 
-    def compile_single_tex(self, path: Path, output_dir_str: str) -> None:
-        """Helper to compile a single LaTeX template and move the output PDF."""
-        filename = path.stem
-        # Compile using pdflatex via latexmk
-        cmd1 = ["latexmk", "-pdf", "-interaction=nonstopmode", f"-output-directory={output_dir_str}", str(path)]
-        success = self.run_subprocess_cmd(cmd1)
-        if success:
-            src_pdf = Path(output_dir_str) / f"{filename}.pdf"
-            dest_pdf = Path("resumes") / f"{filename}.pdf"
-            if src_pdf.is_file():
-                try:
-                    shutil.move(src_pdf, dest_pdf)
-                except Exception as e:
-                    self.log_message(f"  [bold red]Failed to move PDF:[/bold red] {e}")
-            # Clean up intermediate files
-            cmd2 = ["latexmk", "-c", f"-output-directory={output_dir_str}", str(path)]
-            self.run_subprocess_cmd(cmd2)
-        else:
-            self.log_message("  latexmk failed, trying pdflatex fallback...")
-            cmd3 = ["pdflatex", "-interaction=nonstopmode", f"-output-directory={output_dir_str}", str(path)]
-            success = self.run_subprocess_cmd(cmd3)
-            if success:
-                src_pdf = Path(output_dir_str) / f"{filename}.pdf"
-                dest_pdf = Path("resumes") / f"{filename}.pdf"
-                if src_pdf.is_file():
-                    try:
-                        shutil.move(src_pdf, dest_pdf)
-                    except Exception as e:
-                        self.log_message(f"  [bold red]Failed to move PDF:[/bold red] {e}")
+    def compile_single_tex(self, path: Path) -> bool:
+        """Compile one .tex file (worker thread); move the PDF to resumes/."""
+        PDF_DIR.mkdir(parents=True, exist_ok=True)
+        out_dir = str(TEX_DIR)
 
-    def run_cmd_async(self, cmd: list[str]) -> None:
-        """Helper to run standard command async (e.g. AI tailoring generator)."""
-        def worker() -> None:
-            self.log_message(f"[bold blue]Running:[/bold blue] {' '.join(cmd)}")
-            self.run_subprocess_cmd(cmd)
-            self.log_message("[bold green]Command finished.[/bold green]")
-            # Refresh checklists in case files were generated
-            self.run_worker(self.mount_template_checkboxes)
-        self.run_worker(worker)
+        def collect_pdf() -> bool:
+            src_pdf = TEX_DIR / f"{path.stem}.pdf"
+            if not src_pdf.is_file():
+                self.wlog(f"  [bold red]No PDF produced for {path.name}[/bold red]")
+                return False
+            try:
+                shutil.move(src_pdf, PDF_DIR / src_pdf.name)
+                return True
+            except Exception as e:
+                self.wlog(f"  [bold red]Failed to move PDF:[/bold red] {e}")
+                return False
 
-    def trigger_tailor(self, mode: str) -> None:
-        """Trigger generate.py to tailor resume/cover letters based on inputs."""
-        try:
-            jd_input = self.query_one("#jd-input", TextArea)
-            resume_select = self.query_one("#resume-select", Select)
-            cl_select = self.query_one("#cl-select", Select)
-            output_name_input = self.query_one("#output-name", Input)
-        except Exception as e:
-            self.log_message(f"[bold red]Error accessing input widgets:[/bold red] {e}")
-            return
+        if self.run_subprocess_cmd(
+            ["latexmk", "-pdf", "-interaction=nonstopmode", f"-output-directory={out_dir}", str(path)]
+        ):
+            ok = collect_pdf()
+            self.run_subprocess_cmd(["latexmk", "-c", f"-output-directory={out_dir}", str(path)])
+            return ok
 
-        jd_text = jd_input.text.strip()
+        self.wlog("  latexmk failed, trying pdflatex fallback...")
+        if self.run_subprocess_cmd(
+            ["pdflatex", "-interaction=nonstopmode", f"-output-directory={out_dir}", str(path)]
+        ):
+            return collect_pdf()
+        return False
+
+    # ------------------------------------------------------------ actions
+
+    def do_generate(self) -> None:
+        jd_text = self.query_one("#jd-input", TextArea).text.strip()
         if not jd_text:
-            self.log_message("[bold red]Error:[/bold red] Job Description cannot be empty.")
+            self.log_message("[bold red]Error:[/bold red] job description is empty.")
             return
 
-        jd_temp = Path(".jd_temp.txt")
-        try:
-            with open(jd_temp, "w", encoding="utf-8") as f:
-                f.write(jd_text)
-        except Exception as e:
-            self.log_message(f"[bold red]Failed to write temp JD file:[/bold red] {e}")
-            return
+        mode = str(self.query_one("#gen-mode", Select).value)
+        resume_template = self.query_one("#resume-select", Select).value
+        cl_template = self.query_one("#cl-select", Select).value
+        output_name = self.query_one("#output-name", Input).value.strip() or "tailored"
 
-        resume_template = Path("templates/resumes") / str(resume_select.value)
-        cl_template = Path("templates/cover_letters") / str(cl_select.value)
-        output_name = output_name_input.value.strip() or "tailored"
-
-        cmd = ["python", "src/generate.py", "--mode", mode, "--jd", str(jd_temp), "--output-name", output_name]
-        
-        if mode in ["resume", "both"]:
-            cmd += ["--resume-template", str(resume_template)]
-        if mode in ["cover-letter", "both"]:
-            cmd += ["--cover-letter-template", str(cl_template)]
-
-        self.run_cmd_async(cmd)
-
-    def run_selected_compilations(self) -> None:
-        """Asynchronously compiles only the checked templates from tex_files/."""
-        selected_items = self.get_selected_compilations()
-        if not selected_items:
-            self.log_message("[bold red]Error:[/bold red] No targets selected for compilation.")
-            return
-
-        def worker() -> None:
-            self.log_message(f"[bold blue]Starting compilation for {len(selected_items)} selected target(s)...[/bold blue]")
-            Path("resumes").mkdir(parents=True, exist_ok=True)
-            Path("tex_files").mkdir(parents=True, exist_ok=True)
-            
-            for item in selected_items:
-                t = item["type"]
-                if t == "json-resume":
-                    self.log_message("[bold yellow]Generating Simon_Chen_Resume_Compiled.tex from experiences.json...[/bold yellow]")
-                    cmd = ["python", "src/compile.py", "--resume", "templates/experiences.json", "--output", "tex_files/Simon_Chen_Resume_Compiled.tex"]
-                    self.run_subprocess_cmd(cmd)
-                elif t == "tex-file":
-                    path = item["path"]
-                    self.log_message(f"[bold yellow]Compiling: {path.name}...[/bold yellow]")
-                    self.compile_single_tex(path, "tex_files")
-            self.log_message("[bold green]Selected compilations complete![/bold green]")
-            # Refresh checklist
-            self.run_worker(self.mount_template_checkboxes)
-        self.run_worker(worker)
-
-    def import_template(self) -> None:
-        """Copy or save a new template into tex_files/ using postpending naming rules."""
-        try:
-            mode_select = self.query_one("#import-mode", Select)
-            type_select = self.query_one("#import-type", Select)
-            path_input = self.query_one("#import-path", Input)
-            name_input = self.query_one("#import-name", Input)
-            latex_input = self.query_one("#import-latex-input", TextArea)
-        except Exception as e:
-            self.log_message(f"[bold red]Error accessing import widgets:[/bold red] {e}")
-            return
-
-        import_mode = mode_select.value
-        template_type = type_select.value
-        dest_dir = Path("tex_files")
-        dest_dir.mkdir(parents=True, exist_ok=True)
-
-        if import_mode == "path":
-            # 1. Import from local file path
-            src_path_str = path_input.value.strip()
-            if not src_path_str:
-                self.log_message("[bold red]Error:[/bold red] Import path cannot be empty.")
+        cmd = [sys.executable, "src/generate.py", "--mode", mode, "--output-name", output_name]
+        if mode in ("resume", "both"):
+            if not resume_template or resume_template is Select.BLANK:
+                self.log_message("[bold red]Error:[/bold red] no resume template available.")
                 return
-
-            src_path = Path(src_path_str).expanduser().resolve()
-            if not src_path.is_file():
-                self.log_message(f"[bold red]Error:[/bold red] File not found at {src_path}")
+            cmd += ["--resume-template", str(RESUME_TEMPLATE_DIR / str(resume_template))]
+        if mode in ("cover-letter", "both"):
+            if not cl_template or cl_template is Select.BLANK:
+                self.log_message("[bold red]Error:[/bold red] no cover letter template available.")
                 return
+            cmd += ["--cover-letter-template", str(CL_TEMPLATE_DIR / str(cl_template))]
 
-            if src_path.suffix != ".tex":
-                self.log_message("[bold red]Error:[/bold red] Only LaTeX (.tex) template files can be imported.")
-                return
+        fd, jd_path = tempfile.mkstemp(suffix=".txt", prefix="jd_")
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(jd_text)
+        cmd += ["--jd", jd_path]
 
-            dest_filename = format_template_filename(src_path.stem, template_type)
-            dest_path = dest_dir / dest_filename
-
+        def job() -> None:
+            self.wlog(f"[bold blue]Generating ({mode}) as '{output_name}'...[/bold blue]")
             try:
-                shutil.copy2(src_path, dest_path)
-                self.log_message(f"[bold green]Import success:[/bold green] Imported {src_path.name} as {dest_filename} to {dest_dir}")
-                path_input.value = ""
-                self.refresh_template_options()
-            except Exception as e:
-                self.log_message(f"[bold red]Import failed:[/bold red] {e}")
+                ok = self.run_subprocess_cmd(cmd)
+            finally:
+                try:
+                    os.unlink(jd_path)
+                except OSError:
+                    pass
+            if ok:
+                self.wlog("[bold green]Generation finished — files are in tex_files/.[/bold green]")
+            else:
+                self.wlog("[bold red]Generation failed — see output above.[/bold red]")
 
-        else:
-            # 2. Paste raw LaTeX code
-            raw_name = name_input.value.strip()
-            latex_code = latex_input.text.strip()
+        self.run_job(job)
 
-            if not raw_name:
-                self.log_message("[bold red]Error:[/bold red] Template Name cannot be empty when pasting LaTeX.")
-                return
-            if not latex_code:
-                self.log_message("[bold red]Error:[/bold red] LaTeX code cannot be empty.")
-                return
+    def do_add_tex(self) -> None:
+        name_input = self.query_one("#add-name", Input)
+        latex_input = self.query_one("#add-latex", TextArea)
+        template_type = str(self.query_one("#add-type", Select).value)
 
-            dest_filename = format_template_filename(raw_name, template_type)
-            dest_path = dest_dir / dest_filename
+        raw_name = name_input.value.strip()
+        latex_code = latex_input.text.strip()
+        if not raw_name:
+            self.log_message("[bold red]Error:[/bold red] file name is required.")
+            return
+        if not latex_code:
+            self.log_message("[bold red]Error:[/bold red] LaTeX source is empty.")
+            return
 
-            try:
-                with open(dest_path, "w", encoding="utf-8") as f:
-                    f.write(latex_code)
-                self.log_message(f"[bold green]Save success:[/bold green] Saved pasted LaTeX as {dest_filename} to {dest_dir}")
-                name_input.value = ""
-                latex_input.text = ""
-                self.refresh_template_options()
-            except Exception as e:
-                self.log_message(f"[bold red]Save failed:[/bold red] {e}")
+        TEX_DIR.mkdir(parents=True, exist_ok=True)
+        dest = TEX_DIR / format_template_filename(raw_name, template_type)
+        try:
+            dest.write_text(latex_code + "\n", encoding="utf-8")
+        except Exception as e:
+            self.log_message(f"[bold red]Save failed:[/bold red] {e}")
+            return
 
-    # Action Handlers
-    def action_show_database(self) -> None:
-        self.push_screen(DatabaseScreen())
+        name_input.value = ""
+        latex_input.text = ""
+        self.refresh_compile_list()
+        self.log_message(
+            f"[bold green]Saved[/bold green] {dest} — it is now available in the Compile tab."
+        )
 
-    def action_compile_standard(self) -> None:
-        self.run_selected_compilations()
+    def do_compile(self) -> None:
+        targets = self.selected_tex_files()
+        if not targets:
+            self.log_message("[bold red]Error:[/bold red] no files selected to compile.")
+            return
 
-    def action_tailor_both(self) -> None:
-        self.trigger_tailor("both")
+        def job() -> None:
+            self.wlog(f"[bold blue]Compiling {len(targets)} file(s)...[/bold blue]")
+            failures = 0
+            for path in targets:
+                self.wlog(f"[bold yellow]→ {path.name}[/bold yellow]")
+                if not self.compile_single_tex(path):
+                    failures += 1
+            if failures:
+                self.wlog(f"[bold red]Done with {failures} failure(s).[/bold red]")
+            else:
+                self.wlog("[bold green]All PDFs compiled into resumes/.[/bold green]")
+
+        self.run_job(job)
+
+    def do_rebuild_json_resume(self) -> None:
+        def job() -> None:
+            self.wlog("[bold blue]Rebuilding from experiences.json...[/bold blue]")
+            ok = self.run_subprocess_cmd(
+                [
+                    sys.executable,
+                    "src/compile.py",
+                    "--resume",
+                    str(EXPERIENCES_JSON),
+                    "--output",
+                    str(JSON_RESUME_TEX),
+                    "--tex-only",
+                ]
+            )
+            if ok:
+                self.wlog(f"[bold green]Rebuilt {JSON_RESUME_TEX}.[/bold green]")
+            else:
+                self.wlog("[bold red]Rebuild failed — see output above.[/bold red]")
+
+        self.run_job(job)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        button_id = event.button.id
-        if button_id == "btn-compile-standard":
-            self.action_compile_standard()
-        elif button_id == "btn-tailor-both":
-            self.action_tailor_both()
-        elif button_id == "btn-tailor-resume":
-            self.trigger_tailor("resume")
-        elif button_id == "btn-tailor-cl":
-            self.trigger_tailor("cover-letter")
-        elif button_id == "btn-import":
-            self.import_template()
-
-    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        if event.checkbox.id == "chk-select-all":
-            val = event.checkbox.value
-            try:
-                container = self.query_one("#template-checkboxes-container")
-                for cb in container.query(Checkbox):
-                    if cb.id != "chk-select-all":
-                        cb.value = val
-            except Exception:
-                pass
-
-    def on_select_changed(self, event: Select.Changed) -> None:
-        if event.select.id == "import-mode":
-            mode = event.select.value
-            try:
-                path_input = self.query_one("#import-path")
-                name_input = self.query_one("#import-name")
-                latex_input = self.query_one("#import-latex-input")
-                
-                if mode == "path":
-                    path_input.styles.display = "block"
-                    name_input.styles.display = "none"
-                    latex_input.styles.display = "none"
-                else: # paste
-                    path_input.styles.display = "none"
-                    name_input.styles.display = "block"
-                    latex_input.styles.display = "block"
-            except Exception:
-                pass
+        handlers = {
+            "btn-generate": self.do_generate,
+            "btn-add": self.do_add_tex,
+            "btn-compile": self.do_compile,
+            "btn-rebuild-json": self.do_rebuild_json_resume,
+            "btn-refresh": self.refresh_compile_list,
+        }
+        handler = handlers.get(event.button.id or "")
+        if handler:
+            handler()
 
 
 if __name__ == "__main__":
-    app = ResumeTUI()
-    app.run()
+    ResumeTUI().run()

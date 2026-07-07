@@ -55,16 +55,22 @@ The script will:
 
 ### Terminal User Interface (TUI) Dashboard
 
-You can also launch an interactive, full-screen terminal dashboard to paste job descriptions, select templates, trigger AI tailoring, view compilation logs, and browse your experience database:
+You can also launch an interactive, full-screen terminal dashboard:
 
 ```bash
 uv run python src/tui.py
 ```
 
-- **Ctrl+T**: Trigger AI tailoring (using the pasted JD and selected options).
-- **Ctrl+C**: Run standard compilation (executes `compile.sh` in background).
-- **Ctrl+D**: Open or close the Experiences Database viewer.
-- **Ctrl+Q**: Exit the dashboard.
+It is organized as four tabs, one per workflow:
+
+- **Generate from JD** — paste a job description, pick the resume/cover letter templates, and generate tailored `.tex` files into `tex_files/`.
+- **Add TeX File** — paste raw LaTeX source and save it straight into `tex_files/` (named with the `_resume` / `_cover_letter` suffix).
+- **Compile** — check any of the `.tex` files in `tex_files/` and compile them; PDFs land in `resumes/`. Also rebuilds the JSON resume (`experiences.json` → `Simon_Chen_Resume_Compiled.tex`).
+- **Database** — read-only browser for `templates/experiences.json`.
+
+Key bindings: **Ctrl+L** clears the activity log, **Ctrl+Q** quits.
+
+The only base templates are `templates/resumes/jakes_resume_template.tex` and `templates/cover_letters/default_cover_letter.tex`; every generated or added `.tex` file lives in `tex_files/`.
 
 ---
 

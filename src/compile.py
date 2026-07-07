@@ -253,22 +253,25 @@ def generate_latex_resume(resume_data: dict[str, Any], contact_info: dict[str, A
     return "\n".join(lines)
 
 
-def compile_resume(resume_json_path: Path, output_tex: Path) -> Path:
+def compile_resume(resume_json_path: Path, output_tex: Path, compile_pdf: bool = True) -> Path:
     if not resume_json_path.is_file():
         raise FileNotFoundError(f"Resume JSON file not found at {resume_json_path}")
-        
+
     with open(resume_json_path, "r", encoding="utf-8") as f:
         resume_data = json.load(f)
-        
+
     contact_info = resume_data.get("contact", {})
     latex_content = generate_latex_resume(resume_data, contact_info)
-    
+
     output_tex.parent.mkdir(parents=True, exist_ok=True)
     with open(output_tex, "w", encoding="utf-8") as f:
         f.write(latex_content)
-        
+
     print(f"Generating LaTeX source: {output_tex}")
-    
+
+    if not compile_pdf:
+        return output_tex
+
     try:
         subprocess.run(
             ["latexmk", "-pdf", "-interaction=nonstopmode", "-output-directory=" + str(output_tex.parent), str(output_tex)],
@@ -303,8 +306,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compile resume JSON to LaTeX & PDF.")
     parser.add_argument("--resume", type=Path, default=Path("templates/experiences.json"), help="Path to resume.json")
     parser.add_argument("--output", type=Path, default=Path("tex_files/Simon_Chen_Resume_Compiled.tex"), help="Output LaTeX path")
-    
+    parser.add_argument("--tex-only", action="store_true", help="Generate the .tex file without compiling a PDF")
+
     args = parser.parse_args()
-    
-    pdf_path = compile_resume(args.resume, args.output)
-    print(f"Compiled PDF successfully: {pdf_path}")
+
+    out_path = compile_resume(args.resume, args.output, compile_pdf=not args.tex_only)
+    if args.tex_only:
+        print(f"LaTeX source generated: {out_path}")
+    else:
+        print(f"Compiled PDF successfully: {out_path}")
