@@ -15,10 +15,8 @@ This repository contains the structured experiences database, LaTeX resume sourc
 │   ├── experiences.json      # Centralized master experiences database in JSON
 │   ├── resumes/              # LaTeX resume templates
 │   │   ├── simon_chen_resume.tex # Primary software engineering resume
-│   │   ├── aclu_crm.tex      # Tailored ACLU CRM resume
 │   │   └── jakes_resume.tex  # Base professional resume
 │   └── cover_letters/        # LaTeX cover letter templates
-│       ├── aclu_cover_letter.tex # Tailored cover letter for ACLU
 │       └── default.tex       # Generic default cover letter template
 └── resumes/                  # Central output folder for compiled PDFs
 ```

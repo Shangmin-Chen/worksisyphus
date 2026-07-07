@@ -8,4 +8,6 @@ version = "0.1.0"
 description = "Simon Chen's resumes compilation tool."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "textual>=0.40.0"
+]
