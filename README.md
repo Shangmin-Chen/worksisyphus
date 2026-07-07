@@ -53,6 +53,19 @@ The script will:
 2. Call Gemini AI to select, order, and customize relevant skills, experiences, and projects to align with the JD, formatting it back as valid LaTeX.
 3. Save the LaTeX files and compile them directly to `resumes/tailored_resume.pdf` and `resumes/tailored_cover_letter.pdf`.
 
+### Terminal User Interface (TUI) Dashboard
+
+You can also launch an interactive, full-screen terminal dashboard to paste job descriptions, select templates, trigger AI tailoring, view compilation logs, and browse your experience database:
+
+```bash
+uv run python src/tui.py
+```
+
+- **Ctrl+T**: Trigger AI tailoring (using the pasted JD and selected options).
+- **Ctrl+C**: Run standard compilation (executes `compile.sh` in background).
+- **Ctrl+D**: Open or close the Experiences Database viewer.
+- **Ctrl+Q**: Exit the dashboard.
+
 ---
 
 ## Standard Compilation
