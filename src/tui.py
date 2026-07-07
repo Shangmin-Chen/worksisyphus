@@ -86,17 +86,31 @@ class DashboardScreen(Screen):
 
                 # Resume templates
                 yield Label("Select Resume Template:")
+                res_dir = Path("templates/resumes")
+                resume_options = []
+                if res_dir.is_dir():
+                    resume_options = [(f.name, f.name) for f in sorted(res_dir.glob("*.tex"))]
+                if not resume_options:
+                    resume_options = [("None", "None")]
                 yield Select(
-                    [],
+                    resume_options,
                     id="resume-select",
+                    value=resume_options[0][0] if resume_options else None,
                     allow_blank=False,
                 )
 
                 # Cover letter templates
                 yield Label("Select Cover Letter Template:")
+                cl_dir = Path("templates/cover_letters")
+                cl_options = []
+                if cl_dir.is_dir():
+                    cl_options = [(f.name, f.name) for f in sorted(cl_dir.glob("*.tex"))]
+                if not cl_options:
+                    cl_options = [("None", "None")]
                 yield Select(
-                    [],
+                    cl_options,
                     id="cl-select",
+                    value=cl_options[0][0] if cl_options else None,
                     allow_blank=False,
                 )
 
@@ -112,7 +126,7 @@ class DashboardScreen(Screen):
                 yield Label("Import External LaTeX Template", classes="section-divider")
                 
                 yield Select(
-                    [("path", "Import from File Path"), ("paste", "Paste LaTeX Code")],
+                    [("Import from File Path", "path"), ("Paste LaTeX Code", "paste")],
                     id="import-mode",
                     value="path",
                     allow_blank=False,
@@ -127,12 +141,12 @@ class DashboardScreen(Screen):
                 
                 with Horizontal(classes="import-row"):
                     yield Select(
-                        [("resume", "Resume"), ("cover-letter", "Cover Letter")],
+                        [("Resume", "resume"), ("Cover Letter", "cover-letter")],
                         id="import-type",
                         value="resume",
                         allow_blank=False,
                     )
-                    yield Button("Import / Save", variant="info", id="btn-import")
+                    yield Button("Import / Save", variant="success", id="btn-import")
 
             with Vertical(id="right-panel"):
                 yield Label("Select Standard Targets to Compile", classes="panel-title")
@@ -174,7 +188,7 @@ class ResumeTUI(App):
         grid-columns: 1fr 1fr;
         grid-rows: 1fr;
         padding: 1;
-        gap: 1;
+        grid-gutter: 1;
     }
     
     #left-panel {
@@ -210,26 +224,26 @@ class ResumeTUI(App):
     
     #jd-input {
         height: 1fr;
-        border: sunken $accent;
+        border: solid $accent;
         margin-bottom: 1;
     }
     
     #import-latex-input {
         height: 6;
-        border: sunken $accent;
+        border: solid $accent;
         margin-bottom: 1;
     }
     
     #template-checkboxes-container {
         height: 180;
-        border: sunken $accent;
+        border: solid $accent;
         margin-bottom: 1;
         padding: 0 1;
     }
     
     #log-view {
         height: 1fr;
-        border: sunken $accent;
+        border: solid $accent;
         background: $background;
     }
     
@@ -249,21 +263,21 @@ class ResumeTUI(App):
     .action-row {
         height: auto;
         margin-bottom: 1;
-        gap: 1;
     }
     
     .action-row Button {
         column-span: 1;
         width: 1fr;
+        margin-right: 1;
     }
     
     .import-row {
         height: auto;
-        gap: 1;
     }
     
     .import-row Select {
         width: 1fr;
+        margin-right: 1;
     }
     
     .import-row Button {
