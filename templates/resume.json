@@ -1,4 +1,12 @@
 {
+  "contact": {
+    "name": "Simon Chen",
+    "email": "shangminch@gmail.com",
+    "phone": "347-322-4133",
+    "website": "https://simon-chen.com",
+    "github": "https://github.com/shangminchen",
+    "linkedin": "https://linkedin.com/in/shangmin-chen"
+  },
   "education": [
     {
       "institution": "Boston University",

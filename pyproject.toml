@@ -3,21 +3,9 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "worksisyphus"
+name = "simon-chen-resumes"
 version = "0.1.0"
-description = "Phased job opportunity aggregation and application tooling."
+description = "Simon Chen's resumes compilation tool."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
-
-[project.scripts]
-worksisyphus-aggregate = "worksisyphus.aggregator.cli:main"
-worksisyphus-normalize = "worksisyphus.normalizer.cli:main"
-worksisyphus-enrich = "worksisyphus.enricher.cli:main"
-worksisyphus-catalog = "worksisyphus.catalog.cli:main"
-
-[tool.setuptools.packages.find]
-where = ["src"]
-
-[tool.uv]
-package = true

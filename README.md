@@ -1,72 +1,41 @@
-# WorkSisyphus
+# Simon Chen - Resumes & Compilation Tool
 
-Phase 1 is a narrow job-listing aggregator. It listens to one source only:
+This repository contains the structured JSON resume data, LaTeX resume sources, and compiled PDF resumes for Simon Chen.
 
-- `jobright-ai/2026-Software-Engineer-New-Grad`
+## Directory Structure
 
-The aggregator fetches the source README from GitHub, stores immutable raw snapshots by commit SHA, extracts the README table into source-shaped records, and keeps local state so subsequent polls can report newly seen and removed listings.
-
-Phase 2 normalizes the latest phase-1 artifact into the canonical job shape that later scoring, tailoring, and application workers can consume.
-
-## Run
-
-```bash
-uv run worksisyphus-aggregate poll
-uv run worksisyphus-normalize run
-uv run worksisyphus-enrich run
+```text
+├── README.md                 # Project documentation
+├── compile.sh                # Central compilation script for all templates and JSON
+├── src/                      # Source files
+│   └── compile.py            # Python compiler to generate resume from JSON
+├── templates/                # Folder containing templates and data
+│   ├── resume.json           # Centralized structured resume data in JSON format
+│   ├── resumes/              # LaTeX resume templates
+│   │   ├── simon_chen_resume.tex # Primary software engineering resume
+│   │   ├── aclu_crm.tex      # Tailored ACLU CRM resume
+│   │   └── jakes_resume.tex  # Base professional resume
+│   └── cover_letters/        # LaTeX cover letter templates
+│       ├── aclu_cover_letter.tex # Tailored cover letter for ACLU
+│       └── default.tex       # Generic default cover letter template
+└── resumes/                  # Central output folder for compiled PDFs
 ```
 
-By default, output is written under `.worksisyphus/`.
+## Compilation
 
-Useful options:
-
-```bash
-uv run worksisyphus-aggregate poll --data-dir .worksisyphus/aggregator
-uv run worksisyphus-aggregate watch --interval 300
-uv run worksisyphus-normalize run --aggregator-dir .worksisyphus/aggregator --output-dir .worksisyphus/normalizer
-uv run worksisyphus-enrich run --limit 25
-uv run worksisyphus-enrich run --limit 0
-uv run worksisyphus-catalog mark-applied <canonical_id>
-```
-
-## Development
+The repository uses `latexmk` from MacTeX. To compile all resumes and templates, simply run the compilation script from the repository root:
 
 ```bash
-uv sync
-uv run python -m unittest discover -s tests
+./compile.sh
 ```
 
-## Phase 1 Output
+The script will automatically:
+1. Compile all LaTeX templates inside `templates/resumes/` and `templates/cover_letters/`.
+2. Run `src/compile.py` to dynamically compile the structured `templates/resume.json` data into LaTeX (`resumes/Simon_Chen_Resume_Compiled.tex`) and PDF (`resumes/Simon_Chen_Resume_Compiled.pdf`).
+3. Clean up all intermediate build files, leaving only the compiled PDFs in the `resumes/` folder.
 
-The collector writes:
+To compile only the JSON-based resume, run the python compiler directly:
 
-- `raw/<source>/<commit>/README.md`: raw source snapshot
-- `runs/<timestamp>-<commit>.json`: poll summary, including new and removed listing keys
-- `latest/<source>.json`: current extracted listings
-- `latest/<source>.jsonl`: current extracted listings as JSON lines
-- `state/<source>.json`: local listener state
-
-This is intentionally pre-normalization. Phase 2 can consume the latest JSON/JSONL files and transform them into the canonical job model.
-
-## Phase 2 Output
-
-The normalizer writes:
-
-- `latest/jobs.json`: canonical job records with metadata
-- `latest/jobs.jsonl`: canonical job records as JSON lines
-- `runs/<timestamp>.json`: normalization run summary
-
-Normalized records include stable identity keys, company, role, location, workplace type, inferred posted date, application URLs, source metadata, and quality warnings.
-
-## Phase 3 Output
-
-Phase 3 enriches normalized jobs by fetching each listing detail page and extracting embedded structured data. For Jobright detail pages, this currently provides full job description text, responsibilities, skills, salary, seniority, location, active/deleted status, company metadata, and hiring signals such as H1B sponsorship or clearance requirements.
-
-The enricher writes:
-
-- `.worksisyphus/catalog.sqlite3`: persistent source of truth for latest jobs, dedupe keys, enrichments, and application status
-- `enricher/latest/enriched_jobs.json`: enriched records from the latest enrichment run
-- `enricher/latest/enriched_jobs.jsonl`: enriched records from the latest enrichment run as JSON lines
-- `enricher/runs/<timestamp>.json`: enrichment run summary
-
-JSON files are artifacts for inspection and handoff. SQLite is the durable state store. Use it to answer "what is latest?", preserve manually applied status, and avoid re-enriching jobs that were already processed.
+```bash
+python src/compile.py --resume templates/resume.json
+```
