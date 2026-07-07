@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import urllib.error
 import urllib.request
@@ -76,16 +77,24 @@ def clean_latex_response(text: str) -> str:
 
 
 def compile_latex_to_pdf(output_tex: Path) -> Path:
-    """Compile a .tex file to PDF using latexmk or pdflatex."""
+    """Compile a .tex file to PDF using latexmk or pdflatex and move it to resumes/."""
+    parent_dir = output_tex.parent
+    filename = output_tex.stem
+    pdf_dest = Path("resumes") / f"{filename}.pdf"
+    Path("resumes").mkdir(parents=True, exist_ok=True)
+    
     try:
         subprocess.run(
-            ["latexmk", "-pdf", "-interaction=nonstopmode", "-output-directory=" + str(output_tex.parent), str(output_tex)],
+            ["latexmk", "-pdf", "-interaction=nonstopmode", "-output-directory=" + str(parent_dir), str(output_tex)],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
+        pdf_src = parent_dir / f"{filename}.pdf"
+        if pdf_src.is_file():
+            shutil.move(pdf_src, pdf_dest)
         subprocess.run(
-            ["latexmk", "-c", "-output-directory=" + str(output_tex.parent), str(output_tex)],
+            ["latexmk", "-c", "-output-directory=" + str(parent_dir), str(output_tex)],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -94,15 +103,18 @@ def compile_latex_to_pdf(output_tex: Path) -> Path:
         try:
             print("latexmk failed/unavailable, falling back to pdflatex...")
             subprocess.run(
-                ["pdflatex", "-interaction=nonstopmode", "-output-directory=" + str(output_tex.parent), str(output_tex)],
+                ["pdflatex", "-interaction=nonstopmode", "-output-directory=" + str(parent_dir), str(output_tex)],
                 check=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
+            pdf_src = parent_dir / f"{filename}.pdf"
+            if pdf_src.is_file():
+                shutil.move(pdf_src, pdf_dest)
         except Exception as e:
             print(f"Compilation warning: could not compile PDF (error: {e})")
             
-    return output_tex.with_suffix(".pdf")
+    return pdf_dest
 
 
 def main() -> int:
@@ -134,20 +146,20 @@ def main() -> int:
     parser.add_argument(
         "--resume-template",
         type=Path,
-        default=Path("templates/resumes/jakes_resume.tex"),
-        help="Path to LaTeX resume template; default: templates/resumes/jakes_resume.tex",
+        default=Path("templates/resumes/jakes_resume_template.tex"),
+        help="Path to LaTeX resume template; default: templates/resumes/jakes_resume_template.tex",
     )
     parser.add_argument(
         "--cover-letter-template",
         type=Path,
-        default=Path("templates/cover_letters/default.tex"),
-        help="Path to LaTeX cover letter template; default: templates/cover_letters/default.tex",
+        default=Path("templates/cover_letters/default_cover_letter.tex"),
+        help="Path to LaTeX cover letter template; default: templates/cover_letters/default_cover_letter.tex",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("resumes"),
-        help="Output directory; default: resumes",
+        default=Path("tex_files"),
+        help="Output directory for generated .tex files; default: tex_files",
     )
     parser.add_argument(
         "--output-name",

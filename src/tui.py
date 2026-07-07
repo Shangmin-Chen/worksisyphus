@@ -136,7 +136,7 @@ class DashboardScreen(Screen):
                 yield Input(id="import-path", placeholder="Path to local .tex file")
                 
                 # Paste LaTeX fields (default hidden)
-                yield Input(id="import-name", placeholder="Template Name (e.g. jakes)")
+                yield Input(id="import-name", placeholder="Template Name (e.g. google_swe)")
                 yield TextArea(id="import-latex-input", show_line_numbers=False)
                 
                 with Horizontal(classes="import-row"):
@@ -149,14 +149,14 @@ class DashboardScreen(Screen):
                     yield Button("Import / Save", variant="success", id="btn-import")
 
             with Vertical(id="right-panel"):
-                yield Label("Select Standard Targets to Compile", classes="panel-title")
+                yield Label("Select Target Files to Compile", classes="panel-title")
                 
-                # Checkboxes list for compilation selection
+                # Checkboxes list for compilation selection (scans tex_files/)
                 with VerticalScroll(id="template-checkboxes-container"):
                     yield Checkbox("Select All", value=True, id="chk-select-all")
                     # Dynamic checkboxes will be mounted here
                 
-                yield Button("Compile Selected Standard Templates", variant="warning", id="btn-compile-standard")
+                yield Button("Compile Selected LaTeX Files", variant="warning", id="btn-compile-standard")
                 
                 yield Label("Activity Logs & Status", classes="panel-title")
                 yield RichLog(id="log-view", highlight=True, markup=True)
@@ -303,7 +303,7 @@ class ResumeTUI(App):
             pass
 
     def mount_template_checkboxes(self) -> None:
-        """Mount compilation checkboxes based on files on disk."""
+        """Mount compilation checkboxes based on files in tex_files/."""
         try:
             container = self.query_one("#template-checkboxes-container")
         except Exception:
@@ -314,20 +314,18 @@ class ResumeTUI(App):
             if child.id != "chk-select-all":
                 child.remove()
 
-        # 1. JSON Resume compiler
+        # 1. JSON Resume compiler option
         container.mount(Checkbox("JSON Resume (Compiled)", value=True))
 
-        # 2. Resumes
-        res_dir = Path("templates/resumes")
-        if res_dir.is_dir():
-            for f in sorted(res_dir.glob("*.tex")):
-                container.mount(Checkbox(f"Resume Template: {f.name}", value=True))
-
-        # 3. Cover Letters
-        cl_dir = Path("templates/cover_letters")
-        if cl_dir.is_dir():
-            for f in sorted(cl_dir.glob("*.tex")):
-                container.mount(Checkbox(f"Cover Letter Template: {f.name}", value=True))
+        # 2. Scan tex_files/ for all other .tex files
+        tex_dir = Path("tex_files")
+        tex_dir.mkdir(parents=True, exist_ok=True)
+        if tex_dir.is_dir():
+            for f in sorted(tex_dir.glob("*.tex")):
+                if f.name == "Simon_Chen_Resume_Compiled.tex":
+                    container.mount(Checkbox("Compiled JSON PDF (Simon_Chen_Resume_Compiled)", value=True))
+                else:
+                    container.mount(Checkbox(f"LaTeX File: {f.name}", value=True))
 
     def refresh_template_options(self) -> None:
         """Refresh template pickers and compilation checkboxes."""
@@ -336,6 +334,8 @@ class ResumeTUI(App):
         resume_options = []
         if res_dir.is_dir():
             resume_options = [(f.name, f.name) for f in sorted(res_dir.glob("*.tex"))]
+        if not resume_options:
+            resume_options = [("None", "None")]
         
         try:
             resume_select = self.query_one("#resume-select", Select)
@@ -353,6 +353,8 @@ class ResumeTUI(App):
         cl_options = []
         if cl_dir.is_dir():
             cl_options = [(f.name, f.name) for f in sorted(cl_dir.glob("*.tex"))]
+        if not cl_options:
+            cl_options = [("None", "None")]
             
         try:
             cl_select = self.query_one("#cl-select", Select)
@@ -379,12 +381,11 @@ class ResumeTUI(App):
                     label = str(cb.label)
                     if label == "JSON Resume (Compiled)":
                         selected.append({"type": "json-resume"})
-                    elif label.startswith("Resume Template: "):
-                        filename = label[len("Resume Template: "):]
-                        selected.append({"type": "resume", "path": Path("templates/resumes") / filename})
-                    elif label.startswith("Cover Letter Template: "):
-                        filename = label[len("Cover Letter Template: "):]
-                        selected.append({"type": "cover-letter", "path": Path("templates/cover_letters") / filename})
+                    elif label == "Compiled JSON PDF (Simon_Chen_Resume_Compiled)":
+                        selected.append({"type": "tex-file", "path": Path("tex_files/Simon_Chen_Resume_Compiled.tex")})
+                    elif label.startswith("LaTeX File: "):
+                        filename = label[len("LaTeX File: "):]
+                        selected.append({"type": "tex-file", "path": Path("tex_files") / filename})
         except Exception:
             pass
         return selected
@@ -444,6 +445,8 @@ class ResumeTUI(App):
             self.log_message(f"[bold blue]Running:[/bold blue] {' '.join(cmd)}")
             self.run_subprocess_cmd(cmd)
             self.log_message("[bold green]Command finished.[/bold green]")
+            # Refresh checklists in case files were generated
+            self.run_worker(self.mount_template_checkboxes)
         self.run_worker(worker)
 
     def trigger_tailor(self, mode: str) -> None:
@@ -484,7 +487,7 @@ class ResumeTUI(App):
         self.run_cmd_async(cmd)
 
     def run_selected_compilations(self) -> None:
-        """Asynchronously compiles only the checked templates."""
+        """Asynchronously compiles only the checked templates from tex_files/."""
         selected_items = self.get_selected_compilations()
         if not selected_items:
             self.log_message("[bold red]Error:[/bold red] No targets selected for compilation.")
@@ -493,26 +496,25 @@ class ResumeTUI(App):
         def worker() -> None:
             self.log_message(f"[bold blue]Starting compilation for {len(selected_items)} selected target(s)...[/bold blue]")
             Path("resumes").mkdir(parents=True, exist_ok=True)
+            Path("tex_files").mkdir(parents=True, exist_ok=True)
             
             for item in selected_items:
                 t = item["type"]
                 if t == "json-resume":
-                    self.log_message("[bold yellow]Compiling JSON Resume...[/bold yellow]")
-                    cmd = ["python", "src/compile.py", "--resume", "templates/experiences.json", "--output", "resumes/Simon_Chen_Resume_Compiled.tex"]
+                    self.log_message("[bold yellow]Generating Simon_Chen_Resume_Compiled.tex from experiences.json...[/bold yellow]")
+                    cmd = ["python", "src/compile.py", "--resume", "templates/experiences.json", "--output", "tex_files/Simon_Chen_Resume_Compiled.tex"]
                     self.run_subprocess_cmd(cmd)
-                elif t == "resume":
+                elif t == "tex-file":
                     path = item["path"]
-                    self.log_message(f"[bold yellow]Compiling Resume: {path.name}...[/bold yellow]")
-                    self.compile_single_tex(path, "templates/resumes")
-                elif t == "cover-letter":
-                    path = item["path"]
-                    self.log_message(f"[bold yellow]Compiling Cover Letter: {path.name}...[/bold yellow]")
-                    self.compile_single_tex(path, "templates/cover_letters")
+                    self.log_message(f"[bold yellow]Compiling: {path.name}...[/bold yellow]")
+                    self.compile_single_tex(path, "tex_files")
             self.log_message("[bold green]Selected compilations complete![/bold green]")
+            # Refresh checklist
+            self.run_worker(self.mount_template_checkboxes)
         self.run_worker(worker)
 
     def import_template(self) -> None:
-        """Copy or save a new template using postpending naming rules."""
+        """Copy or save a new template into tex_files/ using postpending naming rules."""
         try:
             mode_select = self.query_one("#import-mode", Select)
             type_select = self.query_one("#import-type", Select)
@@ -525,7 +527,7 @@ class ResumeTUI(App):
 
         import_mode = mode_select.value
         template_type = type_select.value
-        dest_dir = Path("templates/resumes") if template_type == "resume" else Path("templates/cover_letters")
+        dest_dir = Path("tex_files")
         dest_dir.mkdir(parents=True, exist_ok=True)
 
         if import_mode == "path":
@@ -544,7 +546,6 @@ class ResumeTUI(App):
                 self.log_message("[bold red]Error:[/bold red] Only LaTeX (.tex) template files can be imported.")
                 return
 
-            # Format destination filename enforcing the naming rule
             dest_filename = format_template_filename(src_path.stem, template_type)
             dest_path = dest_dir / dest_filename
 
@@ -568,7 +569,6 @@ class ResumeTUI(App):
                 self.log_message("[bold red]Error:[/bold red] LaTeX code cannot be empty.")
                 return
 
-            # Format destination filename enforcing the naming rule
             dest_filename = format_template_filename(raw_name, template_type)
             dest_path = dest_dir / dest_filename
 
@@ -617,7 +617,6 @@ class ResumeTUI(App):
                 pass
 
     def on_select_changed(self, event: Select.Changed) -> None:
-        # Toggle displays when switching between Path import and Paste import modes
         if event.select.id == "import-mode":
             mode = event.select.value
             try:

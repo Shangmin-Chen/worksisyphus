@@ -302,7 +302,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Compile resume JSON to LaTeX & PDF.")
     parser.add_argument("--resume", type=Path, default=Path("templates/experiences.json"), help="Path to resume.json")
-    parser.add_argument("--output", type=Path, default=Path("resumes/Simon_Chen_Resume_Compiled.tex"), help="Output LaTeX path")
+    parser.add_argument("--output", type=Path, default=Path("tex_files/Simon_Chen_Resume_Compiled.tex"), help="Output LaTeX path")
     
     args = parser.parse_args()
     
