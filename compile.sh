@@ -48,7 +48,7 @@ done
 echo "----------------------------------------"
 echo "Compiling JSON resume..."
 echo "----------------------------------------"
-python src/compile.py --resume templates/resume.json --output resumes/Simon_Chen_Resume_Compiled.tex
+python src/compile.py --resume templates/experiences.json --output resumes/Simon_Chen_Resume_Compiled.tex
 
 echo "----------------------------------------"
 echo "All resumes successfully compiled!"
