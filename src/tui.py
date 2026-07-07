@@ -14,6 +14,23 @@ from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Input, Label, RichLog, Select, TabbedContent, TabPane, TextArea
 
 
+def format_template_filename(name: str, template_type: str) -> str:
+    """Enforce postpending naming rules: _resume.tex or _cover_letter.tex."""
+    name = name.strip()
+    if name.endswith(".tex"):
+        name = name[:-4]
+    name = name.strip()
+    
+    if template_type == "resume":
+        if not name.endswith("_resume"):
+            name = f"{name}_resume"
+    else:  # cover-letter
+        if not name.endswith("_cover_letter"):
+            name = f"{name}_cover_letter"
+            
+    return f"{name}.tex"
+
+
 class DatabaseScreen(Screen):
     """Screen for browsing the experiences database read-only."""
     BINDINGS = [
@@ -92,7 +109,21 @@ class DashboardScreen(Screen):
 
                 # Manual Template Importer Section
                 yield Label("Import External LaTeX Template", classes="section-divider")
+                
+                yield Select(
+                    [("path", "Import from File Path"), ("paste", "Paste LaTeX Code")],
+                    id="import-mode",
+                    value="path",
+                    allow_blank=False,
+                )
+                
+                # File Path input (default shown)
                 yield Input(id="import-path", placeholder="Path to local .tex file")
+                
+                # Paste LaTeX fields (default hidden)
+                yield Input(id="import-name", placeholder="Template Name (e.g. jakes)")
+                yield TextArea(id="import-latex-input", show_line_numbers=False)
+                
                 with Horizontal(classes="import-row"):
                     yield Select(
                         [("resume", "Resume"), ("cover-letter", "Cover Letter")],
@@ -100,7 +131,7 @@ class DashboardScreen(Screen):
                         value="resume",
                         allow_blank=False,
                     )
-                    yield Button("Import", variant="info", id="btn-import")
+                    yield Button("Import / Save", variant="info", id="btn-import")
 
             with Vertical(id="right-panel"):
                 yield Label("Select Standard Targets to Compile", classes="panel-title")
@@ -119,6 +150,12 @@ class DashboardScreen(Screen):
 
     def on_mount(self) -> None:
         self.app.refresh_template_options()
+        # Initialize display states for import
+        try:
+            self.query_one("#import-name").styles.display = "none"
+            self.query_one("#import-latex-input").styles.display = "none"
+        except Exception:
+            pass
 
 
 class ResumeTUI(App):
@@ -172,6 +209,12 @@ class ResumeTUI(App):
     
     #jd-input {
         height: 1fr;
+        border: sunken $accent;
+        margin-bottom: 1;
+    }
+    
+    #import-latex-input {
+        height: 6;
         border: sunken $accent;
         margin-bottom: 1;
     }
@@ -368,7 +411,7 @@ class ResumeTUI(App):
             cmd2 = ["latexmk", "-c", f"-output-directory={output_dir_str}", str(path)]
             self.run_subprocess_cmd(cmd2)
         else:
-            self.log_message("  latexmk failed, falling back to pdflatex...")
+            self.log_message("  latexmk failed, trying pdflatex fallback...")
             cmd3 = ["pdflatex", "-interaction=nonstopmode", f"-output-directory={output_dir_str}", str(path)]
             success = self.run_subprocess_cmd(cmd3)
             if success:
@@ -454,43 +497,75 @@ class ResumeTUI(App):
         self.run_worker(worker)
 
     def import_template(self) -> None:
-        """Copy a local .tex template file to the appropriate templates folder."""
+        """Copy or save a new template using postpending naming rules."""
         try:
-            path_input = self.query_one("#import-path", Input)
+            mode_select = self.query_one("#import-mode", Select)
             type_select = self.query_one("#import-type", Select)
+            path_input = self.query_one("#import-path", Input)
+            name_input = self.query_one("#import-name", Input)
+            latex_input = self.query_one("#import-latex-input", TextArea)
         except Exception as e:
             self.log_message(f"[bold red]Error accessing import widgets:[/bold red] {e}")
             return
 
-        src_path_str = path_input.value.strip()
-        if not src_path_str:
-            self.log_message("[bold red]Error:[/bold red] Import path cannot be empty.")
-            return
-
-        src_path = Path(src_path_str).expanduser().resolve()
-        if not src_path.is_file():
-            self.log_message(f"[bold red]Error:[/bold red] File not found at {src_path}")
-            return
-
-        if src_path.suffix != ".tex":
-            self.log_message("[bold red]Error:[/bold red] Only LaTeX (.tex) template files can be imported.")
-            return
-
-        dest_dir = Path("templates/resumes") if type_select.value == "resume" else Path("templates/cover_letters")
+        import_mode = mode_select.value
+        template_type = type_select.value
+        dest_dir = Path("templates/resumes") if template_type == "resume" else Path("templates/cover_letters")
         dest_dir.mkdir(parents=True, exist_ok=True)
-        dest_path = dest_dir / src_path.name
 
-        try:
-            shutil.copy2(src_path, dest_path)
-            self.log_message(f"[bold green]Import success:[/bold green] Imported {src_path.name} to {dest_dir}")
-            
-            # Clear input field
-            path_input.value = ""
-            
-            # Refresh TUI widgets and checkbox lists
-            self.refresh_template_options()
-        except Exception as e:
-            self.log_message(f"[bold red]Import failed:[/bold red] {e}")
+        if import_mode == "path":
+            # 1. Import from local file path
+            src_path_str = path_input.value.strip()
+            if not src_path_str:
+                self.log_message("[bold red]Error:[/bold red] Import path cannot be empty.")
+                return
+
+            src_path = Path(src_path_str).expanduser().resolve()
+            if not src_path.is_file():
+                self.log_message(f"[bold red]Error:[/bold red] File not found at {src_path}")
+                return
+
+            if src_path.suffix != ".tex":
+                self.log_message("[bold red]Error:[/bold red] Only LaTeX (.tex) template files can be imported.")
+                return
+
+            # Format destination filename enforcing the naming rule
+            dest_filename = format_template_filename(src_path.stem, template_type)
+            dest_path = dest_dir / dest_filename
+
+            try:
+                shutil.copy2(src_path, dest_path)
+                self.log_message(f"[bold green]Import success:[/bold green] Imported {src_path.name} as {dest_filename} to {dest_dir}")
+                path_input.value = ""
+                self.refresh_template_options()
+            except Exception as e:
+                self.log_message(f"[bold red]Import failed:[/bold red] {e}")
+
+        else:
+            # 2. Paste raw LaTeX code
+            raw_name = name_input.value.strip()
+            latex_code = latex_input.text.strip()
+
+            if not raw_name:
+                self.log_message("[bold red]Error:[/bold red] Template Name cannot be empty when pasting LaTeX.")
+                return
+            if not latex_code:
+                self.log_message("[bold red]Error:[/bold red] LaTeX code cannot be empty.")
+                return
+
+            # Format destination filename enforcing the naming rule
+            dest_filename = format_template_filename(raw_name, template_type)
+            dest_path = dest_dir / dest_filename
+
+            try:
+                with open(dest_path, "w", encoding="utf-8") as f:
+                    f.write(latex_code)
+                self.log_message(f"[bold green]Save success:[/bold green] Saved pasted LaTeX as {dest_filename} to {dest_dir}")
+                name_input.value = ""
+                latex_input.text = ""
+                self.refresh_template_options()
+            except Exception as e:
+                self.log_message(f"[bold red]Save failed:[/bold red] {e}")
 
     # Action Handlers
     def action_show_database(self) -> None:
@@ -516,7 +591,6 @@ class ResumeTUI(App):
             self.import_template()
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        # Handles select all compilation targets
         if event.checkbox.id == "chk-select-all":
             val = event.checkbox.value
             try:
@@ -524,6 +598,26 @@ class ResumeTUI(App):
                 for cb in container.query(Checkbox):
                     if cb.id != "chk-select-all":
                         cb.value = val
+            except Exception:
+                pass
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        # Toggle displays when switching between Path import and Paste import modes
+        if event.select.id == "import-mode":
+            mode = event.select.value
+            try:
+                path_input = self.query_one("#import-path")
+                name_input = self.query_one("#import-name")
+                latex_input = self.query_one("#import-latex-input")
+                
+                if mode == "path":
+                    path_input.styles.display = "block"
+                    name_input.styles.display = "none"
+                    latex_input.styles.display = "none"
+                else: # paste
+                    path_input.styles.display = "none"
+                    name_input.styles.display = "block"
+                    latex_input.styles.display = "block"
             except Exception:
                 pass
 
