@@ -4,122 +4,116 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import shutil
-import subprocess
 import urllib.error
 import urllib.request
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+
+from worksisyphus import (
+    ArtifactStore,
+    CompilerBackend,
+    GeminiPlanner,
+    InvalidPdfArtifactError,
+    PlanCache,
+    artifact_cache_key,
+    build_render_model,
+    canonical_profile_hash,
+    get_template_spec,
+    load_canonical_profile,
+    render_tex,
+)
+
+
+GEMINI_MODEL_ID = "gemini-2.5-flash"
+DEFAULT_CACHE_DIR_NAME = ".worksisyphus-cache"
+
+
+PlannerFactory = Callable[..., GeminiPlanner]
+CompilerBackendFactory = Callable[[ArtifactStore], CompilerBackend]
 
 
 def load_dotenv() -> dict[str, str]:
-    """Load key-value pairs from a local .env file if it exists."""
     env = {}
     path = Path(".env")
     if path.is_file():
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#") and "=" in line:
-                    k, v = line.split("=", 1)
-                    env[k.strip()] = v.strip().strip("'\"")
+        with path.open("r", encoding="utf-8") as env_file:
+            for line in env_file:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    key, value = stripped.split("=", 1)
+                    env[key.strip()] = value.strip().strip("'\"")
     return env
 
 
-def call_gemini(prompt: str, api_key: str) -> str:
-    """Call the Gemini 2.5 Flash API with the provided prompt."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+def call_gemini(prompt: str, api_key: str, *, model_id: str = GEMINI_MODEL_ID) -> str:
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [
-            {
-                "parts": [
-                    {
-                        "text": prompt
-                    }
-                ]
-            }
-        ]
-    }
-    
-    req = urllib.request.Request(
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
         headers=headers,
-        method="POST"
+        method="POST",
     )
-    
+
     try:
-        with urllib.request.urlopen(req) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            candidates = res_data.get("candidates", [])
-            if not candidates:
-                raise ValueError(f"Empty candidates in response: {res_data}")
-            text = candidates[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-            return text
-    except urllib.error.HTTPError as e:
-        err_msg = e.read().decode("utf-8")
-        raise RuntimeError(f"Gemini API HTTP Error {e.code}: {err_msg}")
-    except Exception as e:
-        raise RuntimeError(f"Failed to communicate with Gemini API: {e}")
+        with urllib.request.urlopen(request, timeout=60) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        error_message = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"Gemini API HTTP Error {exc.code}: {error_message}") from exc
+    except Exception as exc:
+        raise RuntimeError(f"Failed to communicate with Gemini API: {exc}") from exc
+
+    candidates = response_data.get("candidates", [])
+    if not candidates:
+        raise RuntimeError(f"Gemini API returned no candidates: {response_data}")
+    return str(candidates[0].get("content", {}).get("parts", [{}])[0].get("text", ""))
 
 
-def clean_latex_response(text: str) -> str:
-    """Extract raw LaTeX text from the LLM response, stripping markdown code blocks."""
-    text = text.strip()
-    if text.startswith("```latex"):
-        text = text[8:]
-    elif text.startswith("```"):
-        text = text[3:]
-    if text.endswith("```"):
-        text = text[:-3]
-    return text.strip()
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    planner_factory: PlannerFactory = GeminiPlanner,
+    compiler_backend_factory: CompilerBackendFactory = CompilerBackend,
+) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
 
+    jd_content = _read_raw_input(args.jd)
 
-def compile_latex_to_pdf(output_tex: Path) -> Path:
-    """Compile a .tex file to PDF using latexmk or pdflatex and move it to resumes/."""
-    parent_dir = output_tex.parent
-    filename = output_tex.stem
-    pdf_dest = Path("resumes") / f"{filename}.pdf"
-    Path("resumes").mkdir(parents=True, exist_ok=True)
-    
-    try:
-        subprocess.run(
-            ["latexmk", "-pdf", "-interaction=nonstopmode", "-output-directory=" + str(parent_dir), str(output_tex)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+    if args.mode == "cover-letter":
+        return _unsupported_cover_letter()
+
+    env = load_dotenv()
+    api_key = args.api_key or os.environ.get("GEMINI_API_KEY") or env.get("GEMINI_API_KEY")
+    if not api_key:
+        print(
+            "Error: Gemini API Key is required for deterministic planning. "
+            "Set GEMINI_API_KEY, add it to .env, or pass --api-key."
         )
-        pdf_src = parent_dir / f"{filename}.pdf"
-        if pdf_src.is_file():
-            shutil.move(pdf_src, pdf_dest)
-        subprocess.run(
-            ["latexmk", "-c", "-output-directory=" + str(parent_dir), str(output_tex)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        return 1
+
+    if args.mode in {"resume", "both"}:
+        resume_status = _generate_resume(
+            args=args,
+            jd_content=jd_content,
+            api_key=api_key,
+            planner_factory=planner_factory,
+            compiler_backend_factory=compiler_backend_factory,
         )
-    except Exception:
-        try:
-            print("latexmk failed/unavailable, falling back to pdflatex...")
-            subprocess.run(
-                ["pdflatex", "-interaction=nonstopmode", "-output-directory=" + str(parent_dir), str(output_tex)],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            pdf_src = parent_dir / f"{filename}.pdf"
-            if pdf_src.is_file():
-                shutil.move(pdf_src, pdf_dest)
-        except Exception as e:
-            print(f"Compilation warning: could not compile PDF (error: {e})")
-            
-    return pdf_dest
+        if resume_status != 0:
+            return resume_status
+
+    if args.mode == "both":
+        return _unsupported_cover_letter()
+
+    return 0
 
 
-def main() -> int:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Generate tailored resumes and cover letters using Gemini AI."
+        description="Generate tailored resumes and cover letters through the deterministic compiler."
     )
     parser.add_argument(
         "--mode",
@@ -159,143 +153,144 @@ def main() -> int:
         "--output-dir",
         type=Path,
         default=Path("tex_files"),
-        help="Output directory for generated .tex files; default: tex_files",
+        help="Output directory for generated artifacts; default: tex_files",
     )
     parser.add_argument(
         "--output-name",
         default="tailored",
         help="Base name for the generated files; default: tailored",
     )
+    return parser
 
-    args = parser.parse_args()
 
-    # Load API Key
-    env = load_dotenv()
-    api_key = args.api_key or os.environ.get("GEMINI_API_KEY") or env.get("GEMINI_API_KEY")
-    if not api_key:
-        print("Error: Gemini API Key is required. Please set GEMINI_API_KEY in your environment, a .env file, or pass it via --api-key.")
-        return 1
-
-    # Load Job Description
-    jd_content = args.jd
-    jd_path = Path(args.jd)
-    if jd_path.is_file():
-        with open(jd_path, "r", encoding="utf-8") as f:
-            jd_content = f.read()
-
-    # Load Experiences JSON
+def _generate_resume(
+    *,
+    args: argparse.Namespace,
+    jd_content: str,
+    api_key: str,
+    planner_factory: PlannerFactory,
+    compiler_backend_factory: CompilerBackendFactory,
+) -> int:
     if not args.experiences.is_file():
         print(f"Error: Experiences JSON file not found at {args.experiences}")
         return 1
-    with open(args.experiences, "r", encoding="utf-8") as f:
-        experiences_data = f.read()
+
+    template_spec = get_template_spec("jakes_resume")
+    template_error = _resume_template_error(args.resume_template, template_spec.source_template)
+    if template_error:
+        print(f"Error: {template_error}")
+        return 1
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    cache_root = args.output_dir / DEFAULT_CACHE_DIR_NAME
+    plan_cache = PlanCache(cache_root)
+    artifact_store = ArtifactStore(cache_root)
 
-    # 1. Tailored Resume Generation
-    if args.mode in ["resume", "both"]:
-        if not args.resume_template.is_file():
-            print(f"Error: Resume template file not found at {args.resume_template}")
-            return 1
-        with open(args.resume_template, "r", encoding="utf-8") as f:
-            resume_template_content = f.read()
+    profile = load_canonical_profile(args.experiences)
+    profile_hash = canonical_profile_hash(profile)
+    planner = planner_factory(
+        lambda prompt: call_gemini(prompt, api_key, model_id=GEMINI_MODEL_ID),
+        cache=plan_cache,
+        model_id=GEMINI_MODEL_ID,
+    )
 
-        print("Generating tailored LaTeX resume via Gemini AI...")
-        prompt = f"""
-You are an expert resume writer. Your task is to generate a tailored resume in LaTeX format.
-We are using the following base LaTeX template:
----
-{resume_template_content}
----
+    print("Planning resume selection with Gemini JSON planner...")
+    plan_result = planner.plan(
+        raw_input=jd_content,
+        profile=profile,
+        template_spec=template_spec,
+        metadata={"mode": "resume", "output_name": args.output_name},
+    )
+    cache_label = "hit" if plan_result.from_cache else "miss"
+    fallback_label = " with deterministic fallback" if plan_result.used_fallback else ""
+    print(f"Plan cache {cache_label}; validation status: {plan_result.validation_status}{fallback_label}.")
 
-And here is the candidate's master experience database in JSON format:
----
-{experiences_data}
----
+    render_model = build_render_model(profile=profile, selection_plan=plan_result.plan, template_spec=template_spec)
+    artifact_key = artifact_cache_key(
+        selection_plan=plan_result.plan,
+        template_spec=template_spec,
+        canonical_profile_hash_value=profile_hash,
+    )
+    metadata = {
+        "mode": "resume",
+        "output_name": args.output_name,
+        "plan_cache_key": plan_result.cache_key,
+        "plan_validation_status": plan_result.validation_status,
+        "template_id": template_spec.id,
+        "template_version": template_spec.version,
+    }
 
-Here is the Job Description for the role they are applying for:
----
-{jd_content}
----
+    tex = render_tex(render_model, template_spec)
+    artifact_store.cache_tex(key=artifact_key, tex=tex, metadata=metadata)
+    output_tex_path = args.output_dir / f"{args.output_name}_resume.tex"
+    artifact_store.export_tex(key=artifact_key, output_path=output_tex_path)
+    print(f"Deterministic resume TeX exported: {output_tex_path}")
 
-Generate a tailored LaTeX resume that:
-1. Adapts the LaTeX template, replacing 'Jake Ryan' and Southwestern University details with the candidate's details (Simon Chen, Boston University, etc.) from the JSON.
-2. Selects the most relevant experiences, projects, and skills from the master JSON database that match the target Job Description.
-3. Tailors/rewrites the selected bullet points to highlight skills, keywords, and achievements aligned with the Job Description.
-4. Fits exactly on a single page, keeping descriptions punchy and professional. Select the top 2-3 most relevant experiences and the top 2-3 most relevant projects.
-5. Preserves all the LaTeX packages, formats, custom commands, and environment setups of the original template.
-6. Returns ONLY the valid LaTeX code. Do NOT wrap it in code blocks or include markdown formatting.
-"""
-        try:
-            raw_response = call_gemini(prompt, api_key)
-            latex_code = clean_latex_response(raw_response)
-            
-            output_tex_path = args.output_dir / f"{args.output_name}_resume.tex"
-            with open(output_tex_path, "w", encoding="utf-8") as f:
-                f.write(latex_code)
-            
-            print(f"Tailored LaTeX resume saved: {output_tex_path}")
-            print("Compiling tailored resume to PDF...")
-            pdf_path = compile_latex_to_pdf(output_tex_path)
-            print(f"Tailored resume PDF compiled successfully: {pdf_path}")
-        except Exception as e:
-            print(f"Error generating tailored resume: {e}")
-            if args.mode == "resume":
-                return 1
+    output_pdf_path = args.output_dir / f"{args.output_name}_resume.pdf"
+    try:
+        artifact_store.export_pdf(key=artifact_key, output_path=output_pdf_path)
+        print(f"Artifact cache hit; deterministic resume PDF copied: {output_pdf_path}")
+        return 0
+    except FileNotFoundError:
+        print("Artifact cache miss for deterministic resume PDF; compiling.")
+    except InvalidPdfArtifactError as exc:
+        print(f"Cached deterministic resume PDF is invalid; recompiling. {exc}")
 
-    # 2. Tailored Cover Letter Generation
-    if args.mode in ["cover-letter", "both"]:
-        if not args.cover_letter_template.is_file():
-            print(f"Error: Cover letter template file not found at {args.cover_letter_template}")
-            return 1
-        with open(args.cover_letter_template, "r", encoding="utf-8") as f:
-            cover_letter_template_content = f.read()
+    backend = compiler_backend_factory(artifact_store)
+    compile_result = backend.compile_render_model(
+        render_model=render_model,
+        template_spec=template_spec,
+        key=artifact_key,
+        output_pdf_path=output_pdf_path,
+        metadata=metadata,
+    )
+    if not compile_result.ok:
+        print("Error: deterministic resume TeX was generated, but PDF compilation failed.")
+        if compile_result.log_path is not None:
+            print(f"Compile log cached: {compile_result.log_path}")
+        for error in compile_result.errors:
+            print(f"- {error}")
+        return 1
 
-        print("Generating tailored cover letter via Gemini AI...")
-        prompt = f"""
-You are an expert career consultant. Your task is to generate a tailored cover letter in LaTeX format.
-We are using the following base LaTeX template:
----
-{cover_letter_template_content}
----
-
-And here is the candidate's master experience database in JSON format:
----
-{experiences_data}
----
-
-Here is the Job Description for the role they are applying for:
----
-{jd_content}
----
-
-Generate a tailored LaTeX cover letter that:
-1. Fills in the cover letter template placeholders (date, recipient address, role, company).
-2. Incorporates details from the candidate's master experiences database that directly match the core requirements of the Job Description.
-3. Expresses professional interest and maps the candidate's background cleanly to the target role.
-4. Preserves all the LaTeX formatting, packages, and custom commands of the original cover letter template.
-5. Returns ONLY the valid LaTeX code. Do NOT wrap it in code blocks or include markdown formatting.
-"""
-        try:
-            raw_response = call_gemini(prompt, api_key)
-            latex_code = clean_latex_response(raw_response)
-            
-            output_tex_path = args.output_dir / f"{args.output_name}_cover_letter.tex"
-            with open(output_tex_path, "w", encoding="utf-8") as f:
-                f.write(latex_code)
-            
-            print(f"Tailored LaTeX cover letter saved: {output_tex_path}")
-            print("Compiling tailored cover letter to PDF...")
-            pdf_path = compile_latex_to_pdf(output_tex_path)
-            print(f"Tailored cover letter PDF compiled successfully: {pdf_path}")
-        except Exception as e:
-            print(f"Error generating tailored cover letter: {e}")
-            if args.mode == "cover-letter":
-                return 1
-
+    print(f"Deterministic resume PDF exported: {output_pdf_path}")
     return 0
+
+
+def _read_raw_input(value: str) -> str:
+    try:
+        path = Path(value)
+        if path.is_file():
+            return path.read_text(encoding="utf-8")
+    except OSError:
+        pass
+    return value
+
+
+def _resume_template_error(candidate: Path, expected_template: str) -> str:
+    if not candidate.is_file():
+        return f"Resume template file not found at {candidate}"
+
+    expected = Path(expected_template)
+    try:
+        if candidate.resolve() == expected.resolve():
+            return ""
+    except OSError:
+        pass
+    return (
+        "deterministic resume generation currently supports only "
+        f"{expected_template} through TemplateSpec 'jakes_resume'; got {candidate}"
+    )
+
+
+def _unsupported_cover_letter() -> int:
+    print(
+        "Error: deterministic cover-letter rendering is not implemented yet. "
+        "No Gemini-produced TeX was requested, written, or compiled."
+    )
+    return 1
 
 
 if __name__ == "__main__":
     import sys
+
     sys.exit(main())

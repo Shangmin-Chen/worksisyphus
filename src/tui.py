@@ -2,22 +2,18 @@
 """Textual TUI for the worksisyphus resume/cover-letter workflow.
 
 Workflows, one per tab:
-  1. Generate  — paste a job description, pick templates, generate tailored
-                 .tex files into tex_files/ via src/generate.py (Gemini AI).
-  2. Add TeX   — paste raw LaTeX source and save it straight into tex_files/.
-  3. Compile   — check any of the .tex files in tex_files/ and compile them
-                 to PDFs in resumes/.
+  1. Generate  — paste a job description, pick templates, and generate through
+                 src/generate.py's deterministic planner/renderer/compiler path.
+  2. Import    — paste raw LaTeX as non-trusted input for later review.
+  3. Compile   — rebuild the canonical resume from templates/experiences.json
+                 through src/compile.py's deterministic compiler path.
   4. Database  — read-only browser for templates/experiences.json.
-
-tex_files/ is the single directory holding every generated or added .tex
-file; resumes/ holds only compiled PDFs; templates/ holds only the two base
-templates (jakes_resume_template, default_cover_letter).
 """
 from __future__ import annotations
 
 import json
 import os
-import shutil
+import re
 import subprocess
 import sys
 import tempfile
@@ -28,7 +24,6 @@ from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Button,
-    Checkbox,
     Footer,
     Header,
     Input,
@@ -41,20 +36,27 @@ from textual.widgets import (
     TextArea,
 )
 
+from worksisyphus import atomic_write_text
+
 TEX_DIR = Path("tex_files")
 PDF_DIR = Path("resumes")
+RAW_IMPORT_DIR = Path("raw_inputs/tex_imports")
 RESUME_TEMPLATE_DIR = Path("templates/resumes")
 CL_TEMPLATE_DIR = Path("templates/cover_letters")
 EXPERIENCES_JSON = Path("templates/experiences.json")
 JSON_RESUME_TEX = TEX_DIR / "Simon_Chen_Resume_Compiled.tex"
+JSON_RESUME_PDF = PDF_DIR / "Simon_Chen_Resume_Compiled.pdf"
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 
-def format_template_filename(name: str, template_type: str) -> str:
-    """Enforce postpending naming rules: _resume.tex or _cover_letter.tex."""
-    name = name.strip()
+def format_raw_import_filename(name: str, template_type: str) -> str:
+    """Name raw TeX imports so they are clear, local, and non-compileable."""
+    name = Path(name.strip()).name
     if name.endswith(".tex"):
         name = name[:-4]
-    name = name.strip().replace(" ", "_")
+    name = _SAFE_FILENAME_RE.sub("_", name.strip().replace(" ", "_")).strip("._-")
+    if not name:
+        name = "raw_input"
 
     if template_type == "resume":
         if not name.endswith("_resume"):
@@ -63,7 +65,7 @@ def format_template_filename(name: str, template_type: str) -> str:
         if not name.endswith("_cover_letter"):
             name = f"{name}_cover_letter"
 
-    return f"{name}.tex"
+    return f"{name}.raw.txt"
 
 
 def template_options(directory: Path) -> list[tuple[str, str]]:
@@ -185,8 +187,7 @@ class ResumeTUI(App):
             with TabPane("Generate from JD", id="tab-generate"):
                 yield Static(
                     "Paste a job description, pick the templates, and generate "
-                    "tailored .tex files into tex_files/. Compile them from the "
-                    "Compile tab afterwards.",
+                    "deterministic artifacts from the canonical profile.",
                     classes="hint",
                 )
                 yield TextArea(id="jd-input", show_line_numbers=False)
@@ -222,10 +223,10 @@ class ResumeTUI(App):
                         yield Input(id="output-name", value="tailored", placeholder="e.g. google_swe")
                 yield Button("Generate", variant="primary", id="btn-generate")
 
-            with TabPane("Add TeX File", id="tab-add"):
+            with TabPane("Import Raw TeX", id="tab-add"):
                 yield Static(
-                    "Paste raw LaTeX source below and save it into tex_files/. "
-                    "The file is named with the usual _resume / _cover_letter suffix.",
+                    "Paste raw LaTeX source below as non-trusted input. It is not "
+                    "saved as a compileable artifact and will not appear in Compile.",
                     classes="hint",
                 )
                 with Horizontal(classes="form-row"):
@@ -241,21 +242,21 @@ class ResumeTUI(App):
                             allow_blank=False,
                         )
                 yield TextArea(id="add-latex", show_line_numbers=False)
-                yield Button("Save to tex_files/", variant="success", id="btn-add")
+                yield Button("Import raw input", variant="success", id="btn-add")
 
             with TabPane("Compile", id="tab-compile"):
                 yield Static(
-                    "Every generated or added .tex file lives in tex_files/. "
-                    "Check the ones you want and compile — PDFs land in resumes/.",
+                    "Rebuild the canonical resume from experiences.json through "
+                    "the deterministic renderer and safe compiler backend.",
                     classes="hint",
                 )
                 yield VerticalScroll(id="compile-list")
                 with Horizontal(classes="form-row"):
                     yield Button(
-                        "Rebuild JSON resume (experiences.json)", id="btn-rebuild-json"
+                        "Rebuild deterministic TeX", id="btn-rebuild-json"
                     )
-                    yield Button("Refresh list", id="btn-refresh")
-                yield Button("Compile selected", variant="warning", id="btn-compile")
+                    yield Button("Refresh status", id="btn-refresh")
+                yield Button("Compile deterministic resume", variant="warning", id="btn-compile")
 
             with TabPane("Database", id="tab-database"):
                 data = {}
@@ -283,11 +284,11 @@ class ResumeTUI(App):
 
     def on_mount(self) -> None:
         self.query_one("#jd-input").border_title = "Job Description"
-        self.query_one("#add-latex").border_title = "LaTeX Source"
-        self.query_one("#compile-list").border_title = "tex_files/"
+        self.query_one("#add-latex").border_title = "Raw LaTeX Input"
+        self.query_one("#compile-list").border_title = "Trusted deterministic outputs"
         self.query_one("#log-view").border_title = "Activity Log"
         self.refresh_compile_list()
-        self.log_message("[dim]Ready. Generate from a JD or add a .tex file, then compile.[/dim]")
+        self.log_message("[dim]Ready. Generate from a JD, import raw input, or rebuild deterministically.[/dim]")
 
     # ------------------------------------------------------------ logging
 
@@ -308,50 +309,20 @@ class ResumeTUI(App):
 
     async def _rebuild_compile_list(self) -> None:
         container = self.query_one("#compile-list", VerticalScroll)
-        checked = {
-            cb.name: cb.value for cb in container.query(Checkbox) if cb.name
-        }
         await container.remove_children()
 
-        TEX_DIR.mkdir(parents=True, exist_ok=True)
-        files = sorted(TEX_DIR.glob("*.tex"))
-        if not files:
-            await container.mount(
-                Static(
-                    "No .tex files yet — generate one from a JD or add one first.",
-                    classes="empty-hint",
-                )
+        rows = [
+            ("Canonical TeX", JSON_RESUME_TEX),
+            ("Canonical PDF", JSON_RESUME_PDF),
+        ]
+        widgets = [
+            Static(
+                f"{label}: {path} ({'present' if path.is_file() else 'not built yet'})",
+                classes="empty-hint",
             )
-            return
-
-        values = [checked.get(f.name, True) for f in files]
-        widgets = [Checkbox("Select all", id="chk-select-all")]
-        widgets += [
-            Checkbox(f.name, name=f.name, classes="file-check") for f in files
+            for label, path in rows
         ]
-        # Set initial values silently: Checkbox posts Changed even from its
-        # constructor, and a Changed from "Select all" would clobber the
-        # restored per-file states.
-        for widget, value in zip(widgets, [all(values)] + values):
-            with widget.prevent(Checkbox.Changed):
-                widget.value = value
         await container.mount(*widgets)
-
-    def selected_tex_files(self) -> list[Path]:
-        return [
-            TEX_DIR / cb.name
-            for cb in self.query(".file-check")
-            if cb.value and cb.name
-        ]
-
-    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
-        if event.checkbox.id == "chk-select-all":
-            for cb in self.query(".file-check"):
-                cb.value = event.checkbox.value
-        elif event.checkbox.has_class("file-check"):
-            select_all = self.query_one("#chk-select-all", Checkbox)
-            with select_all.prevent(Checkbox.Changed):
-                select_all.value = all(cb.value for cb in self.query(".file-check"))
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "gen-mode":
@@ -399,37 +370,6 @@ class ResumeTUI(App):
             self.wlog(f"  [bold red]Exception:[/bold red] {e}")
             return False
 
-    def compile_single_tex(self, path: Path) -> bool:
-        """Compile one .tex file (worker thread); move the PDF to resumes/."""
-        PDF_DIR.mkdir(parents=True, exist_ok=True)
-        out_dir = str(TEX_DIR)
-
-        def collect_pdf() -> bool:
-            src_pdf = TEX_DIR / f"{path.stem}.pdf"
-            if not src_pdf.is_file():
-                self.wlog(f"  [bold red]No PDF produced for {path.name}[/bold red]")
-                return False
-            try:
-                shutil.move(src_pdf, PDF_DIR / src_pdf.name)
-                return True
-            except Exception as e:
-                self.wlog(f"  [bold red]Failed to move PDF:[/bold red] {e}")
-                return False
-
-        if self.run_subprocess_cmd(
-            ["latexmk", "-pdf", "-interaction=nonstopmode", f"-output-directory={out_dir}", str(path)]
-        ):
-            ok = collect_pdf()
-            self.run_subprocess_cmd(["latexmk", "-c", f"-output-directory={out_dir}", str(path)])
-            return ok
-
-        self.wlog("  latexmk failed, trying pdflatex fallback...")
-        if self.run_subprocess_cmd(
-            ["pdflatex", "-interaction=nonstopmode", f"-output-directory={out_dir}", str(path)]
-        ):
-            return collect_pdf()
-        return False
-
     # ------------------------------------------------------------ actions
 
     def do_generate(self) -> None:
@@ -470,7 +410,7 @@ class ResumeTUI(App):
                 except OSError:
                     pass
             if ok:
-                self.wlog("[bold green]Generation finished — files are in tex_files/.[/bold green]")
+                self.wlog("[bold green]Generation finished through deterministic compiler path.[/bold green]")
             else:
                 self.wlog("[bold red]Generation failed — see output above.[/bold red]")
 
@@ -490,38 +430,39 @@ class ResumeTUI(App):
             self.log_message("[bold red]Error:[/bold red] LaTeX source is empty.")
             return
 
-        TEX_DIR.mkdir(parents=True, exist_ok=True)
-        dest = TEX_DIR / format_template_filename(raw_name, template_type)
+        dest = RAW_IMPORT_DIR / format_raw_import_filename(raw_name, template_type)
         try:
-            dest.write_text(latex_code + "\n", encoding="utf-8")
+            atomic_write_text(dest, latex_code + "\n")
         except Exception as e:
-            self.log_message(f"[bold red]Save failed:[/bold red] {e}")
+            self.log_message(f"[bold red]Import failed:[/bold red] {e}")
             return
 
         name_input.value = ""
         latex_input.text = ""
         self.refresh_compile_list()
         self.log_message(
-            f"[bold green]Saved[/bold green] {dest} — it is now available in the Compile tab."
+            f"[bold green]Imported raw input[/bold green] {dest} — it is not compileable output."
         )
 
     def do_compile(self) -> None:
-        targets = self.selected_tex_files()
-        if not targets:
-            self.log_message("[bold red]Error:[/bold red] no files selected to compile.")
-            return
-
         def job() -> None:
-            self.wlog(f"[bold blue]Compiling {len(targets)} file(s)...[/bold blue]")
-            failures = 0
-            for path in targets:
-                self.wlog(f"[bold yellow]→ {path.name}[/bold yellow]")
-                if not self.compile_single_tex(path):
-                    failures += 1
-            if failures:
-                self.wlog(f"[bold red]Done with {failures} failure(s).[/bold red]")
+            self.wlog("[bold blue]Compiling deterministic JSON resume...[/bold blue]")
+            ok = self.run_subprocess_cmd(
+                [
+                    sys.executable,
+                    "src/compile.py",
+                    "--resume",
+                    str(EXPERIENCES_JSON),
+                    "--output",
+                    str(JSON_RESUME_TEX),
+                    "--pdf-output",
+                    str(JSON_RESUME_PDF),
+                ]
+            )
+            if ok:
+                self.wlog(f"[bold green]Compiled deterministic PDF: {JSON_RESUME_PDF}[/bold green]")
             else:
-                self.wlog("[bold green]All PDFs compiled into resumes/.[/bold green]")
+                self.wlog("[bold red]Deterministic compile failed — see output above.[/bold red]")
 
         self.run_job(job)
 

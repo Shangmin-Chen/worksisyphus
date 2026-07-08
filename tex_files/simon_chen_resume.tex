@@ -1,0 +1,153 @@
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+\pagestyle{fancy}
+\fancyhf{} % clear all header and footer fields
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+% Ensure that generate pdf is machine readable/ATS parsable
+\pdfgentounicode=1
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}\vspace{-8pt}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+%%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+    \textbf{\Huge \scshape Simon Chen} \\ \vspace{1pt}
+    \small 347-322-4133 $|$ \href{mailto:shangminch@gmail.com}{\underline{shangminch@gmail.com}} $|$ \href{https://simon-chen.com}{\underline{simon-chen.com}} $|$ \href{https://linkedin.com/in/shangmin-chen}{\underline{linkedin.com/in/shangmin-chen}}
+\end{center}
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Boston University}{Boston, MA}
+      {Bachelor of Arts in Computer Science}{Graduated: Spring 2026}
+      \resumeItemListStart
+        \resumeItem{Relevant Coursework: Data Structures \& Algorithms, Operating Systems, Distributed Systems, Databases.}
+      \resumeItemListEnd
+  \resumeSubHeadingListEnd
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+  \resumeSubHeadingListStart
+
+    \resumeSubheading
+      {Ezesports}{New York, NY}
+      {Technical Director / Software Engineer}{December 2025 \textendash{} Present}
+      \resumeItemListStart
+        \resumeItem{Migrated an esports league platform from Google Sites to Next.js with a Supabase backend, replacing manual content updates with live scoring and automated season management.}
+        \resumeItem{Designed a PostgreSQL schema on Supabase using Drizzle ORM to support over 500 matches across 20 teams, and built RESTful endpoints for player statistics, standings, and historical data.}
+        \resumeItem{Cut page load time by 75 percent, dropping from 3.2s down to 0.8s, by implementing edge caching on Cloudflare, route-based code splitting, and asset optimization for the Next.js frontend.}
+      \resumeItemListEnd
+
+    \resumeSubheading
+      {RESET Standard}{Shanghai, China}
+      {Software Engineering Intern}{February 2026 \textendash{} June 2026}
+      \resumeItemListStart
+        \resumeItem{Doubled the platform's supported environmental data categories from 2 to 4 by independently implementing end-to-end water and waste data integration, developing Rails backend ingestion pipelines, PostgreSQL schemas, and client-facing React and Vite dashboards.}
+        \resumeItem{Engineered asynchronous data pipelines with RabbitMQ, Redis, and Sidekiq to process long-running ingestion jobs in the background, which successfully decoupled external API calls from user-facing requests.}
+        \resumeItem{Implemented a key client-requested feature by redesigning project-device mapping workflows, refactoring legacy forms to streamline the onboarding of environmental monitoring devices.}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+%-----------PROJECTS-----------
+\section{Projects}
+  \resumeSubHeadingListStart
+
+    \resumeProjectHeading
+      {\textbf{Persephone} $|$ \emph{Python, Cython/C++17, Rust, Modal, FAISS}}{May 2026}
+      \resumeItemListStart
+        \resumeItem{Built and operated a production Kalshi Bitcoin prediction-market trading system that generated 8K dollars net PnL and traded 200K dollars in volume during its first 4 live days, owning market-data ingestion, evaluation, and risk gates.}
+        \resumeItem{Engineered a GBM layer to replace inference bottlenecks, reducing model query latency from 1.5ms to 20 microseconds per query, a 75x improvement, while preserving live evaluation interfaces.}
+        \resumeItem{Moved 9 live hot-path kernels into native Cython extensions for order-book maintenance and event aggregation, cutting Kalshi book maintenance from 21.8ms to 195 microseconds.}
+        \resumeItem{Built a compiled Cython and C++17 SPSC event ring with cache-line-aligned atomic cursors, single-producer enforcement, and native ring-to-aggregator drains benchmarked at 584ns enqueue times.}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Audio Transcription Platform (Whisperrr)} $|$ \emph{Spring Boot, FastAPI, React, PostgreSQL}}{September 2025}
+      \resumeItemListStart
+        \resumeItem{Built a full-stack transcription platform processing audio four times faster than the baseline OpenAI Whisper API, supporting 99 languages across multiple audio formats with real-time results.}
+        \resumeItem{Designed a three-tier stateless architecture with HTTP connection pooling to reduce request latency by 70 percent, improving reliability for files over 25MB to a 100 percent success rate.}
+        \resumeItem{Containerized microservices using Docker Compose health checks and implemented segment-level timestamp generation for subtitle creation at 32x realtime speed.}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+%-----------TECHNICAL SKILLS-----------
+\section{Technical Skills}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+     \textbf{Languages}{: TypeScript, JavaScript, SQL, Python, Rust, Cython, Ruby, Java, HTML/CSS} \\
+     \textbf{Frameworks \& Libraries}{: Next.js, React, Drizzle ORM, FastAPI, Vite, Tailwind CSS, shadcn/ui, Ruby on Rails} \\
+     \textbf{Databases \& Infrastructure}{: PostgreSQL, Supabase, Redis, RabbitMQ, Sidekiq, Docker, Cloudflare, Git}
+    }}
+ \end{itemize}
+
+%-------------------------------------------
+\end{document}

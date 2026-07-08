@@ -106,21 +106,21 @@
   \resumeSubHeadingListStart
 
     \resumeSubheading
-      {Technical Director / Software Engineer}{December 2025 -- Present}
-      {Ezesports}{New York, NY}
-      \resumeItemListStart
-        \resumeItem{Migrated an esports league platform from Google Sites to Next.js with a Supabase backend, replacing manual content updates with live scoring and automated season management.}
-        \resumeItem{Designed a PostgreSQL schema on Supabase using Drizzle ORM, supporting 500+ matches across 20+ teams, and built RESTful endpoints for player statistics, standings, and historical data.}
-        \resumeItem{Cut page load time by 75\% (from 3.2s to 0.8s) by implementing edge caching on Cloudflare, route-based code splitting, and asset optimization for the Next.js frontend.}
-      \resumeItemListEnd
-
-    \resumeSubheading
       {Software Engineering Intern}{February 2026 -- June 2026}
       {RESET Standard}{Shanghai, China}
       \resumeItemListStart
         \resumeItem{Doubled the platform's supported environmental data categories (from 2 to 4) by independently implementing end-to-end water and waste data integration, developing Rails backend ingestion pipelines, PostgreSQL schemas, and client-facing React/Vite/Tailwind dashboards.}
         \resumeItem{Engineered asynchronous data pipelines with RabbitMQ, Redis, and Sidekiq to process long-running ingestion jobs in the background, decoupling external API calls from user-facing requests.}
         \resumeItem{Implemented a key client-requested feature by redesigning project-device mapping workflows, refactoring legacy forms to streamline the onboarding of environmental monitoring devices.}
+      \resumeItemListEnd
+
+    \resumeSubheading
+      {Technical Director / Software Engineer}{December 2025 -- Present}
+      {Ezesports}{New York, NY}
+      \resumeItemListStart
+        \resumeItem{Migrated an esports league platform from Google Sites to Next.js with a Supabase backend, replacing manual content updates with live scoring and automated season management.}
+        \resumeItem{Designed a PostgreSQL schema on Supabase using Drizzle ORM, supporting 500+ matches across 20+ teams, and built RESTful endpoints for player statistics, standings, and historical data.}
+        \resumeItem{Cut page load time by 75\% (from 3.2s to 0.8s) by implementing edge caching on Cloudflare, route-based code splitting, and asset optimization for the Next.js frontend.}
       \resumeItemListEnd
 
     \resumeSubheading
@@ -139,21 +139,19 @@
   \resumeSubHeadingListStart
 
     \resumeProjectHeading
-      {\textbf{Hermes Letters} $|$ \emph{Next.js, TypeScript, Supabase, Drizzle ORM, PostgreSQL}}{June 2026}
-      \resumeItemListStart
-        \resumeItem{Built a private long-form messaging platform for a group of 20+ friends during a study abroad semester, delivering 30+ letters.}
-        \resumeItem{Ensured consistent letter claims via atomic SQL updates and secured sessions in XSS-resistant httpOnly cookies.}
-        \resumeItem{Derived user connections at query time from kept-letter records using indexed lookups, avoiding a separate relationship table and associated database sync issues.}
-        \resumeItem{Hardened media storage by validating uploads via server-side magic-byte signatures, storing files in a private Supabase bucket, and restricting delivery to 1-hour signed URLs.}
-      \resumeItemListEnd
-
-    \resumeProjectHeading
       {\textbf{Persephone} $|$ \emph{Python, Cython/C++17, Rust, Modal, FAISS}}{May 2026}
       \resumeItemListStart
         \resumeItem{Built and operated a production Kalshi BTC prediction-market trading system that generated \$8K net PnL and traded \$200K volume in its first 4 live days, owning market-data ingestion, theo serving, strategy evaluation, exchange execution, risk gates, and operator controls.}
         \resumeItem{Engineered a GBM theo layer to replace KDE inference, reducing model query latency from \textasciitilde{}1.5ms to \textasciitilde{}20\ensuremath{\mu}s per query (\textasciitilde{}75x), while preserving the live theo interface used by strategy evaluation, cache publication, and operator tooling.}
-        \resumeItem{Reduced backtest and parameter-sweep iteration from \textasciitilde{}14 hours on local MacBook CPUs to \textasciitilde{}15 minutes on Modal NVIDIA GPUs by moving diagnostics, tick backtests, and sweeps onto cloud workers with FAISS GPU search and CuPy-vectorized math.}
-        \resumeItem{Optimized KDE serving with cached FAISS IVF indexes and FAISS thread pinning, avoiding OpenMP oversubscription and cutting 155K-row neighbor search from 758us p50 flat FAISS to 154us p50 with IVF.}
+        \resumeItem{Moved 9 live hot-path kernels into native Cython extensions for order-book maintenance, OBI, RTI, event aggregation, threshold storage, scalar math, and theo post-processing, cutting Kalshi book maintenance from 21.8ms to 195us p50 (112x) and RTI from 2.66ms to 323us p50 (8.3x).}
+        \resumeItem{Built a compiled Cython/C++17 SPSC RTI event ring with cache-line-aligned atomic cursors, power-of-two masked slots, packed uint64 event records, per-venue/pair channels, single-producer enforcement, overflow-to-UNSYNCED recovery, and native ring-to-aggregator drains, benchmarked at 584ns enqueue and 703ns/event drain.}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Self-Hosted Media \& Application Server} $|$ \emph{Docker, Linux, Cloudflare, Nginx, Automation}}{November 2025}
+      \resumeItemListStart
+        \resumeItem{Architected containerized home server infrastructure using Docker Compose, orchestrating 10+ microservices including Sonarr, Radarr, Prowlarr, Jellyfin, Jellyseerr, and qBittorrent for automated media management and streaming with 99\%+ uptime}
+        \resumeItem{Implemented secure external access using Cloudflare Tunnels with zero-trust network architecture, eliminating port forwarding vulnerabilities while hosting personal website and services accessible via custom domain}
       \resumeItemListEnd
 
   \resumeSubHeadingListEnd
@@ -162,7 +160,7 @@
 \section{Technical Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{Languages}{: C++17, C/C++, Cython, Go, HTML/CSS, Java, JavaScript, Python, Ruby, Rust, SQL, Solidity} \\
+     \textbf{Languages}{: C++17, C/C++, Cython, Go, HTML/CSS, Java, JavaScript, Python, Ruby, Rust, SQL, TypeScript} \\
      \textbf{Frameworks \& Libraries}{: Boost Libraries, CuPy, DBSCAN, Django, Drizzle ORM, Express.js, FAISS, FastAPI, Folium, Next.js, Node.js, OpenAI Whisper} \\
      \textbf{Databases \& Infrastructure}{: AsyncStorage, Auth0, CME MDP 3.0, Circom, Cloudflare, Cloudflare Pages, Cloudflare Tunnels, Docker, Docker Compose, Flyway migrations, GeoPandas, Git} \\
      \textbf{Platforms \& Systems}{: AWS, CrowdStrike, Ethereum, Heroku, Kalshi, MetaMask, Microsoft Deployment Toolkit, Modal, NAS, ServiceNow, Thirdweb SDK}

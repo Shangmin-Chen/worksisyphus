@@ -1,317 +1,177 @@
+#!/usr/bin/env python3
 from __future__ import annotations
 
-import json
-import subprocess
+import argparse
+from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+
+from worksisyphus import (
+    ArtifactStore,
+    CompilerBackend,
+    InvalidPdfArtifactError,
+    artifact_cache_key,
+    build_render_model,
+    canonical_profile_hash,
+    deterministic_fallback_selection_plan,
+    get_template_spec,
+    load_canonical_profile,
+    render_tex,
+)
 
 
-def tex_escape(text: str) -> str:
-    if not isinstance(text, str):
-        return str(text)
-    
-    # Escape LaTeX special characters
-    replacements = {
-        "\\": "\\textbackslash{}",
-        "&": "\\&",
-        "%": "\\%",
-        "$": "\\$",
-        "#": "\\#",
-        "_": "\\_",
-        "{": "\\{",
-        "}": "\\}",
-        "~": "\\textasciitilde{}",
-        "^": "\\textasciicircum{}",
-        "μ": "$\\mu$",
+DEFAULT_CACHE_DIR_NAME = ".worksisyphus-cache"
+DEFAULT_RESUME_JSON = Path("templates/experiences.json")
+DEFAULT_TEX_OUTPUT = Path("tex_files/Simon_Chen_Resume_Compiled.tex")
+DEFAULT_PDF_OUTPUT = Path("resumes/Simon_Chen_Resume_Compiled.pdf")
+
+CompilerBackendFactory = Callable[[ArtifactStore], CompilerBackend]
+
+
+def compile_resume(
+    resume_json_path: Path,
+    output_tex: Path,
+    compile_pdf: bool = True,
+    *,
+    pdf_output: Path | None = None,
+    cache_dir: Path | None = None,
+    template_id: str = "jakes_resume",
+    compiler_backend_factory: CompilerBackendFactory = CompilerBackend,
+) -> Path:
+    """Render and optionally compile a baseline resume through the trusted pipeline."""
+    profile = load_canonical_profile(resume_json_path)
+    template_spec = get_template_spec(template_id)
+    if template_spec.document_type != "resume":
+        raise ValueError(f"Template spec {template_id!r} is not a resume template.")
+
+    selection_plan = deterministic_fallback_selection_plan(profile=profile, template_spec=template_spec)
+    render_model = build_render_model(
+        profile=profile,
+        selection_plan=selection_plan,
+        template_spec=template_spec,
+    )
+    artifact_key = artifact_cache_key(
+        selection_plan=selection_plan,
+        template_spec=template_spec,
+        canonical_profile_hash_value=canonical_profile_hash(profile),
+    )
+
+    store = ArtifactStore(cache_dir if cache_dir is not None else output_tex.parent / DEFAULT_CACHE_DIR_NAME)
+    metadata = {
+        "mode": "baseline_resume_rebuild",
+        "source_profile": str(resume_json_path),
+        "template_id": template_spec.id,
+        "template_version": template_spec.version,
     }
-    
-    result = text
-    # Escape backslashes first, then others
-    result = result.replace("\\", "\\textbackslash{}")
-    for char, replacement in replacements.items():
-        if char != "\\":
-            result = result.replace(char, replacement)
-            
-    # Clean up math symbols like ~ used for approximation
-    result = result.replace("\\textasciitilde{}", "$\\sim$")
-    return result
 
-
-def generate_latex_resume(resume_data: dict[str, Any], contact_info: dict[str, Any]) -> str:
-    name = contact_info.get("name", "Name")
-    email = contact_info.get("email", "")
-    phone = contact_info.get("phone", "")
-    website = contact_info.get("website", "")
-    github = contact_info.get("github", "")
-    linkedin = contact_info.get("linkedin", "")
-
-    lines = []
-    
-    lines.append(r"\documentclass[letterpaper,11pt]{article}")
-    lines.append("")
-    lines.append(r"\usepackage{latexsym}")
-    lines.append(r"\usepackage[empty]{fullpage}")
-    lines.append(r"\usepackage{titlesec}")
-    lines.append(r"\usepackage{marvosym}")
-    lines.append(r"\usepackage[usenames,dvipsnames]{color}")
-    lines.append(r"\usepackage{verbatim}")
-    lines.append(r"\usepackage{enumitem}")
-    lines.append(r"\usepackage[hidelinks]{hyperref}")
-    lines.append(r"\usepackage{fancyhdr}")
-    lines.append(r"\usepackage[english]{babel}")
-    lines.append(r"\usepackage{tabularx}")
-    lines.append(r"\input{glyphtounicode}")
-    lines.append("")
-    lines.append(r"\pagestyle{fancy}")
-    lines.append(r"\fancyhf{} % clear all header and footer fields")
-    lines.append(r"\fancyfoot{}")
-    lines.append(r"\renewcommand{\headrulewidth}{0pt}")
-    lines.append(r"\renewcommand{\footrulewidth}{0pt}")
-    lines.append("")
-    # Adjust margins
-    lines.append(r"\addtolength{\oddsidemargin}{-0.5in}")
-    lines.append(r"\addtolength{\evensidemargin}{-0.5in}")
-    lines.append(r"\addtolength{\textwidth}{1in}")
-    lines.append(r"\addtolength{\topmargin}{-.5in}")
-    lines.append(r"\addtolength{\textheight}{1.0in}")
-    lines.append("")
-    lines.append(r"\urlstyle{same}")
-    lines.append("")
-    lines.append(r"\raggedbottom")
-    lines.append(r"\raggedright")
-    lines.append(r"\setlength{\tabcolsep}{0in}")
-    lines.append("")
-    # Sections formatting
-    lines.append(r"\titleformat{\section}{")
-    lines.append(r"  \vspace{-10pt}\scshape\raggedright\large")
-    lines.append(r"}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]")
-    lines.append("")
-    # Ensure that generate pdf is machine readable/ATS parsable
-    lines.append(r"\pdfgentounicode=1")
-    lines.append("")
-    # Custom commands
-    lines.append(r"\newcommand{\resumeItem}[1]{")
-    lines.append(r"  \item\small{")
-    lines.append(r"    {#1 \vspace{-2pt}}")
-    lines.append(r"  }")
-    lines.append(r"}")
-    lines.append("")
-    lines.append(r"\newcommand{\resumeSubheading}[4]{")
-    lines.append(r"  \vspace{-2pt}\item")
-    lines.append(r"    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}")
-    lines.append(r"      \textbf{#1} & #2 \\")
-    lines.append(r"      \textit{\small#3} & \textit{\small #4} \\")
-    lines.append(r"    \end{tabular*}\vspace{-7pt}")
-    lines.append(r"}")
-    lines.append("")
-    lines.append(r"\newcommand{\resumeSubSubheading}[2]{")
-    lines.append(r"    \item")
-    lines.append(r"    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}")
-    lines.append(r"      \textit{\small#1} & \textit{\small #2} \\")
-    lines.append(r"    \end{tabular*}\vspace{-7pt}")
-    lines.append(r"}")
-    lines.append("")
-    lines.append(r"\newcommand{\resumeProjectHeading}[2]{")
-    lines.append(r"    \item")
-    lines.append(r"    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}")
-    lines.append(r"      \small#1 & #2 \\")
-    lines.append(r"    \end{tabular*}\vspace{-7pt}")
-    lines.append(r"}")
-    lines.append("")
-    lines.append(r"\newcommand{\resumeSubItem}[1]{\resumeSubItem{#1}\vspace{-4pt}}")
-    lines.append("")
-    lines.append(r"\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}")
-    lines.append("")
-    lines.append(r"\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}")
-    lines.append(r"\newcommand{\resumeSubHeadingListEnd}{\end{itemize}\vspace{-8pt}}")
-    lines.append(r"\newcommand{\resumeItemListStart}{\begin{itemize}}")
-    lines.append(r"\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}")
-    lines.append("")
-    lines.append(r"\begin{document}")
-    lines.append("")
-    
-    # Heading block
-    lines.append(r"\begin{center}")
-    lines.append(rf"    \textbf{{\Huge \scshape {tex_escape(name)}}} \\ \vspace{{1pt}}")
-    
-    contact_parts = []
-    if phone:
-        contact_parts.append(tex_escape(phone))
-    if email:
-        contact_parts.append(rf"\href{{mailto:{email}}}{{\underline{{{tex_escape(email)}}}}}")
-    if website:
-        display_web = website.replace("https://", "").replace("http://", "")
-        contact_parts.append(rf"\href{{{website}}}{{\underline{{{tex_escape(display_web)}}}}}")
-    if linkedin:
-        display_li = linkedin.replace("https://www.linkedin.com/in/", "").replace("https://linkedin.com/in/", "")
-        contact_parts.append(rf"\href{{{linkedin}}}{{\underline{{linkedin.com/in/{tex_escape(display_li)}}}}}")
-    if github:
-        display_gh = github.replace("https://github.com/", "").replace("https://www.github.com/", "")
-        contact_parts.append(rf"\href{{{github}}}{{\underline{{github.com/{tex_escape(display_gh)}}}}}")
-        
-    lines.append("    \\small " + " $|$ ".join(contact_parts))
-    lines.append(r"\end{center}")
-    lines.append("")
-
-    # Education
-    education = resume_data.get("education", [])
-    if education:
-        lines.append(r"%-----------EDUCATION-----------")
-        lines.append(r"\section{Education}")
-        lines.append(r"  \resumeSubHeadingListStart")
-        for edu in education:
-            inst = edu.get("institution", "")
-            loc = edu.get("location", "")
-            deg = edu.get("degree", "")
-            date = edu.get("date", "")
-            lines.append(f"    \\resumeSubheading")
-            lines.append(f"      {{{tex_escape(inst)}}}{{{tex_escape(loc)}}}")
-            lines.append(f"      {{{tex_escape(deg)}}}{{{tex_escape(date)}}}")
-            
-            coursework = edu.get("coursework", [])
-            if coursework:
-                lines.append(r"      \resumeItemListStart")
-                lines.append(f"        \\resumeItem{{Relevant Coursework: {tex_escape(', '.join(coursework))}.}}")
-                lines.append(r"      \resumeItemListEnd")
-        lines.append(r"  \resumeSubHeadingListEnd")
-        lines.append("")
-
-    # Experience
-    experiences = resume_data.get("experiences", [])
-    if experiences:
-        lines.append(r"%-----------EXPERIENCE-----------")
-        lines.append(r"\section{Experience}")
-        lines.append(r"  \resumeSubHeadingListStart")
-        for exp in experiences:
-            org = exp.get("organization", "")
-            loc = exp.get("location", "")
-            role = exp.get("role", "")
-            date = exp.get("date", "")
-            lines.append(f"    \\resumeSubheading")
-            lines.append(f"      {{{tex_escape(role)}}}{{{tex_escape(date)}}}")
-            lines.append(f"      {{{tex_escape(org)}}}{{{tex_escape(loc)}}}")
-            lines.append(r"      \resumeItemListStart")
-            for bullet in exp.get("bullets", []):
-                lines.append(f"        \\resumeItem{{{tex_escape(bullet)}}}")
-            lines.append(r"      \resumeItemListEnd")
-        lines.append(r"  \resumeSubHeadingListEnd")
-        lines.append("")
-
-    # Projects
-    projects = resume_data.get("projects", [])
-    if projects:
-        lines.append(r"%-----------PROJECTS-----------")
-        lines.append(r"\section{Projects}")
-        lines.append(r"  \resumeSubHeadingListStart")
-        for proj in projects:
-            p_name = proj.get("name", "")
-            tech = proj.get("technologies", "")
-            date = proj.get("date", "")
-            tech_formatted = rf" $|$ \emph{{{tex_escape(tech)}}}" if tech else ""
-            lines.append(f"    \\resumeProjectHeading")
-            lines.append(f"      {{\\textbf{{{tex_escape(p_name)}}}{tech_formatted}}}{{{tex_escape(date)}}}")
-            lines.append(r"      \resumeItemListStart")
-            for bullet in proj.get("bullets", []):
-                lines.append(f"        \\resumeItem{{{tex_escape(bullet)}}}")
-            lines.append(r"      \resumeItemListEnd")
-        lines.append(r"  \resumeSubHeadingListEnd")
-        lines.append("")
-
-    # Skills
-    skills = resume_data.get("skills", {})
-    if skills:
-        lines.append(r"%-----------TECHNICAL SKILLS-----------")
-        lines.append(r"\section{Technical Skills}")
-        lines.append(r" \begin{itemize}[leftmargin=0.15in, label={}]")
-        lines.append(r"    \small{\item{")
-        
-        skills_lines = []
-        if "languages" in skills:
-            skills_lines.append(rf"\textbf{{Languages}}{{: {tex_escape(', '.join(skills['languages']))}}}")
-        if "frameworks_and_libraries" in skills:
-            skills_lines.append(rf"\textbf{{Frameworks \& Libraries}}{{: {tex_escape(', '.join(skills['frameworks_and_libraries']))}}}")
-        if "databases_and_infrastructure" in skills:
-            skills_lines.append(rf"\textbf{{Databases \& Infrastructure}}{{: {tex_escape(', '.join(skills['databases_and_infrastructure']))}}}")
-        if "platforms_and_systems" in skills:
-            skills_lines.append(rf"\textbf{{Platforms \& Systems}}{{: {tex_escape(', '.join(skills['platforms_and_systems']))}}}")
-        
-        if not skills_lines and isinstance(skills, list):
-            skills_lines.append(rf"\textbf{{Skills}}{{: {tex_escape(', '.join(skills))}}}")
-        elif not skills_lines and isinstance(skills, dict):
-            for k, v in skills.items():
-                if isinstance(v, list):
-                    skills_lines.append(rf"\textbf{{{tex_escape(k.replace('_', ' ').title())}}}{{: {tex_escape(', '.join(v))}}}")
-                else:
-                    skills_lines.append(rf"\textbf{{{tex_escape(k.replace('_', ' ').title())}}}{{: {tex_escape(str(v))}}}")
-                    
-        lines.append(" \\\\\n".join(skills_lines))
-        lines.append(r"    }}")
-        lines.append(r" \end{itemize}")
-        lines.append("")
-
-    lines.append(r"\end{document}")
-    return "\n".join(lines)
-
-
-def compile_resume(resume_json_path: Path, output_tex: Path, compile_pdf: bool = True) -> Path:
-    if not resume_json_path.is_file():
-        raise FileNotFoundError(f"Resume JSON file not found at {resume_json_path}")
-
-    with open(resume_json_path, "r", encoding="utf-8") as f:
-        resume_data = json.load(f)
-
-    contact_info = resume_data.get("contact", {})
-    latex_content = generate_latex_resume(resume_data, contact_info)
-
-    output_tex.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_tex, "w", encoding="utf-8") as f:
-        f.write(latex_content)
-
-    print(f"Generating LaTeX source: {output_tex}")
+    tex = render_tex(render_model, template_spec)
+    store.cache_tex(key=artifact_key, tex=tex, metadata=metadata)
+    store.export_tex(key=artifact_key, output_path=output_tex)
 
     if not compile_pdf:
         return output_tex
 
+    target_pdf = pdf_output if pdf_output is not None else output_tex.with_suffix(".pdf")
     try:
-        subprocess.run(
-            ["latexmk", "-pdf", "-interaction=nonstopmode", "-output-directory=" + str(output_tex.parent), str(output_tex)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+        return store.export_pdf(key=artifact_key, output_path=target_pdf).output_path
+    except (FileNotFoundError, InvalidPdfArtifactError):
+        pass
+
+    backend = compiler_backend_factory(store)
+    result = backend.compile_render_model(
+        render_model=render_model,
+        template_spec=template_spec,
+        key=artifact_key,
+        output_pdf_path=target_pdf,
+        metadata=metadata,
+    )
+    if not result.ok:
+        details = "; ".join(result.errors) if result.errors else "unknown compiler error"
+        log_hint = f" Compile log: {result.log_path}" if result.log_path is not None else ""
+        raise RuntimeError(f"Deterministic PDF compilation failed: {details}.{log_hint}")
+    return result.exported_pdf_path or result.pdf_path or target_pdf
+
+
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    compiler_backend_factory: CompilerBackendFactory = CompilerBackend,
+) -> int:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+    pdf_output = _resolve_pdf_output(args.output, args.pdf_output)
+
+    try:
+        out_path = compile_resume(
+            args.resume,
+            args.output,
+            compile_pdf=not args.tex_only,
+            pdf_output=pdf_output,
+            cache_dir=args.cache_dir,
+            template_id=args.template_id,
+            compiler_backend_factory=compiler_backend_factory,
         )
-        subprocess.run(
-            ["latexmk", "-c", "-output-directory=" + str(output_tex.parent), str(output_tex)],
-            check=True,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-    except Exception:
-        try:
-            print("latexmk failed, falling back to pdflatex...")
-            subprocess.run(
-                ["pdflatex", "-interaction=nonstopmode", "-output-directory=" + str(output_tex.parent), str(output_tex)],
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception as e:
-            print(f"Compilation warning: could not compile PDF (error: {e})")
-            
+    except Exception as exc:
+        print(f"Error: {exc}")
+        return 1
+
+    if args.tex_only:
+        print(f"Deterministic LaTeX source exported: {out_path}")
+    else:
+        print(f"Deterministic PDF exported: {out_path}")
+    return 0
+
+
+def _resolve_pdf_output(output_tex: Path, requested_pdf_output: Path | None) -> Path:
+    if requested_pdf_output is not None:
+        return requested_pdf_output
+    if output_tex == DEFAULT_TEX_OUTPUT:
+        return DEFAULT_PDF_OUTPUT
     return output_tex.with_suffix(".pdf")
 
 
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Rebuild the canonical resume through the deterministic compiler."
+    )
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        default=DEFAULT_RESUME_JSON,
+        help=f"Path to canonical experiences JSON; default: {DEFAULT_RESUME_JSON}",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=DEFAULT_TEX_OUTPUT,
+        help=f"Output path for deterministic TeX; default: {DEFAULT_TEX_OUTPUT}",
+    )
+    parser.add_argument(
+        "--pdf-output",
+        type=Path,
+        default=None,
+        help=(
+            "Output path for deterministic PDF; default: resumes/Simon_Chen_Resume_Compiled.pdf "
+            "when --output is the default, otherwise <output>.pdf"
+        ),
+    )
+    parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=None,
+        help=f"Artifact cache directory; default: <output-dir>/{DEFAULT_CACHE_DIR_NAME}",
+    )
+    parser.add_argument(
+        "--template-id",
+        default="jakes_resume",
+        help="Built-in TemplateSpec ID to use; default: jakes_resume",
+    )
+    parser.add_argument(
+        "--tex-only",
+        action="store_true",
+        help="Export deterministic TeX without compiling a PDF.",
+    )
+    return parser
+
+
 if __name__ == "__main__":
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Compile resume JSON to LaTeX & PDF.")
-    parser.add_argument("--resume", type=Path, default=Path("templates/experiences.json"), help="Path to resume.json")
-    parser.add_argument("--output", type=Path, default=Path("tex_files/Simon_Chen_Resume_Compiled.tex"), help="Output LaTeX path")
-    parser.add_argument("--tex-only", action="store_true", help="Generate the .tex file without compiling a PDF")
-
-    args = parser.parse_args()
-
-    out_path = compile_resume(args.resume, args.output, compile_pdf=not args.tex_only)
-    if args.tex_only:
-        print(f"LaTeX source generated: {out_path}")
-    else:
-        print(f"Compiled PDF successfully: {out_path}")
+    raise SystemExit(main())
