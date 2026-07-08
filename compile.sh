@@ -1,37 +1,54 @@
 #!/bin/bash
-# Compile LaTeX files from tex_files/ to PDF in resumes/
+# Compile every .tex file in tex_files/ to a PDF in resumes/.
+# A failing file does not stop the others; the script exits non-zero
+# if anything failed and prints a summary at the end.
 
-# Exit immediately if a command exits with a non-zero status
-set -e
-
-echo "Starting LaTeX resumes/cover letters compilation..."
-mkdir -p resumes
-mkdir -p tex_files
+set -u
 
 echo "----------------------------------------"
-echo "Compiling JSON resume..."
+echo "Regenerating JSON resume LaTeX source..."
 echo "----------------------------------------"
-python src/compile.py --resume templates/experiences.json --output tex_files/Simon_Chen_Resume_Compiled.tex --tex-only
+python3 src/compile.py --resume templates/experiences.json --output tex_files/Simon_Chen_Resume_Compiled.tex --tex-only
 
-# Compile all .tex files in tex_files/
-for f in tex_files/*.tex; do
-    if [ -f "$f" ]; then
-        filename=$(basename "$f" .tex)
-        echo "----------------------------------------"
-        echo "Compiling $filename..."
-        echo "----------------------------------------"
-        
-        # Compile using pdflatex via latexmk
-        latexmk -pdf -interaction=nonstopmode -output-directory=tex_files "$f"
-        
-        # Move the compiled PDF to the resumes/ folder
-        mv "tex_files/$filename.pdf" "resumes/"
-        
-        # Clean up temporary auxiliary build files
-        latexmk -c -output-directory=tex_files "$f"
+mkdir -p resumes tex_files
+
+shopt -s nullglob
+files=(tex_files/*.tex)
+if [ ${#files[@]} -eq 0 ]; then
+    echo "No .tex files in tex_files/ — nothing to compile."
+    exit 0
+fi
+
+compiled=()
+failed=()
+
+for f in "${files[@]}"; do
+    filename=$(basename "$f" .tex)
+    echo "----------------------------------------"
+    echo "Compiling $filename..."
+    echo "----------------------------------------"
+
+    if latexmk -pdf -interaction=nonstopmode -output-directory=tex_files "$f"; then
+        mv -f "tex_files/$filename.pdf" resumes/
+        # Clean up intermediate build files
+        latexmk -c -output-directory=tex_files "$f" >/dev/null 2>&1
+        compiled+=("$filename")
+    else
+        echo "ERROR: $filename failed to compile (log kept at tex_files/$filename.log)"
+        failed+=("$filename")
     fi
 done
 
 echo "----------------------------------------"
-echo "All files successfully compiled!"
+echo "Compiled ${#compiled[@]}/${#files[@]} file(s) into resumes/."
+if [ ${#compiled[@]} -gt 0 ]; then
+    for name in "${compiled[@]}"; do echo "  ok: $name.pdf"; done
+fi
+if [ ${#failed[@]} -gt 0 ]; then
+    for name in "${failed[@]}"; do echo "  FAILED: $name"; done
+fi
 echo "----------------------------------------"
+
+if [ ${#failed[@]} -gt 0 ]; then
+    exit 1
+fi
