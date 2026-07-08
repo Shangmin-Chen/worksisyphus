@@ -118,6 +118,9 @@ def normalize_selection_plan(
         path="bullet_ids_by_item",
         errors=errors,
     )
+    # An entry with no bullet IDs selects nothing; drop it rather than
+    # rejecting the whole plan over the owner of an empty list.
+    bullet_ids_by_item = tuple((item_id, bullet_ids) for item_id, bullet_ids in bullet_ids_by_item if bullet_ids)
     selected_item_ids = {*experience_ids, *project_ids}
     valid_bullet_owner_ids = set(experiences_by_id) | set(projects_by_id)
     seen_bullet_ids: set[str] = set()

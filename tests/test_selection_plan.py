@@ -70,6 +70,17 @@ class SelectionPlanTests(unittest.TestCase):
         self.assertEqual(render_model.experiences[0].entry.id, experience.id)
         self.assertEqual(len(render_model.experiences[0].bullets), 2)
 
+    def test_empty_bullet_list_entries_are_dropped_not_rejected(self) -> None:
+        raw_plan = self._valid_raw_plan()
+        education = self.profile.education[0]
+        raw_plan["bullet_ids_by_item"][education.id] = []
+
+        plan = normalize_selection_plan(raw_plan, profile=self.profile, template_spec=self.template)
+
+        owner_ids = [item_id for item_id, _ in plan.bullet_ids_by_item]
+        self.assertNotIn(education.id, owner_ids)
+        self.assertTrue(all(bullet_ids for _, bullet_ids in plan.bullet_ids_by_item))
+
     def test_omitted_sections_default_to_template_order(self) -> None:
         raw_plan = self._valid_raw_plan()
         raw_plan.pop("sections")

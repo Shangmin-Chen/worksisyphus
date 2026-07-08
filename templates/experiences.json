@@ -70,17 +70,15 @@
     },
     {
       "name": "Persephone",
-      "technologies": "Python, Cython/C++17, Rust, Modal, FAISS",
+      "technologies": "Python, Cython, Rust, FastAPI, React/TypeScript, Kalshi, Low-Latency",
       "date": "May 2026",
       "bullets": [
-        "Built and operated a production Kalshi BTC prediction-market trading system that generated \\$8K net PnL and traded \\$200K volume in its first 4 live days, owning market-data ingestion, theo serving, strategy evaluation, exchange execution, risk gates, and operator controls.",
-        "Engineered a GBM theo layer to replace KDE inference, reducing model query latency from $\\sim$1.5ms to $\\sim$20$\\mu$s per query ($\\sim$75x), while preserving the live theo interface used by strategy evaluation, cache publication, and operator tooling.",
-        "Reduced backtest and parameter-sweep iteration from $\\sim$14 hours on local MacBook CPUs to $\\sim$15 minutes on Modal NVIDIA GPUs by moving diagnostics, tick backtests, and sweeps onto cloud workers with FAISS GPU search and CuPy-vectorized math.",
-        "Optimized KDE serving with cached FAISS IVF indexes and FAISS thread pinning, avoiding OpenMP oversubscription and cutting 155K-row neighbor search from 758us p50 flat FAISS to 154us p50 with IVF.",
-        "Moved 9 live hot-path kernels into native Cython extensions for order-book maintenance, OBI, RTI, event aggregation, threshold storage, scalar math, and theo post-processing, cutting Kalshi book maintenance from 21.8ms to 195us p50 (112x) and RTI from 2.66ms to 323us p50 (8.3x).",
-        "Built a compiled Cython/C++17 SPSC RTI event ring with cache-line-aligned atomic cursors, power-of-two masked slots, packed uint64 event records, per-venue/pair channels, single-producer enforcement, overflow-to-UNSYNCED recovery, and native ring-to-aggregator drains, benchmarked at 584ns enqueue and 703ns/event drain.",
-        "Prevented bad-price quoting with fail-closed market-data and risk-admission gates that block stale, crossed, overflowed, low-venue, or untrusted feeds before quote generation; fused RTI/BRTI metrics benchmarked at 357us p50 / 432us p95 on 8 venues x 500 levels.",
-        "Eliminated duplicate-send and crash-replay risk with a durable-before-wire order layer that journals intent before exchange dispatch, derives deterministic client IDs for idempotent retries, applies final pre-send risk gates, and persists ack/failure state for reconciliation."
+        "Built and launched a production Kalshi prediction-market trading system that generated $\\sim$\\$8K net PnL over its first 4 days of live trading and traded $\\sim$\\$200K in volume across model-driven quoting, exchange execution, risk controls, and operator tooling.",
+        "Cut live hot-path latency by rewriting 9 performance-critical Python kernels into native Cython extensions for orderbook processing, OBI evaluation, RTI/event aggregation, threshold storage, and theo prediction.",
+        "Built fail-closed market-data infrastructure that blocks stale, crossed, overflowed, or low-venue feeds before they reach the quoting path, using trusted-spot checks and venue-health state machines.",
+        "Built a write-ahead order safety layer that records order intent before exchange dispatch, reducing duplicate-send and crash-replay risk with deterministic client IDs, final risk gates, and durable execution records.",
+        "Prevented unsafe model and release promotion with walk-forward validation, Brier/reliability gates, SHA-256 model manifests, immutable release artifacts, latency SLOs, and shadow-readiness checks.",
+        "Implemented a 14-crate Rust replacement core for deterministic low-latency execution, using fixed-point arithmetic, typed event protocols, replay-golden tests, allocation audits, and canonical state digests."
       ]
     },
     {
