@@ -1,4 +1,5 @@
-.worksisyphus/
+.worksisyphus-cache/
+raw_inputs/
 .venv/
 __pycache__/
 *.py[cod]
