@@ -90,7 +90,7 @@
       "bullets": [
         "Architected containerized home server infrastructure using Docker Compose, orchestrating 10+ microservices including Sonarr, Radarr, Prowlarr, Jellyfin, Jellyseerr, and qBittorrent for automated media management and streaming with 99\\%+ uptime",
         "Implemented secure external access using Cloudflare Tunnels with zero-trust network architecture, eliminating port forwarding vulnerabilities while hosting personal website and services accessible via custom domain",
-        "Configured automated workflow pipelines with inter-container networking and reverse proxy routing, integrating Slskd to pirate music via Soulseek and establishing centralized monitoring for resource optimization"
+        "Configured automated workflow pipelines with inter-container networking and reverse proxy routing, integrating Slskd for automated music library transfers over the Soulseek network and establishing centralized monitoring for resource optimization"
       ]
     },
     {
