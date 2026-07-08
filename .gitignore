@@ -3,6 +3,7 @@ raw_inputs/
 
 # Generated job-specific outputs stay local; only the canonical resume is tracked
 tex_files/*.tex
+tex_files/*.pdf
 !tex_files/Simon_Chen_Resume_Compiled.tex
 resumes/*.pdf
 !resumes/Simon_Chen_Resume_Compiled.pdf

@@ -37,7 +37,7 @@ from .compiler import (
     CompileResult,
     CompilerBackend,
 )
-from .renderer import RENDERER_VERSION, TexRenderer, escape_latex, render_tex
+from .renderer import RENDERER_VERSION, TexRenderer, tex_text, render_tex
 from .selection import (
     PlanValidationError,
     build_render_model,
@@ -108,7 +108,7 @@ __all__ = [
     "canonical_profile_hash",
     "deterministic_fallback_selection_plan",
     "derive_legacy_id",
-    "escape_latex",
+    "tex_text",
     "get_template_spec",
     "load_canonical_profile",
     "normalize_selection_plan",

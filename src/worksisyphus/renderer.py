@@ -13,33 +13,7 @@ from .models import (
 )
 
 
-RENDERER_VERSION = "jakes-resume-tex-renderer-v1"
-
-_SPECIAL_CHARS = {
-    "\\": r"\textbackslash{}",
-    "&": r"\&",
-    "%": r"\%",
-    "$": r"\$",
-    "#": r"\#",
-    "_": r"\_",
-    "{": r"\{",
-    "}": r"\}",
-    "~": r"\textasciitilde{}",
-    "^": r"\textasciicircum{}",
-}
-
-_UNICODE_CHARS = {
-    "\u00a0": " ",
-    "\u00b5": r"\ensuremath{\mu}",
-    "\u03bc": r"\ensuremath{\mu}",
-    "\u2013": "--",
-    "\u2014": "---",
-    "\u2018": "'",
-    "\u2019": "'",
-    "\u201c": "``",
-    "\u201d": "''",
-    "\u2026": "...",
-}
+RENDERER_VERSION = "jakes-resume-tex-renderer-v2"
 
 _SKILL_GROUP_LABELS = {
     "languages": "Languages",
@@ -49,11 +23,11 @@ _SKILL_GROUP_LABELS = {
 }
 
 
-def escape_latex(value: object) -> str:
-    """Escape canonical/user text for use as LaTeX text content."""
+def tex_text(value: object) -> str:
+    """Canonical values are trusted TeX and pass through verbatim; None renders empty."""
     if value is None:
         return ""
-    return "".join(_SPECIAL_CHARS.get(char, _UNICODE_CHARS.get(char, char)) for char in str(value))
+    return str(value)
 
 
 def render_tex(render_model: RenderModel, template_spec: TemplateSpec) -> str:
@@ -211,7 +185,7 @@ def _jakes_preamble_lines() -> list[str]:
 def _render_contact(contact: Contact) -> list[str]:
     lines = [
         r"\begin{center}",
-        rf"    \textbf{{\Huge \scshape {escape_latex(contact.name)}}} \\ \vspace{{1pt}}",
+        rf"    \textbf{{\Huge \scshape {tex_text(contact.name)}}} \\ \vspace{{1pt}}",
     ]
     contact_parts = _contact_parts(contact)
     if contact_parts:
@@ -223,7 +197,7 @@ def _render_contact(contact: Contact) -> list[str]:
 def _contact_parts(contact: Contact) -> list[str]:
     parts: list[str] = []
     if contact.phone:
-        parts.append(escape_latex(contact.phone))
+        parts.append(tex_text(contact.phone))
     if contact.email:
         email_url = "mailto:" + contact.email
         parts.append(_href(email_url, contact.email))
@@ -237,7 +211,7 @@ def _contact_parts(contact: Contact) -> list[str]:
 
 
 def _href(url: str, label: str) -> str:
-    return rf"\href{{{escape_latex(url)}}}{{\underline{{{escape_latex(label)}}}}}"
+    return rf"\href{{{tex_text(url)}}}{{\underline{{{tex_text(label)}}}}}"
 
 
 def _display_url(url: str) -> str:
@@ -263,15 +237,15 @@ def _render_education(education: Iterable[EducationEntry]) -> list[str]:
         lines.extend(
             [
                 r"    \resumeSubheading",
-                rf"      {{{escape_latex(entry.institution)}}}{{{escape_latex(entry.location)}}}",
-                rf"      {{{escape_latex(entry.degree)}}}{{{escape_latex(entry.date)}}}",
+                rf"      {{{tex_text(entry.institution)}}}{{{tex_text(entry.location)}}}",
+                rf"      {{{tex_text(entry.degree)}}}{{{tex_text(entry.date)}}}",
             ]
         )
         if entry.coursework:
             lines.extend(
                 [
                     r"      \resumeItemListStart",
-                    rf"        \resumeItem{{Relevant Coursework: {escape_latex(', '.join(entry.coursework))}.}}",
+                    rf"        \resumeItem{{Relevant Coursework: {tex_text(', '.join(entry.coursework))}.}}",
                     r"      \resumeItemListEnd",
                 ]
             )
@@ -296,14 +270,14 @@ def _render_experience(experiences: Iterable[RenderExperience]) -> list[str]:
         lines.extend(
             [
                 r"    \resumeSubheading",
-                rf"      {{{escape_latex(entry.role)}}}{{{escape_latex(entry.date)}}}",
-                rf"      {{{escape_latex(entry.organization)}}}{{{escape_latex(entry.location)}}}",
+                rf"      {{{tex_text(entry.role)}}}{{{tex_text(entry.date)}}}",
+                rf"      {{{tex_text(entry.organization)}}}{{{tex_text(entry.location)}}}",
             ]
         )
         if experience.bullets:
             lines.append(r"      \resumeItemListStart")
             for bullet in experience.bullets:
-                lines.append(rf"        \resumeItem{{{escape_latex(bullet.text)}}}")
+                lines.append(rf"        \resumeItem{{{tex_text(bullet.text)}}}")
             lines.append(r"      \resumeItemListEnd")
         lines.append(r"")
     lines.extend(
@@ -324,17 +298,17 @@ def _render_projects(projects: Iterable[RenderProject]) -> list[str]:
     ]
     for project in projects:
         entry = project.entry
-        technologies = rf" $|$ \emph{{{escape_latex(entry.technologies)}}}" if entry.technologies else ""
+        technologies = rf" $|$ \emph{{{tex_text(entry.technologies)}}}" if entry.technologies else ""
         lines.extend(
             [
                 r"    \resumeProjectHeading",
-                rf"      {{\textbf{{{escape_latex(entry.name)}}}{technologies}}}{{{escape_latex(entry.date)}}}",
+                rf"      {{\textbf{{{tex_text(entry.name)}}}{technologies}}}{{{tex_text(entry.date)}}}",
             ]
         )
         if project.bullets:
             lines.append(r"      \resumeItemListStart")
             for bullet in project.bullets:
-                lines.append(rf"        \resumeItem{{{escape_latex(bullet.text)}}}")
+                lines.append(rf"        \resumeItem{{{tex_text(bullet.text)}}}")
             lines.append(r"      \resumeItemListEnd")
         lines.append(r"")
     lines.extend(
@@ -358,8 +332,8 @@ def _skill_group_lines(skills: Iterable[SkillGroup], template_spec: TemplateSpec
         group = groups_by_id[group_id]
         if not group.skills:
             continue
-        label = _SKILL_GROUP_LABELS.get(group.id, escape_latex(group.label))
-        values = escape_latex(", ".join(skill.label for skill in group.skills))
+        label = _SKILL_GROUP_LABELS.get(group.id, tex_text(group.label))
+        values = tex_text(", ".join(skill.label for skill in group.skills))
         lines.append(rf"     \textbf{{{label}}}{{: {values}}}")
     return lines
 

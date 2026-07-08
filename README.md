@@ -13,7 +13,7 @@ This repository contains the structured experiences database, deterministic LaTe
 │   ├── generate.py           # Gemini JSON planner + deterministic artifact generator
 │   └── worksisyphus/         # Canonical models, renderer, cache, and compiler backend
 ├── templates/                # Folder containing templates and data
-│   ├── experiences.json      # Centralized master experiences database in JSON
+│   ├── experiences.json      # Centralized master experiences database (values are TeX-formatted)
 │   ├── resumes/              # LaTeX resume templates
 │   │   └── jakes_resume_template.tex # Supported deterministic resume template
 │   └── cover_letters/        # LaTeX cover letter templates
@@ -48,7 +48,7 @@ python src/generate.py --mode cover-letter --jd "path/to/jd.txt"
 ```
 
 The script will:
-1. Read the master experiences list from `templates/experiences.json` and the target Job Description.
+1. Read the master experiences list from `templates/experiences.json` and the target Job Description. Values in this file are trusted TeX (e.g. `\$8K`, `75\%`, `$\sim$20$\mu$s`) and are rendered verbatim — escape special characters when editing it.
 2. Ask Gemini for a JSON-only selection plan containing canonical IDs.
 3. Validate that plan against the canonical profile and selected `TemplateSpec`.
 4. Render deterministic TeX locally and export it to `tex_files/<name>_resume.tex`.
