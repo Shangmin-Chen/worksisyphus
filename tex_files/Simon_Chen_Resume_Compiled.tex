@@ -14,7 +14,7 @@
 \input{glyphtounicode}
 
 \pagestyle{fancy}
-\fancyhf{} % clear all header and footer fields
+\fancyhf{}
 \fancyfoot{}
 \renewcommand{\headrulewidth}{0pt}
 \renewcommand{\footrulewidth}{0pt}
@@ -37,7 +37,7 @@
   \vspace{-4pt}\scshape\raggedright\large
 }{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
 
-% Ensure that generate pdf is machine readable/ATS parsable
+% Ensure generated pdf is machine readable/ATS parsable
 \pdfgentounicode=1
 
 %-------------------------
@@ -56,21 +56,12 @@
     \end{tabular*}\vspace{-7pt}
 }
 
-\newcommand{\resumeSubSubheading}[2]{
-    \item
-    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
-      \textit{\small#1} & \textit{\small #2} \\
-    \end{tabular*}\vspace{-7pt}
-}
-
 \newcommand{\resumeProjectHeading}[2]{
     \item
     \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
       \small#1 & #2 \\
     \end{tabular*}\vspace{-7pt}
 }
-
-\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
 
 \renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
 
@@ -79,18 +70,13 @@
 \newcommand{\resumeItemListStart}{\begin{itemize}}
 \newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
 
-%-------------------------------------------
-%%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%
-
 \begin{document}
 
-%----------HEADING----------
 \begin{center}
     \textbf{\Huge \scshape Simon Chen} \\ \vspace{1pt}
     \small 347-322-4133 $|$ \href{mailto:shangminch@gmail.com}{\underline{shangminch@gmail.com}} $|$ \href{https://simon-chen.com}{\underline{simon-chen.com}} $|$ \href{https://linkedin.com/in/shangmin-chen}{\underline{linkedin.com/in/shangmin-chen}} $|$ \href{https://github.com/shangminchen}{\underline{github.com/shangminchen}}
 \end{center}
 
-%-----------EDUCATION-----------
 \section{Education}
   \resumeSubHeadingListStart
     \resumeSubheading
@@ -101,7 +87,6 @@
       \resumeItemListEnd
   \resumeSubHeadingListEnd
 
-%-----------EXPERIENCE-----------
 \section{Experience}
   \resumeSubHeadingListStart
 
@@ -134,7 +119,6 @@
 
   \resumeSubHeadingListEnd
 
-%-----------PROJECTS-----------
 \section{Projects}
   \resumeSubHeadingListStart
 
@@ -148,26 +132,76 @@
       \resumeItemListEnd
 
     \resumeProjectHeading
-      {\textbf{Persephone} $|$ \emph{Python, Cython, Rust, FastAPI, React/TypeScript, Kalshi, Low-Latency}}{May 2026}
+      {\textbf{Persephone} $|$ \emph{Python, Cython/C++17, Rust, Modal, FAISS}}{May 2026}
       \resumeItemListStart
-        \resumeItem{Built and launched a production Kalshi prediction-market trading system that generated $\sim$\$8K net PnL over its first 4 days of live trading and traded $\sim$\$200K in volume across model-driven quoting, exchange execution, risk controls, and operator tooling.}
-        \resumeItem{Cut live hot-path latency by rewriting 9 performance-critical Python kernels into native Cython extensions for orderbook processing, OBI evaluation, RTI/event aggregation, threshold storage, and theo prediction.}
-        \resumeItem{Built fail-closed market-data infrastructure that blocks stale, crossed, overflowed, or low-venue feeds before they reach the quoting path, using trusted-spot checks and venue-health state machines.}
-        \resumeItem{Built a write-ahead order safety layer that records order intent before exchange dispatch, reducing duplicate-send and crash-replay risk with deterministic client IDs, final risk gates, and durable execution records.}
+        \resumeItem{Built and operated a production Kalshi BTC prediction-market trading system that generated \$8K net PnL and traded \$200K volume in its first 4 live days, owning market-data ingestion, theo serving, strategy evaluation, exchange execution, risk gates, and operator controls.}
+        \resumeItem{Engineered a GBM theo layer to replace KDE inference, reducing model query latency from $\sim$1.5ms to $\sim$20$\mu$s per query ($\sim$75x), while preserving the live theo interface used by strategy evaluation, cache publication, and operator tooling.}
+        \resumeItem{Reduced backtest and parameter-sweep iteration from $\sim$14 hours on local MacBook CPUs to $\sim$15 minutes on Modal NVIDIA GPUs by moving diagnostics, tick backtests, and sweeps onto cloud workers with FAISS GPU search and CuPy-vectorized math.}
+        \resumeItem{Optimized KDE serving with cached FAISS IVF indexes and FAISS thread pinning, avoiding OpenMP oversubscription and cutting 155K-row neighbor search from 758us p50 flat FAISS to 154us p50 with IVF.}
+        \resumeItem{Moved 9 live hot-path kernels into native Cython extensions for order-book maintenance, OBI, RTI, event aggregation, threshold storage, scalar math, and theo post-processing, cutting Kalshi book maintenance from 21.8ms to 195us p50 (112x) and RTI from 2.66ms to 323us p50 (8.3x).}
+        \resumeItem{Built a compiled Cython/C++17 SPSC RTI event ring with cache-line-aligned atomic cursors, power-of-two masked slots, packed uint64 event records, per-venue/pair channels, single-producer enforcement, overflow-to-UNSYNCED recovery, and native ring-to-aggregator drains, benchmarked at 584ns enqueue and 703ns/event drain.}
+        \resumeItem{Prevented bad-price quoting with fail-closed market-data and risk-admission gates that block stale, crossed, overflowed, low-venue, or untrusted feeds before quote generation; fused RTI/BRTI metrics benchmarked at 357us p50 / 432us p95 on 8 venues x 500 levels.}
+        \resumeItem{Eliminated duplicate-send and crash-replay risk with a durable-before-wire order layer that journals intent before exchange dispatch, derives deterministic client IDs for idempotent retries, applies final pre-send risk gates, and persists ack/failure state for reconciliation.}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Self-Hosted Media \& Application Server} $|$ \emph{Docker, Linux, Cloudflare, Nginx, Automation}}{November 2025}
+      \resumeItemListStart
+        \resumeItem{Architected containerized home server infrastructure using Docker Compose, orchestrating 10+ microservices including Sonarr, Radarr, Prowlarr, Jellyfin, Jellyseerr, and qBittorrent for automated media management and streaming with 99\%+ uptime}
+        \resumeItem{Implemented secure external access using Cloudflare Tunnels with zero-trust network architecture, eliminating port forwarding vulnerabilities while hosting personal website and services accessible via custom domain}
+        \resumeItem{Configured automated workflow pipelines with inter-container networking and reverse proxy routing, integrating Slskd for automated music library transfers over the Soulseek network and establishing centralized monitoring for resource optimization}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Audio Transcription Platform / Whisperrr} $|$ \emph{Java Spring Boot, Python FastAPI, React, PostgreSQL / Tailwind CSS}}{September 2025}
+      \resumeItemListStart
+        \resumeItem{Built full-stack transcription platform processing audio 4x faster than baseline OpenAI Whisper API, supporting 99+ languages across multiple audio formats with real-time results}
+        \resumeItem{Designed three-tier stateless architecture with HTTP connection pooling to reduce request latency by 70\%, improving reliability for files over 25MB from 60\% to 100\% success rate}
+        \resumeItem{Containerized microservices with Docker Compose health checks and implemented segment-level timestamp generation for subtitle creation at 32x realtime speed}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Fitness Tracking Mobile App} $|$ \emph{React Native, TypeScript, Expo}}{August 2025}
+      \resumeItemListStart
+        \resumeItem{Built cross-platform app with drag-and-drop workout creation using React Native Reanimated v3 and PanGestureHandler for exercise reordering}
+        \resumeItem{Implemented persistent data storage with AsyncStorage and custom React hooks for state management across workout sessions}
+        \resumeItem{Developed modular component architecture with search/filter functionality and modal-based exercise selection interface}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Food Waste Platform (BU Spark!)} $|$ \emph{Django, JS, Auth0}}{September 2024 -- December 2024}
+      \resumeItemListStart
+        \resumeItem{Developed food waste reduction platform connecting students with leftover event food, implementing dual authentication (Django + Auth0 OAuth), QR code email delivery system, and many-to-many reservation management with real-time capacity tracking}
+        \resumeItem{Integrated Google Maps JavaScript API for interactive event discovery with user geolocation and distance calculations, implementing multi-criteria filtering across 18 food categories and 8 allergen types using Django class-based views with form validation}
+        \resumeItem{Deployed production Django application with WhiteNoise static file serving and automated Gmail SMTP notifications featuring inline QR code attachments, managing SQLite database with 100+ campus events while implementing comprehensive security features including CSRF protection and input validation}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Crime Analytics \& Forecasting Platform / Crime-Mapper Boston} $|$ \emph{Python, Streamlit, Prophet, Scikit-learn, GeoPandas}}{December 2024}
+      \resumeItemListStart
+        \resumeItem{Developed crime forecasting system analyzing 204,356 incidents across 14 Boston districts using Facebook Prophet time series model, achieving 59.9\% improvement over naive baseline in optimal districts}
+        \resumeItem{Implemented automated model evaluation comparing Prophet against 3 baseline methods (seasonal naive, moving average, linear regression) with reliability indicators when simpler models perform better}
+        \resumeItem{Deployed interactive dashboard with DBSCAN spatial clustering for hotspot identification, automatic API data refresh, and 2-month crime forecasts with confidence intervals}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
+      {\textbf{Decentralized ML Model Marketplace} $|$ \emph{Solidity, Circom, IPFS, Express.js, TensorFlow}}{May 2024}
+      \resumeItemListStart
+        \resumeItem{Built decentralized marketplace using Solidity smart contracts with ERC-20 tokens, implementing 6-state transaction management, automated candidate selection, and economic incentive mechanisms with stake slashing}
+        \resumeItem{Integrated IPFS distributed storage with Ethereum blockchain using Thirdweb SDK, enabling secure model uploads with SHA256 hash verification and automated ML training workflows}
+        \resumeItem{Implemented zero-knowledge proof system using Circom and Groth16 protocol for privacy-preserving accuracy verification, with MetaMask integration and real-time blockchain event monitoring}
       \resumeItemListEnd
 
   \resumeSubHeadingListEnd
 
-%-----------TECHNICAL SKILLS-----------
 \section{Technical Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{Languages}{: C++17, C/C++, Cython, Go, HTML/CSS, Java, JavaScript, Python, Ruby, Rust, SQL, Solidity} \\
-     \textbf{Frameworks \& Libraries}{: Boost Libraries, CuPy, DBSCAN, Django, Drizzle ORM, Express.js, FAISS, FastAPI, Folium, Next.js, Node.js, OpenAI Whisper} \\
-     \textbf{Databases \& Infrastructure}{: AsyncStorage, Auth0, CME MDP 3.0, Circom, Cloudflare, Cloudflare Pages, Cloudflare Tunnels, Docker, Docker Compose, Flyway migrations, GeoPandas, Git} \\
+     \textbf{Languages}{: C++17, C/C++, Cython, Go, HTML/CSS, Java, JavaScript, Python, Ruby, Rust, SQL, Solidity, TypeScript} \\
+     \textbf{Frameworks \& Libraries}{: Boost Libraries, CuPy, DBSCAN, Django, Drizzle ORM, Express.js, FAISS, FastAPI, Folium, Next.js, Node.js, OpenAI Whisper, PanGestureHandler, Plotly, Prophet, React, React Native, React Native Reanimated v3, Ruby on Rails, Scikit-learn, Spring Boot, Streamlit, Tailwind CSS, TensorFlow, Vite, shadcn/ui} \\
+     \textbf{Databases \& Infrastructure}{: AsyncStorage, Auth0, CME MDP 3.0, Circom, Cloudflare, Cloudflare Pages, Cloudflare Tunnels, Docker, Docker Compose, Flyway migrations, GeoPandas, Git, Google Maps API, Google Maps JavaScript API, Groth16, IPFS, Jellyfin, Jellyseerr, Nginx, OpenAI API, OpenMP, Plotly, PostgreSQL, Prowlarr, RabbitMQ, Radarr, Redis, SBE (Simple Binary Encoding), SIMD (AVX-2), SQLite, Sidekiq, Slskd, Sonarr, Soulseek, Supabase, WhiteNoise static file serving, qBittorrent, zk-SNARKs} \\
      \textbf{Platforms \& Systems}{: AWS, CrowdStrike, Ethereum, Heroku, Kalshi, MetaMask, Microsoft Deployment Toolkit, Modal, NAS, ServiceNow, Thirdweb SDK}
     }}
  \end{itemize}
 
-%-------------------------------------------
 \end{document}

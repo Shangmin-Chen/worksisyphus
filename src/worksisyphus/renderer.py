@@ -1,358 +1,192 @@
+"""Render a Selection of the Profile into Jake's-template LaTeX. Values are trusted TeX."""
 from __future__ import annotations
 
-from collections.abc import Iterable
+from .profile import Contact, Profile
+from .selection import Selection
 
-from .models import (
-    Contact,
-    EducationEntry,
-    RenderExperience,
-    RenderModel,
-    RenderProject,
-    SkillGroup,
-    TemplateSpec,
-)
-
-
-RENDERER_VERSION = "jakes-resume-tex-renderer-v2"
-
-_SKILL_GROUP_LABELS = {
+SKILL_GROUP_LABELS = {
     "languages": "Languages",
     "frameworks_and_libraries": r"Frameworks \& Libraries",
     "databases_and_infrastructure": r"Databases \& Infrastructure",
     "platforms_and_systems": r"Platforms \& Systems",
 }
 
+_PREAMBLE = r"""\documentclass[letterpaper,11pt]{article}
 
-def tex_text(value: object) -> str:
-    """Canonical values are trusted TeX and pass through verbatim; None renders empty."""
-    if value is None:
-        return ""
-    return str(value)
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
 
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
 
-def render_tex(render_model: RenderModel, template_spec: TemplateSpec) -> str:
-    if render_model.document_type != template_spec.document_type:
-        raise ValueError(
-            "RenderModel document_type "
-            f"{render_model.document_type!r} does not match template {template_spec.document_type!r}."
-        )
-    if render_model.template_id != template_spec.id:
-        raise ValueError(
-            f"RenderModel template_id {render_model.template_id!r} does not match template {template_spec.id!r}."
-        )
-    if template_spec.document_type != "resume" or template_spec.id != "jakes_resume":
-        raise NotImplementedError(f"No TeX renderer is registered for template {template_spec.id!r}.")
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
 
-    return render_jakes_resume_tex(render_model, template_spec)
+\urlstyle{same}
 
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
 
-class TexRenderer:
-    version = RENDERER_VERSION
+% Sections formatting
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
 
-    @staticmethod
-    def render(render_model: RenderModel, template_spec: TemplateSpec) -> str:
-        return render_tex(render_model, template_spec)
+% Ensure generated pdf is machine readable/ATS parsable
+\pdfgentounicode=1
 
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
 
-def render_jakes_resume_tex(render_model: RenderModel, template_spec: TemplateSpec) -> str:
-    lines = _jakes_preamble_lines()
-    lines.extend(
-        [
-            r"",
-            r"%-------------------------------------------",
-            r"%%%%%%  RESUME STARTS HERE  %%%%%%%%%%%%%%%%%%%%%%%%%%%%",
-            r"",
-            r"\begin{document}",
-            r"",
-            r"%----------HEADING----------",
-        ]
-    )
-    lines.extend(_render_contact(render_model.contact))
-    lines.append(r"")
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
 
-    known_sections = set(template_spec.section_order)
-    for section in render_model.sections:
-        if section not in known_sections:
-            raise ValueError(f"Unknown section {section!r} for template {template_spec.id!r}.")
-        if section == "education" and render_model.education:
-            lines.extend(_render_education(render_model.education))
-        elif section == "experience" and render_model.experiences:
-            lines.extend(_render_experience(render_model.experiences))
-        elif section == "projects" and render_model.projects:
-            lines.extend(_render_projects(render_model.projects))
-        elif section == "technical_skills":
-            skill_lines = _skill_group_lines(render_model.skills, template_spec)
-            if skill_lines:
-                lines.extend(_render_skills(skill_lines))
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
 
-    lines.extend(
-        [
-            r"%-------------------------------------------",
-            r"\end{document}",
-        ]
-    )
-    return "\n".join(lines) + "\n"
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
 
-
-def _jakes_preamble_lines() -> list[str]:
-    return [
-        r"\documentclass[letterpaper,11pt]{article}",
-        r"",
-        r"\usepackage{latexsym}",
-        r"\usepackage[empty]{fullpage}",
-        r"\usepackage{titlesec}",
-        r"\usepackage{marvosym}",
-        r"\usepackage[usenames,dvipsnames]{color}",
-        r"\usepackage{verbatim}",
-        r"\usepackage{enumitem}",
-        r"\usepackage[hidelinks]{hyperref}",
-        r"\usepackage{fancyhdr}",
-        r"\usepackage[english]{babel}",
-        r"\usepackage{tabularx}",
-        r"\input{glyphtounicode}",
-        r"",
-        r"\pagestyle{fancy}",
-        r"\fancyhf{} % clear all header and footer fields",
-        r"\fancyfoot{}",
-        r"\renewcommand{\headrulewidth}{0pt}",
-        r"\renewcommand{\footrulewidth}{0pt}",
-        r"",
-        r"% Adjust margins",
-        r"\addtolength{\oddsidemargin}{-0.5in}",
-        r"\addtolength{\evensidemargin}{-0.5in}",
-        r"\addtolength{\textwidth}{1in}",
-        r"\addtolength{\topmargin}{-.5in}",
-        r"\addtolength{\textheight}{1.0in}",
-        r"",
-        r"\urlstyle{same}",
-        r"",
-        r"\raggedbottom",
-        r"\raggedright",
-        r"\setlength{\tabcolsep}{0in}",
-        r"",
-        r"% Sections formatting",
-        r"\titleformat{\section}{",
-        r"  \vspace{-4pt}\scshape\raggedright\large",
-        r"}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]",
-        r"",
-        r"% Ensure that generate pdf is machine readable/ATS parsable",
-        r"\pdfgentounicode=1",
-        r"",
-        r"%-------------------------",
-        r"% Custom commands",
-        r"\newcommand{\resumeItem}[1]{",
-        r"  \item\small{",
-        r"    {#1 \vspace{-2pt}}",
-        r"  }",
-        r"}",
-        r"",
-        r"\newcommand{\resumeSubheading}[4]{",
-        r"  \vspace{-2pt}\item",
-        r"    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}",
-        r"      \textbf{#1} & #2 \\",
-        r"      \textit{\small#3} & \textit{\small #4} \\",
-        r"    \end{tabular*}\vspace{-7pt}",
-        r"}",
-        r"",
-        r"\newcommand{\resumeSubSubheading}[2]{",
-        r"    \item",
-        r"    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}",
-        r"      \textit{\small#1} & \textit{\small #2} \\",
-        r"    \end{tabular*}\vspace{-7pt}",
-        r"}",
-        r"",
-        r"\newcommand{\resumeProjectHeading}[2]{",
-        r"    \item",
-        r"    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}",
-        r"      \small#1 & #2 \\",
-        r"    \end{tabular*}\vspace{-7pt}",
-        r"}",
-        r"",
-        r"\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}",
-        r"",
-        r"\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}",
-        r"",
-        (
-            r"\newcommand{\resumeSubHeadingListStart}"
-            r"{\begin{itemize}[leftmargin=0.15in, label={}]}"
-        ),
-        r"\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}",
-        r"\newcommand{\resumeItemListStart}{\begin{itemize}}",
-        r"\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}",
-    ]
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+"""
 
 
-def _render_contact(contact: Contact) -> list[str]:
-    lines = [
-        r"\begin{center}",
-        rf"    \textbf{{\Huge \scshape {tex_text(contact.name)}}} \\ \vspace{{1pt}}",
-    ]
-    contact_parts = _contact_parts(contact)
-    if contact_parts:
-        lines.append("    \\small " + " $|$ ".join(contact_parts))
-    lines.append(r"\end{center}")
-    return lines
-
-
-def _contact_parts(contact: Contact) -> list[str]:
-    parts: list[str] = []
-    if contact.phone:
-        parts.append(tex_text(contact.phone))
-    if contact.email:
-        email_url = "mailto:" + contact.email
-        parts.append(_href(email_url, contact.email))
-    if contact.website:
-        parts.append(_href(contact.website, _display_url(contact.website)))
-    if contact.linkedin:
-        parts.append(_href(contact.linkedin, _social_display(contact.linkedin, "linkedin.com/in/")))
-    if contact.github:
-        parts.append(_href(contact.github, _social_display(contact.github, "github.com/")))
-    return parts
-
-
-def _href(url: str, label: str) -> str:
-    return rf"\href{{{tex_text(url)}}}{{\underline{{{tex_text(label)}}}}}"
+def render_resume(profile: Profile, selection: Selection) -> str:
+    parts = [_PREAMBLE, r"\begin{document}", "", *_heading(profile.contact)]
+    if profile.education:
+        parts += _education(profile)
+    if selection.experiences:
+        parts += _experiences(profile, selection)
+    if selection.projects:
+        parts += _projects(profile, selection)
+    if selection.skills:
+        parts += _skills(selection)
+    parts += [r"\end{document}", ""]
+    return "\n".join(parts)
 
 
 def _display_url(url: str) -> str:
-    display = url.removeprefix("https://").removeprefix("http://").removeprefix("www.")
-    return display.rstrip("/")
+    return url.removeprefix("https://").removeprefix("http://").removeprefix("www.").rstrip("/")
 
 
-def _social_display(url: str, prefix: str) -> str:
-    display = _display_url(url)
-    for host_prefix in (prefix, "www." + prefix):
-        if display.startswith(host_prefix):
-            return prefix + display[len(host_prefix) :].strip("/")
-    return display
+def _href(url: str, label: str) -> str:
+    return rf"\href{{{url}}}{{\underline{{{label}}}}}"
 
 
-def _render_education(education: Iterable[EducationEntry]) -> list[str]:
-    lines = [
-        r"%-----------EDUCATION-----------",
-        r"\section{Education}",
-        r"  \resumeSubHeadingListStart",
+def _heading(contact: Contact) -> list[str]:
+    links = [contact.phone] if contact.phone else []
+    if contact.email:
+        links.append(_href(f"mailto:{contact.email}", contact.email))
+    for url in (contact.website, contact.linkedin, contact.github):
+        if url:
+            links.append(_href(url, _display_url(url)))
+    return [
+        r"\begin{center}",
+        rf"    \textbf{{\Huge \scshape {contact.name}}} \\ \vspace{{1pt}}",
+        "    \\small " + " $|$ ".join(links),
+        r"\end{center}",
+        "",
     ]
-    for entry in education:
-        lines.extend(
-            [
-                r"    \resumeSubheading",
-                rf"      {{{tex_text(entry.institution)}}}{{{tex_text(entry.location)}}}",
-                rf"      {{{tex_text(entry.degree)}}}{{{tex_text(entry.date)}}}",
-            ]
-        )
+
+
+def _education(profile: Profile) -> list[str]:
+    lines = [r"\section{Education}", r"  \resumeSubHeadingListStart"]
+    for entry in profile.education:
+        lines += [
+            r"    \resumeSubheading",
+            rf"      {{{entry.institution}}}{{{entry.location}}}",
+            rf"      {{{entry.degree}}}{{{entry.date}}}",
+        ]
         if entry.coursework:
-            lines.extend(
-                [
-                    r"      \resumeItemListStart",
-                    rf"        \resumeItem{{Relevant Coursework: {tex_text(', '.join(entry.coursework))}.}}",
-                    r"      \resumeItemListEnd",
-                ]
-            )
-    lines.extend(
-        [
-            r"  \resumeSubHeadingListEnd",
-            r"",
-        ]
-    )
-    return lines
-
-
-def _render_experience(experiences: Iterable[RenderExperience]) -> list[str]:
-    lines = [
-        r"%-----------EXPERIENCE-----------",
-        r"\section{Experience}",
-        r"  \resumeSubHeadingListStart",
-        r"",
-    ]
-    for experience in experiences:
-        entry = experience.entry
-        lines.extend(
-            [
-                r"    \resumeSubheading",
-                rf"      {{{tex_text(entry.role)}}}{{{tex_text(entry.date)}}}",
-                rf"      {{{tex_text(entry.organization)}}}{{{tex_text(entry.location)}}}",
+            lines += [
+                r"      \resumeItemListStart",
+                rf"        \resumeItem{{Relevant Coursework: {', '.join(entry.coursework)}.}}",
+                r"      \resumeItemListEnd",
             ]
-        )
-        if experience.bullets:
-            lines.append(r"      \resumeItemListStart")
-            for bullet in experience.bullets:
-                lines.append(rf"        \resumeItem{{{tex_text(bullet.text)}}}")
-            lines.append(r"      \resumeItemListEnd")
-        lines.append(r"")
-    lines.extend(
-        [
-            r"  \resumeSubHeadingListEnd",
-            r"",
+    return lines + [r"  \resumeSubHeadingListEnd", ""]
+
+
+def _bullet_items(bullets: tuple[str, ...], picked: tuple[int, ...]) -> list[str]:
+    lines = [r"      \resumeItemListStart"]
+    lines += [rf"        \resumeItem{{{bullets[i]}}}" for i in picked if i < len(bullets)]
+    return lines + [r"      \resumeItemListEnd"]
+
+
+def _experiences(profile: Profile, selection: Selection) -> list[str]:
+    lines = [r"\section{Experience}", r"  \resumeSubHeadingListStart", ""]
+    for pick in selection.experiences:
+        entry = profile.experiences[pick.index]
+        lines += [
+            r"    \resumeSubheading",
+            rf"      {{{entry.role}}}{{{entry.date}}}",
+            rf"      {{{entry.organization}}}{{{entry.location}}}",
+            *_bullet_items(entry.bullets, pick.bullets),
+            "",
         ]
-    )
-    return lines
+    return lines + [r"  \resumeSubHeadingListEnd", ""]
 
 
-def _render_projects(projects: Iterable[RenderProject]) -> list[str]:
-    lines = [
-        r"%-----------PROJECTS-----------",
-        r"\section{Projects}",
-        r"  \resumeSubHeadingListStart",
-        r"",
+def _projects(profile: Profile, selection: Selection) -> list[str]:
+    lines = [r"\section{Projects}", r"  \resumeSubHeadingListStart", ""]
+    for pick in selection.projects:
+        entry = profile.projects[pick.index]
+        tech = rf" $|$ \emph{{{entry.technologies}}}" if entry.technologies else ""
+        lines += [
+            r"    \resumeProjectHeading",
+            rf"      {{\textbf{{{entry.name}}}{tech}}}{{{entry.date}}}",
+            *_bullet_items(entry.bullets, pick.bullets),
+            "",
+        ]
+    return lines + [r"  \resumeSubHeadingListEnd", ""]
+
+
+def _skills(selection: Selection) -> list[str]:
+    rows = [
+        rf"     \textbf{{{SKILL_GROUP_LABELS.get(group, group)}}}{{: {', '.join(items)}}}"
+        for group, items in selection.skills.items()
+        if items
     ]
-    for project in projects:
-        entry = project.entry
-        technologies = rf" $|$ \emph{{{tex_text(entry.technologies)}}}" if entry.technologies else ""
-        lines.extend(
-            [
-                r"    \resumeProjectHeading",
-                rf"      {{\textbf{{{tex_text(entry.name)}}}{technologies}}}{{{tex_text(entry.date)}}}",
-            ]
-        )
-        if project.bullets:
-            lines.append(r"      \resumeItemListStart")
-            for bullet in project.bullets:
-                lines.append(rf"        \resumeItem{{{tex_text(bullet.text)}}}")
-            lines.append(r"      \resumeItemListEnd")
-        lines.append(r"")
-    lines.extend(
-        [
-            r"  \resumeSubHeadingListEnd",
-            r"",
-        ]
-    )
-    return lines
-
-
-def _skill_group_lines(skills: Iterable[SkillGroup], template_spec: TemplateSpec) -> list[str]:
-    skill_groups = list(skills)
-    groups_by_id = {group.id: group for group in skill_groups}
-    ordered_ids = [group_id for group_id in template_spec.skill_group_order if group_id in groups_by_id]
-    ordered_id_set = set(ordered_ids)
-    ordered_ids.extend(group.id for group in skill_groups if group.id not in ordered_id_set)
-
-    lines: list[str] = []
-    for group_id in ordered_ids:
-        group = groups_by_id[group_id]
-        if not group.skills:
-            continue
-        label = _SKILL_GROUP_LABELS.get(group.id, tex_text(group.label))
-        values = tex_text(", ".join(skill.label for skill in group.skills))
-        lines.append(rf"     \textbf{{{label}}}{{: {values}}}")
-    return lines
-
-
-def _render_skills(skill_lines: list[str]) -> list[str]:
-    lines = [
-        r"%-----------TECHNICAL SKILLS-----------",
+    body = [row + (r" \\" if i < len(rows) - 1 else "") for i, row in enumerate(rows)]
+    return [
         r"\section{Technical Skills}",
         r" \begin{itemize}[leftmargin=0.15in, label={}]",
         r"    \small{\item{",
+        *body,
+        r"    }}",
+        r" \end{itemize}",
+        "",
     ]
-    for index, line in enumerate(skill_lines):
-        suffix = r" \\" if index < len(skill_lines) - 1 else ""
-        lines.append(line + suffix)
-    lines.extend(
-        [
-            r"    }}",
-            r" \end{itemize}",
-            r"",
-        ]
-    )
-    return lines
