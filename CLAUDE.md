@@ -11,6 +11,8 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
 ## Selection guardrails
 
+- **Never include a GPA** in `profile.json`, rendered TeX, or any resume output — Simon has decided it does not strengthen his profile. If a JD or application form explicitly demands a GPA, do not add it to the resume; flag it to Simon and let him handle it outside the pipeline.
+
 - **Never send the canonical resume to an employer.** `Simon_Chen_Resume_Compiled.pdf` (3 pages) is the database view for Simon's own reference. Employers only ever get tailored one-pagers.
 - **Persephone-first for engineering roles.** Any backend, systems, infra, performance, or quant JD ranks `persephone` as the top project unless the JD clearly contradicts it (e.g. a pure frontend or mobile role).
 - **Weak-project gate.** `fitness-tracker`, `spark-food-waste`, and `ml-marketplace` only appear when the JD directly matches them (mobile role, civic/impact org, blockchain role respectively). Never use them as filler.
