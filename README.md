@@ -12,9 +12,9 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
 2. Paste the job description:
    > Tailor my resume to this JD: *(paste the whole posting, company name included)*
 3. Claude runs the pipeline: reads the slug index, writes `plans/<company>_<role>.json` ranked by relevance, validates it, compiles the one-page PDF, and runs the ATS extraction check.
-4. Claude presents the plan (what it picked and why, and anything the trim loop cut) plus the PDF. **Nothing is final until I approve it.** If a bullet should be reworded for the JD, Claude may propose exact text but never edits `profile.json` without my sign-off.
-5. Approved PDF is in `resumes/<name>.pdf` — that's what goes to the employer. The 3-page canonical never does.
-6. On approval, Claude archives the application to `applications/<date>_<name>/` — the JD verbatim, the frozen plan, the exact PDF sent, and a `meta.json` with a `status` field. That folder is the immutable record for callbacks ("which applications are still open?" is answered from `applications/*/meta.json`).
+4. The resume is done when it's exactly one page and the ATS check passes — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut. (Content edits are different: Claude may propose bullet rewordings but never touches `profile.json` without my approval.)
+5. `resumes/<name>.pdf` is what goes to the employer. The 3-page canonical never does.
+6. Claude then freezes the application with `worksisyphus archive` into `applications/<date>_<name>/` — the JD verbatim, the frozen plan, the exact PDF sent, and a `meta.json` with a `status` field. That folder is the immutable record for callbacks ("which applications are still open?" is answered from `applications/*/meta.json`).
 
 Useful follow-up prompts: "swap hermes-letters for the home server", "make it lean more infra than frontend", "show me what the trim loop would cut first".
 
@@ -24,6 +24,7 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan plans/x.json  # check a plan and print the resolved selection
 uv run worksisyphus tailor --plan plans/x.json    # one-page resume from a plan (- for stdin)
+uv run worksisyphus archive --plan plans/x.json --company Acme --jd jd.txt   # freeze an application folder
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
 uv run --with pdfminer.six python scripts/ats_check.py resumes/x.pdf   # ATS extraction check
 ```
@@ -46,7 +47,8 @@ Tailored output lands in `tex_files/<name>.tex` and `resumes/<name>.pdf`. If the
 │   ├── renderer.py         # Jake's-template TeX renderer (verbatim values)
 │   ├── compiler.py         # pdflatex wrapper with page count
 │   ├── pipeline.py         # tailor() and build_canonical()
-│   └── cli.py              # worksisyphus compile | tailor | validate | index
+│   ├── archive.py          # freeze sent applications into applications/
+│   └── cli.py              # worksisyphus compile | tailor | validate | archive | index
 ├── tex_files/              # rendered TeX (only the canonical one is tracked)
 └── resumes/                # compiled PDFs (all tracked)
 ```

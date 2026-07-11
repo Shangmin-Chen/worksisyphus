@@ -1,0 +1,10 @@
+Internal referral — no formal job description.
+
+Company research (2026-07-11): fomo (FOMO Labs Inc.), https://fomo.family — social-first
+crypto trading app: gasless multichain swaps, embedded wallets, copytrading, trader
+leaderboards, Apple Pay funding. NYC, founded 2024 (ex-Uniswap/OpenSea/dYdX/Square/Google
+team), ~$86.6M raised, ~500K traders. Careers: jobs.ashbyhq.com/fomo-labs.
+
+Selection rationale: trading systems (Persephone: live PnL, pricing latency, durable
+orders, risk gates) + on-chain engineering (ml-marketplace: Solidity/ERC-20, Circom/
+Groth16 ZK, MetaMask/IPFS). Hermes Letters cut by the one-page trim loop.

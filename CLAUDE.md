@@ -26,14 +26,16 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 3. `uv run worksisyphus validate --plan plans/<name>.json` — catches unknown slugs and shows the resolved selection without compiling.
 4. `uv run worksisyphus tailor --plan plans/<name>.json` — renders, compiles, trims to one page. Output: `resumes/<name>.pdf`.
 5. ATS check: `uv run --with pdfminer.six python scripts/ats_check.py resumes/<name>.pdf` — must pass.
-6. **Present for sign-off.** Show the user the plan (what was picked and why) and send them the PDF. The resume is not done until the user approves it. If the trim loop cut anything, say exactly what was cut.
-7. **Archive after sign-off.** Once the user approves, create `applications/<YYYY-MM-DD>_<name>/` containing:
-   - `jd.txt` — the job description verbatim, exactly as the user provided it
-   - `plan.json` — a frozen copy of the plan that built the resume
-   - `resume.pdf` — a copy of the exact PDF the user approved
-   - `meta.json` — `{"company", "role", "date", "source_url" (if known), "status": "applied"}`
+6. **Deliver.** The resume is done when it compiles to exactly 1 page AND the ATS check passes — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
+7. **Archive.** Immediately after delivering, freeze the application:
 
-   Archived folders are immutable history: never modify an archived `resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder. Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json`.
+   ```bash
+   uv run worksisyphus archive --plan plans/<name>.json --company <Company> [--jd <file|->] [--role <Role>] [--url <posting url>]
+   ```
+
+   This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting; save the user's pasted JD to a file first, or note "internal referral — no JD"), `plan.json` and `resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`).
+
+   Archived folders are immutable history: never modify an archived `resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json`.
 
 ## Editing profile.json (only with approval)
 
@@ -49,6 +51,7 @@ uv run worksisyphus compile                      # canonical 3-page database vie
 uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
 uv run worksisyphus tailor --plan <file|->       # build the one-page PDF
+uv run worksisyphus archive --plan <file> --company <name>   # freeze an application folder
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
 ```
@@ -57,4 +60,4 @@ Exit codes: 0 success, 1 failure with a one-line `error: ...` on stderr. Plan va
 
 ## Architecture (for code changes)
 
-`profile.py` (slug-keyed database loader) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `cli.py`. Tests use a small fixture profile and an injectable fake compiler; they must keep passing without network or pdflatex.
+`profile.py` (slug-keyed database loader) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `cli.py`; `archive.py` freezes applications. Tests use a small fixture profile and an injectable fake compiler; they must keep passing without network or pdflatex.
