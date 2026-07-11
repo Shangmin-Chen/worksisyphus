@@ -11,6 +11,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
 ## Selection guardrails
 
+- **Every employer-facing resume is named `Simon_Chen_Resume.pdf`** — recruiters see the filename, and it must never look auto-generated (no company slugs, no "tailored", no version suffixes). The pipeline enforces this; never rename the output. Per-application copies live in `applications/`, identified by their folder name. The 3-page canonical (`Simon_Chen_Resume_Compiled.pdf`) is the only differently-named PDF and never goes to employers.
 - **Never include a GPA** in `profile.json`, rendered TeX, or any resume output — Simon has decided it does not strengthen his profile. If a JD or application form explicitly demands a GPA, do not add it to the resume; flag it to Simon and let him handle it outside the pipeline.
 
 - **Never send the canonical resume to an employer.** `Simon_Chen_Resume_Compiled.pdf` (3 pages) is the database view for Simon's own reference. Employers only ever get tailored one-pagers.
@@ -24,8 +25,8 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 1. `uv run worksisyphus index` — see every selectable slug with full bullet text.
 2. Write `plans/<company>_<role>.json` (see `plans/example.json` for the format; order = rank).
 3. `uv run worksisyphus validate --plan plans/<name>.json` — catches unknown slugs and shows the resolved selection without compiling.
-4. `uv run worksisyphus tailor --plan plans/<name>.json` — renders, compiles, trims to one page. Output: `resumes/<name>.pdf`.
-5. ATS check: `uv run --with pdfminer.six python scripts/ats_check.py resumes/<name>.pdf` — must pass.
+4. `uv run worksisyphus tailor --plan plans/<name>.json` — renders, compiles, trims to one page. Output is always `resumes/Simon_Chen_Resume.pdf`, regardless of plan.
+5. ATS check: `uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume.pdf` — must pass.
 6. **Deliver.** The resume is done when it compiles to exactly 1 page AND the ATS check passes — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
 7. **Archive.** Immediately after delivering, freeze the application:
 
@@ -33,7 +34,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
    uv run worksisyphus archive --plan plans/<name>.json --company <Company> [--jd <file|->] [--role <Role>] [--url <posting url>]
    ```
 
-   This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting; save the user's pasted JD to a file first, or note "internal referral — no JD"), `plan.json` and `resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`).
+   This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting; save the user's pasted JD to a file first, or note "internal referral — no JD"), `plan.json` and `resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`). Archive immediately after tailoring: all plans share the `Simon_Chen_Resume.pdf` output, so a later tailor run overwrites it.
 
    Archived folders are immutable history: never modify an archived `resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json`.
 

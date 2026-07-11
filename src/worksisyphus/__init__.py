@@ -2,7 +2,7 @@
 from .archive import archive_application
 from .compiler import CompileError, CompileResult, compile_tex
 from .pipeline import build_canonical, tailor
-from .plan import PlanError, parse_plan, sanitize_name
+from .plan import PlanError, parse_plan
 from .profile import Profile, load_profile, profile_index
 from .renderer import render_resume
 from .selection import Pick, Selection, full_selection, trim_step
@@ -22,7 +22,6 @@ __all__ = [
     "parse_plan",
     "profile_index",
     "render_resume",
-    "sanitize_name",
     "tailor",
     "trim_step",
 ]

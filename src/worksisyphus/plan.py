@@ -3,7 +3,6 @@
 Plan format — order is rank (most relevant first), which drives the trim order:
 
     {
-      "name": "bosch_swe_ii",
       "experiences": {"ezesports": "all", "reset-standard": ["water-waste-integration"]},
       "projects": ["persephone", "hermes-letters"],
       "skills": "all"
@@ -13,24 +12,19 @@ Sections accept either an object (slug -> "all" | [bullet slugs]) or a plain
 list of slugs (each meaning all bullets). "skills" is "all", an object
 (group -> "all" | [items copied verbatim]), or omitted (meaning all).
 Unknown slugs fail loudly; a plan can omit content, never invent it.
+The plan's filename identifies the application; the rendered PDF is always
+named Simon_Chen_Resume.pdf.
 """
 from __future__ import annotations
 
 import json
-import re
 
 from .profile import Experience, Profile, Project
-from .selection import Pick, Selection
+from .selection import TAILORED_NAME, Pick, Selection
 
 
 class PlanError(ValueError):
     """The plan references something the profile does not contain."""
-
-
-def sanitize_name(raw: object) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "_", str(raw).lower()).strip("_")[:60]
-    slug = slug or "tailored"
-    return slug if slug.endswith("resume") else f"{slug}_resume"
 
 
 def _parse_picks(raw: object, section: str, items: dict[str, Experience] | dict[str, Project]) -> tuple[Pick, ...]:
@@ -81,14 +75,14 @@ def _parse_skills(raw: object, profile: Profile) -> dict[str, tuple[str, ...]]:
     return skills
 
 
-def parse_plan(text: str, profile: Profile, default_name: str = "") -> Selection:
+def parse_plan(text: str, profile: Profile) -> Selection:
     try:
         data = json.loads(text)
     except json.JSONDecodeError as exc:
         raise PlanError(f"Plan is not valid JSON: {exc}") from exc
     if not isinstance(data, dict):
         raise PlanError("Plan must be a JSON object.")
-    unknown_keys = set(data) - {"name", "experiences", "projects", "skills"}
+    unknown_keys = set(data) - {"experiences", "projects", "skills"}
     if unknown_keys:
         raise PlanError(f"Unknown plan key(s): {sorted(unknown_keys)!r}.")
     experiences = _parse_picks(data.get("experiences", []), "experiences", profile.experiences)
@@ -96,7 +90,7 @@ def parse_plan(text: str, profile: Profile, default_name: str = "") -> Selection
     if not experiences and not projects:
         raise PlanError("Plan selects no experiences and no projects.")
     return Selection(
-        name=sanitize_name(data.get("name") or default_name),
+        name=TAILORED_NAME,
         experiences=experiences,
         projects=projects,
         skills=_parse_skills(data.get("skills"), profile),

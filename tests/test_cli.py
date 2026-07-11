@@ -22,7 +22,7 @@ def test_validate_prints_resolved_selection(tmp_path, capsys) -> None:
     plan = _write_plan(tmp_path, {"experiences": {"org-a": "all"}, "projects": {"proj1": ["p1"]}})
     assert cli.main(["validate", "--plan", plan]) == 0
     out = capsys.readouterr().out
-    assert "plan OK: acme_swe_resume" in out  # name falls back to the plan filename
+    assert "plan OK: Simon_Chen_Resume" in out  # every tailored resume shares one output name
     assert "org-a: a1, a2, a3" in out
     assert "proj1: p1" in out
     assert "languages (2)" in out
@@ -37,6 +37,6 @@ def test_validate_rejects_unknown_slug(tmp_path, capsys) -> None:
 def test_validate_reads_stdin(monkeypatch, capsys) -> None:
     import io
 
-    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"name": "x", "projects": ["proj2"]})))
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"projects": ["proj2"]})))
     assert cli.main(["validate", "--plan", "-"]) == 0
     assert "proj2: q1" in capsys.readouterr().out

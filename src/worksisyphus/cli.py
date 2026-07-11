@@ -12,12 +12,9 @@ from .profile import load_profile, profile_index
 from .selection import Selection
 
 
-def _read_plan(arg: str) -> tuple[str, str]:
-    """Return (plan_text, default_name) from a path or - for stdin."""
-    if arg == "-":
-        return sys.stdin.read(), ""
-    path = Path(arg)
-    return path.read_text(encoding="utf-8"), path.stem
+def _read_plan(arg: str) -> str:
+    """Return plan text from a path or - for stdin."""
+    return sys.stdin.read() if arg == "-" else Path(arg).read_text(encoding="utf-8")
 
 
 def _describe(selection: Selection) -> str:
@@ -52,20 +49,18 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "index":
             print(profile_index(load_profile()))
         elif args.command == "validate":
-            plan_text, default_name = _read_plan(args.plan)
-            print(_describe(parse_plan(plan_text, load_profile(), default_name)))
+            print(_describe(parse_plan(_read_plan(args.plan), load_profile())))
         elif args.command == "archive":
             plan_path = Path(args.plan)
-            selection = parse_plan(plan_path.read_text(encoding="utf-8"), load_profile(), plan_path.stem)
-            jd_text = "" if not args.jd else (sys.stdin.read() if args.jd == "-" else Path(args.jd).read_text(encoding="utf-8"))
+            selection = parse_plan(plan_path.read_text(encoding="utf-8"), load_profile())
+            jd_text = "" if not args.jd else _read_plan(args.jd)
             folder = archive_application(
                 plan_path, PDF_DIR / f"{selection.name}.pdf", jd_text,
                 company=args.company, role=args.role, source_url=args.url,
             )
             print(f"Archived {folder}")
         else:
-            plan_text, default_name = _read_plan(args.plan)
-            tailor(plan_text, default_name=default_name, log=print)
+            tailor(_read_plan(args.plan), log=print)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

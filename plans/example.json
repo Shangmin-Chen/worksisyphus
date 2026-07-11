@@ -1,5 +1,4 @@
 {
-  "name": "acme_backend_swe",
   "experiences": {
     "reset-standard": "all",
     "ezesports": ["nextjs-migration", "supabase-schema"]

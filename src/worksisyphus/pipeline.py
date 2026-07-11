@@ -34,14 +34,13 @@ def build_canonical(profile_path: Path = DEFAULT_PROFILE_PATH, log: Log = _silen
 def tailor(
     plan_text: str,
     profile_path: Path = DEFAULT_PROFILE_PATH,
-    default_name: str = "",
     log: Log = _silent,
 ) -> CompileResult:
-    """Render the hand-written plan and trim deterministically until it fits one page."""
+    """Render the plan and trim deterministically until it fits one page."""
     if not plan_text.strip():
         raise ValueError("Plan is empty.")
     profile = load_profile(profile_path)
-    selection: Selection | None = parse_plan(plan_text, profile, default_name)
+    selection: Selection | None = parse_plan(plan_text, profile)
     log(f"Plan parsed; output name: {selection.name}")
 
     while selection is not None:

@@ -11,7 +11,6 @@ from worksisyphus.pipeline import tailor
 def _plan_text() -> str:
     return json.dumps(
         {
-            "name": "acme",
             "experiences": {"org-a": ["a1", "a2", "a3"], "org-b": ["b1", "b2"]},
             "projects": {"proj1": ["p1", "p2", "p3"], "proj2": ["q1"]},
             "skills": {"languages": ["Python", "Rust"]},
