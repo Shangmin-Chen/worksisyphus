@@ -1,11 +1,11 @@
-"""End-to-end flows: canonical rebuild and JD-tailored one-page resume."""
+"""End-to-end flows: canonical rebuild and plan-driven one-page resume."""
 from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
 
 from .compiler import CompileResult, compile_tex
-from .planner import CallModel, plan_selection
+from .plan import parse_plan
 from .profile import DEFAULT_PROFILE_PATH, load_profile
 from .renderer import render_resume
 from .selection import Selection, full_selection, trim_step
@@ -32,18 +32,17 @@ def build_canonical(profile_path: Path = DEFAULT_PROFILE_PATH, log: Log = _silen
 
 
 def tailor(
-    jd_text: str,
+    plan_text: str,
     profile_path: Path = DEFAULT_PROFILE_PATH,
-    call_model: CallModel | None = None,
+    default_name: str = "",
     log: Log = _silent,
 ) -> CompileResult:
-    """Plan with Gemini, render locally, and trim deterministically until it fits one page."""
-    if not jd_text.strip():
-        raise ValueError("Job description is empty.")
+    """Render the hand-written plan and trim deterministically until it fits one page."""
+    if not plan_text.strip():
+        raise ValueError("Plan is empty.")
     profile = load_profile(profile_path)
-    log("Asking Gemini for a selection plan...")
-    selection: Selection | None = plan_selection(jd_text, profile, call_model)
-    log(f"Plan received; output name: {selection.name}")
+    selection: Selection | None = parse_plan(plan_text, profile, default_name)
+    log(f"Plan parsed; output name: {selection.name}")
 
     while selection is not None:
         result = compile_tex(render_resume(profile, selection), selection.name, TEX_DIR, PDF_DIR)

@@ -1,44 +1,77 @@
 # worksisyphus
 
-Simon Chen's resume compiler. One JSON database of everything I've done; Gemini picks what fits a job description, local code renders the LaTeX, and the result is always one page.
+Simon Chen's resume compiler. One slug-keyed JSON database of everything I've done; a plan file picks what fits a job description, local code renders the LaTeX, and the result is always one page.
 
-Gemini never writes resume text — it only selects IDs and names the output file. A hallucination can omit a bullet, never corrupt one.
+Nothing writes resume text but me. A plan can omit a bullet, never corrupt one — whether the plan is written by hand or by an AI agent.
 
-## Layout
+## How I use it: paste a JD into Claude Code
 
-```text
-├── compile.sh                  # rebuild the canonical full resume (no AI)
-├── templates/experiences.json  # master database; values are TeX-formatted
-├── src/worksisyphus/
-│   ├── profile.py              # database loader + planner index
-│   ├── planner.py              # Gemini JSON planner (selection + output name)
-│   ├── selection.py            # Selection model + deterministic one-page trim order
-│   ├── renderer.py             # Jake's-template TeX renderer (verbatim values)
-│   ├── compiler.py             # pdflatex wrapper with page count
-│   ├── pipeline.py             # tailor() and build_canonical()
-│   ├── cli.py                  # worksisyphus compile | tailor
-│   └── tui.py                  # paste-a-JD Textual dashboard
-├── tex_files/                  # rendered TeX (only the canonical one is tracked)
-└── resumes/                    # compiled PDFs (only the canonical one is tracked)
-```
+The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules (one page, Jake's template, select-don't-write, content guardrails), so tailoring a resume is one prompt:
 
-## Usage
+1. Open Claude Code in this repo: `claude`
+2. Paste the job description:
+   > Tailor my resume to this JD: *(paste the whole posting, company name included)*
+3. Claude runs the pipeline: reads the slug index, writes `plans/<company>_<role>.json` ranked by relevance, validates it, compiles the one-page PDF, and runs the ATS extraction check.
+4. Claude presents the plan (what it picked and why, and anything the trim loop cut) plus the PDF. **Nothing is final until I approve it.** If a bullet should be reworded for the JD, Claude may propose exact text but never edits `profile.json` without my sign-off.
+5. Approved PDF is in `resumes/<name>.pdf` — that's what goes to the employer. The 3-page canonical never does.
+6. On approval, Claude archives the application to `applications/<date>_<name>/` — the JD verbatim, the frozen plan, the exact PDF sent, and a `meta.json` with a `status` field. That folder is the immutable record for callbacks ("which applications are still open?" is answered from `applications/*/meta.json`).
 
-Put your key in `.env`: `GEMINI_API_KEY=...`
+Useful follow-up prompts: "swap hermes-letters for the home server", "make it lean more infra than frontend", "show me what the trim loop would cut first".
+
+## Manual usage (no agent)
 
 ```bash
-# TUI: paste a JD, press Generate; output name is Gemini-chosen (e.g. bosch_swe_ii_resume.pdf)
-uv run worksisyphus-tui
-
-# CLI equivalents
-uv run worksisyphus tailor --jd path/to/jd.txt     # or --jd - for stdin
-uv run worksisyphus compile                        # canonical full resume, no AI
-./compile.sh                                       # same as compile
+uv run worksisyphus index                         # list every slug a plan can reference
+uv run worksisyphus validate --plan plans/x.json  # check a plan and print the resolved selection
+uv run worksisyphus tailor --plan plans/x.json    # one-page resume from a plan (- for stdin)
+uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
+uv run --with pdfminer.six python scripts/ats_check.py resumes/x.pdf   # ATS extraction check
 ```
 
 Tailored output lands in `tex_files/<name>.tex` and `resumes/<name>.pdf`. If the first render runs past one page, the pipeline deterministically trims — lowest-ranked project first, then extra bullets — and recompiles until it fits; it fails loudly if it can't.
 
-`templates/experiences.json` values are trusted TeX (`\$8K`, `75\%`, `$\sim$20$\mu$s`): escape special characters when editing.
+## Layout
+
+```text
+├── compile.sh              # rebuild the canonical full resume
+├── profile.json            # master database; slug-keyed, values are TeX-formatted
+├── plans/                  # plan files (see plans/example.json)
+├── applications/           # one immutable folder per application: jd, plan, pdf, meta
+├── CLAUDE.md               # rules for AI agents operating this repo
+├── scripts/ats_check.py    # verify a compiled PDF extracts cleanly for ATS parsers
+├── src/worksisyphus/
+│   ├── profile.py          # database loader + slug index
+│   ├── plan.py             # plan-file parser and validation
+│   ├── selection.py        # Selection model + deterministic one-page trim order
+│   ├── renderer.py         # Jake's-template TeX renderer (verbatim values)
+│   ├── compiler.py         # pdflatex wrapper with page count
+│   ├── pipeline.py         # tailor() and build_canonical()
+│   └── cli.py              # worksisyphus compile | tailor | validate | index
+├── tex_files/              # rendered TeX (only the canonical one is tracked)
+└── resumes/                # compiled PDFs (all tracked)
+```
+
+## Plan files
+
+A plan is a small JSON file of slugs; order is rank (most relevant first), which also drives the trim order:
+
+```json
+{
+  "name": "acme_backend_swe",
+  "experiences": {
+    "reset-standard": "all",
+    "ezesports": ["nextjs-migration", "supabase-schema"]
+  },
+  "projects": ["persephone", "hermes-letters"],
+  "skills": "all"
+}
+```
+
+- `experiences`/`projects`: an object of `slug -> "all" | [bullet slugs]`, or a plain list of slugs (each meaning all bullets).
+- `skills`: `"all"` (the default when omitted), or an object of `group -> "all" | [items copied verbatim]`.
+- `name` names the output file (defaults to the plan's filename); unknown slugs fail loudly.
+
+`profile.json` values are trusted TeX (`\$8K`, `75\%`, `$\sim$20$\mu$s`): escape special characters when editing.
 
 ## Tests
 

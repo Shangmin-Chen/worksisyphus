@@ -8,12 +8,12 @@ from worksisyphus import CompileResult, pipeline
 from worksisyphus.pipeline import tailor
 
 
-def _plan_response() -> str:
+def _plan_text() -> str:
     return json.dumps(
         {
             "name": "acme",
-            "experiences": [{"id": "E1", "bullets": [1, 2, 3]}, {"id": "E2", "bullets": [1, 2]}],
-            "projects": [{"id": "P1", "bullets": [1, 2, 3]}, {"id": "P2", "bullets": [1]}],
+            "experiences": {"org-a": ["a1", "a2", "a3"], "org-b": ["b1", "b2"]},
+            "projects": {"proj1": ["p1", "p2", "p3"], "proj2": ["q1"]},
             "skills": {"languages": ["Python", "Rust"]},
         }
     )
@@ -30,7 +30,7 @@ def test_tailor_trims_until_one_page(small_profile, monkeypatch, tmp_path) -> No
     monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
     monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
 
-    result = tailor("some jd", call_model=lambda _prompt: _plan_response())
+    result = tailor(_plan_text())
 
     assert result.pages == 1
     assert len(compiled) == 3
@@ -47,9 +47,9 @@ def test_tailor_raises_when_nothing_left_to_trim(small_profile, monkeypatch, tmp
     monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
 
     with pytest.raises(RuntimeError, match="one page"):
-        tailor("some jd", call_model=lambda _prompt: _plan_response())
+        tailor(_plan_text())
 
 
-def test_tailor_rejects_empty_jd() -> None:
+def test_tailor_rejects_empty_plan() -> None:
     with pytest.raises(ValueError, match="empty"):
         tailor("   ")

@@ -4,17 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "worksisyphus"
-version = "1.0.0"
-description = "Simon Chen's resume compiler: Gemini selects, local code renders."
+version = "2.0.0"
+description = "Simon Chen's resume compiler: hand-written slug plans in, one-page LaTeX PDFs out."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = [
-    "textual>=0.40.0"
-]
+dependencies = []
 
 [project.scripts]
 worksisyphus = "worksisyphus.cli:main"
-worksisyphus-tui = "worksisyphus.tui:main"
 
 [dependency-groups]
 dev = [

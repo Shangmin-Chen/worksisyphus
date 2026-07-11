@@ -81,9 +81,9 @@
   \resumeSubHeadingListStart
     \resumeSubheading
       {Boston University}{Boston, MA}
-      {Bachelor of Arts in Computer Science}{Graduated: Spring 2026}
+      {Bachelor of Arts in Computer Science (GPA: 3.58)}{Graduated: Spring 2026}
       \resumeItemListStart
-        \resumeItem{Relevant Coursework: Data Structures \& Algorithms, Operating Systems, Distributed Systems, Databases.}
+        \resumeItem{Relevant Coursework: Data Structures \& Algorithms, Operating Systems, Distributed Systems, Databases, Machine Learning, Data Science.}
       \resumeItemListEnd
   \resumeSubHeadingListEnd
 
@@ -91,7 +91,7 @@
   \resumeSubHeadingListStart
 
     \resumeSubheading
-      {Technical Director / Software Engineer}{December 2025 -- Present}
+      {Product Lead}{December 2025 -- Present}
       {Ezesports}{New York, NY}
       \resumeItemListStart
         \resumeItem{Migrated an esports league platform from Google Sites to Next.js with a Supabase backend, replacing manual content updates with live scoring and automated season management.}
@@ -105,7 +105,7 @@
       \resumeItemListStart
         \resumeItem{Doubled the platform's supported environmental data categories (from 2 to 4) by independently implementing end-to-end water and waste data integration, developing Rails backend ingestion pipelines, PostgreSQL schemas, and client-facing React/Vite/Tailwind dashboards.}
         \resumeItem{Engineered asynchronous data pipelines with RabbitMQ, Redis, and Sidekiq to process long-running ingestion jobs in the background, decoupling external API calls from user-facing requests.}
-        \resumeItem{Implemented a key client-requested feature by redesigning project-device mapping workflows, refactoring legacy forms to streamline the onboarding of environmental monitoring devices.}
+        \resumeItem{Redesigned project-device mapping workflows in response to client requests, refactoring legacy forms to streamline onboarding of environmental monitoring devices.}
       \resumeItemListEnd
 
     \resumeSubheading
@@ -113,8 +113,8 @@
       {Boston University Engineering IT}{Boston, MA}
       \resumeItemListStart
         \resumeItem{Automated software deployment for 100+ devices using Microsoft Deployment Toolkit and created custom USB deployment solution for Windows 11, reducing deployment time by 40\%}
-        \resumeItem{Managed 200+ user accounts and permissions via NAS, conducting access audits and boosting system uptime by 15\%}
-        \resumeItem{Enhanced endpoint security with CrowdStrike for 50+ devices, resolving 20+ tickets/week with 100\% incident resolution rate}
+        \resumeItem{Managed 200+ user accounts and permissions on shared NAS storage, conducting recurring access audits}
+        \resumeItem{Enhanced endpoint security with CrowdStrike across 50+ devices, resolving 20+ support tickets per week}
       \resumeItemListEnd
 
   \resumeSubHeadingListEnd
@@ -134,30 +134,30 @@
     \resumeProjectHeading
       {\textbf{Persephone} $|$ \emph{Python, Cython/C++17, Rust, Modal, FAISS}}{May 2026}
       \resumeItemListStart
-        \resumeItem{Built and operated a production Kalshi BTC prediction-market trading system that generated \$8K net PnL and traded \$200K volume in its first 4 live days, owning market-data ingestion, theo serving, strategy evaluation, exchange execution, risk gates, and operator controls.}
-        \resumeItem{Engineered a GBM theo layer to replace KDE inference, reducing model query latency from $\sim$1.5ms to $\sim$20$\mu$s per query ($\sim$75x), while preserving the live theo interface used by strategy evaluation, cache publication, and operator tooling.}
-        \resumeItem{Reduced backtest and parameter-sweep iteration from $\sim$14 hours on local MacBook CPUs to $\sim$15 minutes on Modal NVIDIA GPUs by moving diagnostics, tick backtests, and sweeps onto cloud workers with FAISS GPU search and CuPy-vectorized math.}
-        \resumeItem{Optimized KDE serving with cached FAISS IVF indexes and FAISS thread pinning, avoiding OpenMP oversubscription and cutting 155K-row neighbor search from 758us p50 flat FAISS to 154us p50 with IVF.}
-        \resumeItem{Moved 9 live hot-path kernels into native Cython extensions for order-book maintenance, OBI, RTI, event aggregation, threshold storage, scalar math, and theo post-processing, cutting Kalshi book maintenance from 21.8ms to 195us p50 (112x) and RTI from 2.66ms to 323us p50 (8.3x).}
-        \resumeItem{Built a compiled Cython/C++17 SPSC RTI event ring with cache-line-aligned atomic cursors, power-of-two masked slots, packed uint64 event records, per-venue/pair channels, single-producer enforcement, overflow-to-UNSYNCED recovery, and native ring-to-aggregator drains, benchmarked at 584ns enqueue and 703ns/event drain.}
-        \resumeItem{Prevented bad-price quoting with fail-closed market-data and risk-admission gates that block stale, crossed, overflowed, low-venue, or untrusted feeds before quote generation; fused RTI/BRTI metrics benchmarked at 357us p50 / 432us p95 on 8 venues x 500 levels.}
-        \resumeItem{Eliminated duplicate-send and crash-replay risk with a durable-before-wire order layer that journals intent before exchange dispatch, derives deterministic client IDs for idempotent retries, applies final pre-send risk gates, and persists ack/failure state for reconciliation.}
+        \resumeItem{Built and operated a live Kalshi BTC prediction-market trading system end to end (market-data ingestion, theo serving, strategy evaluation, execution, and risk), generating \$8K net PnL on \$200K traded volume in its first 4 days.}
+        \resumeItem{Replaced KDE inference with a GBM theo layer, cutting model query latency from $\sim$1.5ms to $\sim$20$\mu$s per query ($\sim$75x) behind an unchanged live serving interface.}
+        \resumeItem{Cut backtest and parameter-sweep iteration from $\sim$14 hours on laptop CPUs to $\sim$15 minutes by moving tick backtests and sweeps to Modal NVIDIA GPU workers with FAISS GPU search and CuPy-vectorized math.}
+        \resumeItem{Sped up 155K-row neighbor search from 758$\mu$s to 154$\mu$s p50 by caching FAISS IVF indexes and pinning FAISS threads to avoid OpenMP oversubscription.}
+        \resumeItem{Rewrote 9 live hot-path kernels (order-book maintenance, order-book imbalance, trade intensity, event aggregation) as native Cython extensions, cutting Kalshi book maintenance from 21.8ms to 195$\mu$s p50 (112x).}
+        \resumeItem{Designed a lock-free SPSC event ring in Cython/C++17 with cache-line-aligned atomic cursors and packed uint64 records, benchmarked at 584ns per enqueue and 703ns per event drained.}
+        \resumeItem{Prevented bad-price quoting with fail-closed gates that block stale, crossed, or untrusted market data before quote generation, computing fused market metrics in 357$\mu$s p50 across 8 venues.}
+        \resumeItem{Eliminated duplicate-send and crash-replay risk with a durable-before-wire order layer: intent journaled before dispatch, deterministic client IDs for idempotent retries, and persisted ack state for reconciliation.}
       \resumeItemListEnd
 
     \resumeProjectHeading
-      {\textbf{Self-Hosted Media \& Application Server} $|$ \emph{Docker, Linux, Cloudflare, Nginx, Automation}}{November 2025}
+      {\textbf{Self-Hosted Server Infrastructure} $|$ \emph{Docker, Linux, Cloudflare, Nginx, Automation}}{November 2025}
       \resumeItemListStart
-        \resumeItem{Architected containerized home server infrastructure using Docker Compose, orchestrating 10+ microservices including Sonarr, Radarr, Prowlarr, Jellyfin, Jellyseerr, and qBittorrent for automated media management and streaming with 99\%+ uptime}
+        \resumeItem{Architected containerized home-server infrastructure using Docker Compose, orchestrating 10+ self-hosted services for media streaming, automated library management, and monitoring}
         \resumeItem{Implemented secure external access using Cloudflare Tunnels with zero-trust network architecture, eliminating port forwarding vulnerabilities while hosting personal website and services accessible via custom domain}
-        \resumeItem{Configured automated workflow pipelines with inter-container networking and reverse proxy routing, integrating Slskd for automated music library transfers over the Soulseek network and establishing centralized monitoring for resource optimization}
+        \resumeItem{Configured automated workflow pipelines with inter-container networking and Nginx reverse proxy routing, establishing centralized monitoring for resource optimization}
       \resumeItemListEnd
 
     \resumeProjectHeading
       {\textbf{Audio Transcription Platform / Whisperrr} $|$ \emph{Java Spring Boot, Python FastAPI, React, PostgreSQL / Tailwind CSS}}{September 2025}
       \resumeItemListStart
-        \resumeItem{Built full-stack transcription platform processing audio 4x faster than baseline OpenAI Whisper API, supporting 99+ languages across multiple audio formats with real-time results}
+        \resumeItem{Built full-stack transcription platform processing audio at 32x realtime speed, supporting 99+ languages across multiple audio formats with real-time results}
         \resumeItem{Designed three-tier stateless architecture with HTTP connection pooling to reduce request latency by 70\%, improving reliability for files over 25MB from 60\% to 100\% success rate}
-        \resumeItem{Containerized microservices with Docker Compose health checks and implemented segment-level timestamp generation for subtitle creation at 32x realtime speed}
+        \resumeItem{Containerized microservices with Docker Compose health checks and implemented segment-level timestamp generation for subtitle creation}
       \resumeItemListEnd
 
     \resumeProjectHeading
@@ -179,7 +179,7 @@
     \resumeProjectHeading
       {\textbf{Crime Analytics \& Forecasting Platform / Crime-Mapper Boston} $|$ \emph{Python, Streamlit, Prophet, Scikit-learn, GeoPandas}}{December 2024}
       \resumeItemListStart
-        \resumeItem{Developed crime forecasting system analyzing 204,356 incidents across 14 Boston districts using Facebook Prophet time series model, achieving 59.9\% improvement over naive baseline in optimal districts}
+        \resumeItem{Developed crime forecasting system analyzing 204,356 incidents across 14 Boston districts using Facebook Prophet time series model, achieving up to 59.9\% improvement over naive baseline forecasts}
         \resumeItem{Implemented automated model evaluation comparing Prophet against 3 baseline methods (seasonal naive, moving average, linear regression) with reliability indicators when simpler models perform better}
         \resumeItem{Deployed interactive dashboard with DBSCAN spatial clustering for hotspot identification, automatic API data refresh, and 2-month crime forecasts with confidence intervals}
       \resumeItemListEnd
@@ -197,10 +197,9 @@
 \section{Technical Skills}
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
-     \textbf{Languages}{: C++17, C/C++, Cython, Go, HTML/CSS, Java, JavaScript, Python, Ruby, Rust, SQL, Solidity, TypeScript} \\
-     \textbf{Frameworks \& Libraries}{: Boost Libraries, CuPy, DBSCAN, Django, Drizzle ORM, Express.js, FAISS, FastAPI, Folium, Next.js, Node.js, OpenAI Whisper, PanGestureHandler, Plotly, Prophet, React, React Native, React Native Reanimated v3, Ruby on Rails, Scikit-learn, Spring Boot, Streamlit, Tailwind CSS, TensorFlow, Vite, shadcn/ui} \\
-     \textbf{Databases \& Infrastructure}{: AsyncStorage, Auth0, CME MDP 3.0, Circom, Cloudflare, Cloudflare Pages, Cloudflare Tunnels, Docker, Docker Compose, Flyway migrations, GeoPandas, Git, Google Maps API, Google Maps JavaScript API, Groth16, IPFS, Jellyfin, Jellyseerr, Nginx, OpenAI API, OpenMP, Plotly, PostgreSQL, Prowlarr, RabbitMQ, Radarr, Redis, SBE (Simple Binary Encoding), SIMD (AVX-2), SQLite, Sidekiq, Slskd, Sonarr, Soulseek, Supabase, WhiteNoise static file serving, qBittorrent, zk-SNARKs} \\
-     \textbf{Platforms \& Systems}{: AWS, CrowdStrike, Ethereum, Heroku, Kalshi, MetaMask, Microsoft Deployment Toolkit, Modal, NAS, ServiceNow, Thirdweb SDK}
+     \textbf{Languages}{: Python, C++17, Cython, Rust, TypeScript, JavaScript, Java, Ruby, SQL} \\
+     \textbf{Frameworks \& Libraries}{: React, Next.js, Node.js, React Native, Ruby on Rails, Django, Spring Boot, FastAPI, Tailwind CSS, FAISS, CuPy} \\
+     \textbf{Databases \& Infrastructure}{: PostgreSQL, SQLite, Redis, RabbitMQ, Sidekiq, Supabase, Docker, Nginx, Cloudflare, Modal, OpenMP}
     }}
  \end{itemize}
 

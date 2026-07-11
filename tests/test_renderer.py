@@ -6,8 +6,8 @@ from worksisyphus import Pick, Selection, full_selection, render_resume
 def test_renders_selected_content_verbatim(small_profile) -> None:
     selection = Selection(
         name="x_resume",
-        experiences=(Pick(0, (0, 2)),),
-        projects=(Pick(1, (0,)),),
+        experiences=(Pick("org-a", ("a1", "a3")),),
+        projects=(Pick("proj2", ("q1",)),),
         skills={"languages": ("Python",)},
     )
     tex = render_resume(small_profile, selection)
@@ -25,8 +25,8 @@ def test_renders_selected_content_verbatim(small_profile) -> None:
 def test_selection_order_controls_render_order(small_profile) -> None:
     selection = Selection(
         name="x_resume",
-        experiences=(Pick(1, (0,)), Pick(0, (0,))),
-        projects=(Pick(0, (0,)),),
+        experiences=(Pick("org-b", ("b1",)), Pick("org-a", ("a1",))),
+        projects=(Pick("proj1", ("p1",)),),
         skills={"languages": ("Rust",)},
     )
     tex = render_resume(small_profile, selection)

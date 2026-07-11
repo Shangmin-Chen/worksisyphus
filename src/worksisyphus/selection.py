@@ -10,15 +10,15 @@ MIN_BULLETS = 2
 
 @dataclass(frozen=True)
 class Pick:
-    """One selected experience/project: 0-based index plus 0-based bullet indices."""
+    """One selected experience/project: its slug plus the chosen bullet slugs."""
 
-    index: int
-    bullets: tuple[int, ...]
+    id: str
+    bullets: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class Selection:
-    """Ranked selection (most relevant first) plus the Gemini-chosen output name."""
+    """Ranked selection (most relevant first) plus the output file name."""
 
     name: str
     experiences: tuple[Pick, ...]
@@ -30,8 +30,8 @@ def full_selection(profile: Profile, name: str = "Simon_Chen_Resume_Compiled") -
     """The canonical everything-included selection."""
     return Selection(
         name=name,
-        experiences=tuple(Pick(i, tuple(range(len(e.bullets)))) for i, e in enumerate(profile.experiences)),
-        projects=tuple(Pick(i, tuple(range(len(p.bullets)))) for i, p in enumerate(profile.projects)),
+        experiences=tuple(Pick(slug, tuple(e.bullets)) for slug, e in profile.experiences.items()),
+        projects=tuple(Pick(slug, tuple(p.bullets)) for slug, p in profile.projects.items()),
         skills=dict(profile.skills),
     )
 

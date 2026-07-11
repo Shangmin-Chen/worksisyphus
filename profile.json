@@ -1,0 +1,188 @@
+{
+  "contact": {
+    "name": "Simon Chen",
+    "email": "shangminch@gmail.com",
+    "phone": "347-322-4133",
+    "website": "https://simon-chen.com",
+    "github": "https://github.com/shangminchen",
+    "linkedin": "https://linkedin.com/in/shangmin-chen"
+  },
+  "education": [
+    {
+      "institution": "Boston University",
+      "location": "Boston, MA",
+      "degree": "Bachelor of Arts in Computer Science (GPA: 3.58)",
+      "date": "Graduated: Spring 2026",
+      "coursework": [
+        "Data Structures \\& Algorithms",
+        "Operating Systems",
+        "Distributed Systems",
+        "Databases",
+        "Machine Learning",
+        "Data Science"
+      ]
+    }
+  ],
+  "experiences": {
+    "ezesports": {
+      "role": "Product Lead",
+      "org": "Ezesports",
+      "location": "New York, NY",
+      "date": "December 2025 -- Present",
+      "bullets": {
+        "nextjs-migration": "Migrated an esports league platform from Google Sites to Next.js with a Supabase backend, replacing manual content updates with live scoring and automated season management.",
+        "supabase-schema": "Designed a PostgreSQL schema on Supabase using Drizzle ORM, supporting 500+ matches across 20+ teams, and built RESTful endpoints for player statistics, standings, and historical data.",
+        "edge-caching": "Cut page load time by 75\\% (from 3.2s to 0.8s) by implementing edge caching on Cloudflare, route-based code splitting, and asset optimization for the Next.js frontend."
+      }
+    },
+    "reset-standard": {
+      "role": "Software Engineering Intern",
+      "org": "RESET Standard",
+      "location": "Shanghai, China",
+      "date": "February 2026 -- June 2026",
+      "bullets": {
+        "water-waste-integration": "Doubled the platform's supported environmental data categories (from 2 to 4) by independently implementing end-to-end water and waste data integration, developing Rails backend ingestion pipelines, PostgreSQL schemas, and client-facing React/Vite/Tailwind dashboards.",
+        "async-pipelines": "Engineered asynchronous data pipelines with RabbitMQ, Redis, and Sidekiq to process long-running ingestion jobs in the background, decoupling external API calls from user-facing requests.",
+        "device-mapping": "Redesigned project-device mapping workflows in response to client requests, refactoring legacy forms to streamline onboarding of environmental monitoring devices."
+      }
+    },
+    "bu-engineering-it": {
+      "role": "IT Consultant",
+      "org": "Boston University Engineering IT",
+      "location": "Boston, MA",
+      "date": "January 2024 -- July 2025",
+      "bullets": {
+        "mdt-deployment": "Automated software deployment for 100+ devices using Microsoft Deployment Toolkit and created custom USB deployment solution for Windows 11, reducing deployment time by 40\\%",
+        "account-management": "Managed 200+ user accounts and permissions on shared NAS storage, conducting recurring access audits",
+        "crowdstrike": "Enhanced endpoint security with CrowdStrike across 50+ devices, resolving 20+ support tickets per week"
+      }
+    }
+  },
+  "projects": {
+    "hermes-letters": {
+      "name": "Hermes Letters",
+      "tech": "Next.js, TypeScript, Supabase, Drizzle ORM, PostgreSQL",
+      "date": "June 2026",
+      "bullets": {
+        "letters-platform": "Built a private long-form messaging platform for a group of 20+ friends during a study abroad semester, delivering 30+ letters.",
+        "atomic-claims": "Ensured consistent letter claims via atomic SQL updates and secured sessions in XSS-resistant httpOnly cookies.",
+        "derived-connections": "Derived user connections at query time from kept-letter records using indexed lookups, avoiding a separate relationship table and associated database sync issues.",
+        "media-hardening": "Hardened media storage by validating uploads via server-side magic-byte signatures, storing files in a private Supabase bucket, and restricting delivery to 1-hour signed URLs."
+      }
+    },
+    "persephone": {
+      "name": "Persephone",
+      "tech": "Python, Cython/C++17, Rust, Modal, FAISS",
+      "date": "May 2026",
+      "bullets": {
+        "live-pnl": "Built and operated a live Kalshi BTC prediction-market trading system end to end (market-data ingestion, theo serving, strategy evaluation, execution, and risk), generating \\$8K net PnL on \\$200K traded volume in its first 4 days.",
+        "gbm-theo": "Replaced KDE inference with a GBM theo layer, cutting model query latency from $\\sim$1.5ms to $\\sim$20$\\mu$s per query ($\\sim$75x) behind an unchanged live serving interface.",
+        "modal-gpu-sweeps": "Cut backtest and parameter-sweep iteration from $\\sim$14 hours on laptop CPUs to $\\sim$15 minutes by moving tick backtests and sweeps to Modal NVIDIA GPU workers with FAISS GPU search and CuPy-vectorized math.",
+        "faiss-ivf": "Sped up 155K-row neighbor search from 758$\\mu$s to 154$\\mu$s p50 by caching FAISS IVF indexes and pinning FAISS threads to avoid OpenMP oversubscription.",
+        "cython-kernels": "Rewrote 9 live hot-path kernels (order-book maintenance, order-book imbalance, trade intensity, event aggregation) as native Cython extensions, cutting Kalshi book maintenance from 21.8ms to 195$\\mu$s p50 (112x).",
+        "spsc-ring": "Designed a lock-free SPSC event ring in Cython/C++17 with cache-line-aligned atomic cursors and packed uint64 records, benchmarked at 584ns per enqueue and 703ns per event drained.",
+        "risk-gates": "Prevented bad-price quoting with fail-closed gates that block stale, crossed, or untrusted market data before quote generation, computing fused market metrics in 357$\\mu$s p50 across 8 venues.",
+        "durable-orders": "Eliminated duplicate-send and crash-replay risk with a durable-before-wire order layer: intent journaled before dispatch, deterministic client IDs for idempotent retries, and persisted ack state for reconciliation."
+      }
+    },
+    "home-server": {
+      "name": "Self-Hosted Server Infrastructure",
+      "tech": "Docker, Linux, Cloudflare, Nginx, Automation",
+      "date": "November 2025",
+      "bullets": {
+        "docker-stack": "Architected containerized home-server infrastructure using Docker Compose, orchestrating 10+ self-hosted services for media streaming, automated library management, and monitoring",
+        "cloudflare-tunnels": "Implemented secure external access using Cloudflare Tunnels with zero-trust network architecture, eliminating port forwarding vulnerabilities while hosting personal website and services accessible via custom domain",
+        "automation-pipelines": "Configured automated workflow pipelines with inter-container networking and Nginx reverse proxy routing, establishing centralized monitoring for resource optimization"
+      }
+    },
+    "whisperrr": {
+      "name": "Audio Transcription Platform / Whisperrr",
+      "tech": "Java Spring Boot, Python FastAPI, React, PostgreSQL / Tailwind CSS",
+      "date": "September 2025",
+      "bullets": {
+        "transcription-platform": "Built full-stack transcription platform processing audio at 32x realtime speed, supporting 99+ languages across multiple audio formats with real-time results",
+        "three-tier-architecture": "Designed three-tier stateless architecture with HTTP connection pooling to reduce request latency by 70\\%, improving reliability for files over 25MB from 60\\% to 100\\% success rate",
+        "containerization": "Containerized microservices with Docker Compose health checks and implemented segment-level timestamp generation for subtitle creation"
+      }
+    },
+    "fitness-tracker": {
+      "name": "Fitness Tracking Mobile App",
+      "tech": "React Native, TypeScript, Expo",
+      "date": "August 2025",
+      "bullets": {
+        "drag-and-drop": "Built cross-platform app with drag-and-drop workout creation using React Native Reanimated v3 and PanGestureHandler for exercise reordering",
+        "persistence": "Implemented persistent data storage with AsyncStorage and custom React hooks for state management across workout sessions",
+        "component-architecture": "Developed modular component architecture with search/filter functionality and modal-based exercise selection interface"
+      }
+    },
+    "spark-food-waste": {
+      "name": "Food Waste Platform (BU Spark!)",
+      "tech": "Django, JS, Auth0",
+      "date": "September 2024 -- December 2024",
+      "bullets": {
+        "waste-platform": "Developed food waste reduction platform connecting students with leftover event food, implementing dual authentication (Django + Auth0 OAuth), QR code email delivery system, and many-to-many reservation management with real-time capacity tracking",
+        "maps-filtering": "Integrated Google Maps JavaScript API for interactive event discovery with user geolocation and distance calculations, implementing multi-criteria filtering across 18 food categories and 8 allergen types using Django class-based views with form validation",
+        "django-deployment": "Deployed production Django application with WhiteNoise static file serving and automated Gmail SMTP notifications featuring inline QR code attachments, managing SQLite database with 100+ campus events while implementing comprehensive security features including CSRF protection and input validation"
+      }
+    },
+    "crime-mapper": {
+      "name": "Crime Analytics \\& Forecasting Platform / Crime-Mapper Boston",
+      "tech": "Python, Streamlit, Prophet, Scikit-learn, GeoPandas",
+      "date": "December 2024",
+      "bullets": {
+        "prophet-forecasting": "Developed crime forecasting system analyzing 204,356 incidents across 14 Boston districts using Facebook Prophet time series model, achieving up to 59.9\\% improvement over naive baseline forecasts",
+        "model-evaluation": "Implemented automated model evaluation comparing Prophet against 3 baseline methods (seasonal naive, moving average, linear regression) with reliability indicators when simpler models perform better",
+        "clustering-dashboard": "Deployed interactive dashboard with DBSCAN spatial clustering for hotspot identification, automatic API data refresh, and 2-month crime forecasts with confidence intervals"
+      }
+    },
+    "ml-marketplace": {
+      "name": "Decentralized ML Model Marketplace",
+      "tech": "Solidity, Circom, IPFS, Express.js, TensorFlow",
+      "date": "May 2024",
+      "bullets": {
+        "smart-contracts": "Built decentralized marketplace using Solidity smart contracts with ERC-20 tokens, implementing 6-state transaction management, automated candidate selection, and economic incentive mechanisms with stake slashing",
+        "ipfs-integration": "Integrated IPFS distributed storage with Ethereum blockchain using Thirdweb SDK, enabling secure model uploads with SHA256 hash verification and automated ML training workflows",
+        "zk-proofs": "Implemented zero-knowledge proof system using Circom and Groth16 protocol for privacy-preserving accuracy verification, with MetaMask integration and real-time blockchain event monitoring"
+      }
+    }
+  },
+  "skills": {
+    "languages": [
+      "Python",
+      "C++17",
+      "Cython",
+      "Rust",
+      "TypeScript",
+      "JavaScript",
+      "Java",
+      "Ruby",
+      "SQL"
+    ],
+    "frameworks_and_libraries": [
+      "React",
+      "Next.js",
+      "Node.js",
+      "React Native",
+      "Ruby on Rails",
+      "Django",
+      "Spring Boot",
+      "FastAPI",
+      "Tailwind CSS",
+      "FAISS",
+      "CuPy"
+    ],
+    "databases_and_infrastructure": [
+      "PostgreSQL",
+      "SQLite",
+      "Redis",
+      "RabbitMQ",
+      "Sidekiq",
+      "Supabase",
+      "Docker",
+      "Nginx",
+      "Cloudflare",
+      "Modal",
+      "OpenMP"
+    ]
+  }
+}

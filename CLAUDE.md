@@ -1,0 +1,58 @@
+# worksisyphus — Agent Instructions
+
+You are operating Simon Chen's resume compiler. Given a job description, your job is to find the best combination of content from `profile.json`, write a plan file, and produce a tailored one-page PDF.
+
+## Bounded rules (never violate)
+
+1. **One page.** Every resume delivered to the user must compile to exactly 1 page. The pipeline's trim loop enforces this mechanically; never bypass it, and never deliver a multi-page tailored PDF.
+2. **Jake's template formatting.** All output goes through the renderer in `src/worksisyphus/renderer.py`, which implements Jake's resume template. Never modify the LaTeX preamble, section styles, or spacing to squeeze content in — fit is achieved by selecting less, not by shrinking margins or fonts.
+3. **Best combination for the JD.** Selection is your judgment call: read the job description, then pick the experiences, projects, bullets, and skills that best match it. Rank order in the plan is relevance order — the trim loop cuts from the bottom, so put the most JD-critical items first.
+4. **Select, propose, never write.** You choose slugs; you do not author resume content. If a JD genuinely begs for a reworded or new bullet, you may PROPOSE the exact text to the user, but you must never edit `profile.json` without their explicit approval of that specific text. This is the core guarantee of the system: a plan can omit a bullet, never corrupt one.
+
+## Selection guardrails
+
+- **Never send the canonical resume to an employer.** `Simon_Chen_Resume_Compiled.pdf` (3 pages) is the database view for Simon's own reference. Employers only ever get tailored one-pagers.
+- **Persephone-first for engineering roles.** Any backend, systems, infra, performance, or quant JD ranks `persephone` as the top project unless the JD clearly contradicts it (e.g. a pure frontend or mobile role).
+- **Weak-project gate.** `fitness-tracker`, `spark-food-waste`, and `ml-marketplace` only appear when the JD directly matches them (mobile role, civic/impact org, blockchain role respectively). Never use them as filler.
+- **BU IT gate.** `bu-engineering-it` is only selected for IT/support/security-adjacent JDs, never for pure SWE roles.
+- No numeric caps on picks — the one-page constraint plus your ranking does the shaping.
+
+## Workflow for "tailor my resume to this JD"
+
+1. `uv run worksisyphus index` — see every selectable slug with full bullet text.
+2. Write `plans/<company>_<role>.json` (see `plans/example.json` for the format; order = rank).
+3. `uv run worksisyphus validate --plan plans/<name>.json` — catches unknown slugs and shows the resolved selection without compiling.
+4. `uv run worksisyphus tailor --plan plans/<name>.json` — renders, compiles, trims to one page. Output: `resumes/<name>.pdf`.
+5. ATS check: `uv run --with pdfminer.six python scripts/ats_check.py resumes/<name>.pdf` — must pass.
+6. **Present for sign-off.** Show the user the plan (what was picked and why) and send them the PDF. The resume is not done until the user approves it. If the trim loop cut anything, say exactly what was cut.
+7. **Archive after sign-off.** Once the user approves, create `applications/<YYYY-MM-DD>_<name>/` containing:
+   - `jd.txt` — the job description verbatim, exactly as the user provided it
+   - `plan.json` — a frozen copy of the plan that built the resume
+   - `resume.pdf` — a copy of the exact PDF the user approved
+   - `meta.json` — `{"company", "role", "date", "source_url" (if known), "status": "applied"}`
+
+   Archived folders are immutable history: never modify an archived `resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder. Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json`.
+
+## Editing profile.json (only with approval)
+
+- Values are trusted TeX inserted verbatim: escape `$`, `%`, `&`, `#` (`\$8K`, `75\%`), math like `$\sim$20$\mu$s` is intentional.
+- Slugs are stable identifiers — never rename a slug casually; plans reference them.
+- Every metric must be defensible in an interview. Never add a number the user didn't state.
+- Banned content (removed deliberately, do not reintroduce): piracy-adjacent tooling names (Sonarr/Radarr/Prowlarr/Jellyfin/qBittorrent/Slskd/Soulseek), fake-smelling metrics ("uptime by 15%", "100% incident resolution"), keyword-stuffed skills.
+
+## Commands
+
+```bash
+uv run worksisyphus compile                      # canonical 3-page database view (never for employers)
+uv run worksisyphus index                        # list all selectable slugs
+uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
+uv run worksisyphus tailor --plan <file|->       # build the one-page PDF
+uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
+uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
+```
+
+Exit codes: 0 success, 1 failure with a one-line `error: ...` on stderr. Plan validation errors name the offending slug.
+
+## Architecture (for code changes)
+
+`profile.py` (slug-keyed database loader) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `cli.py`. Tests use a small fixture profile and an injectable fake compiler; they must keep passing without network or pdflatex.

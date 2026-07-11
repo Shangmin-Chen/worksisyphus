@@ -14,7 +14,7 @@ from worksisyphus.profile import Contact, Education, Experience, Project  # noqa
 
 @pytest.fixture(scope="session")
 def real_profile() -> Profile:
-    return load_profile(ROOT / "templates" / "experiences.json")
+    return load_profile(ROOT / "profile.json")
 
 
 @pytest.fixture()
@@ -22,13 +22,13 @@ def small_profile() -> Profile:
     return Profile(
         contact=Contact(name="Simon Chen", email="s@example.com", phone="555-0100"),
         education=(Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),),
-        experiences=(
-            Experience("OrgA", "NY", "Engineer", "2025", ("A one", "A two", "A three")),
-            Experience("OrgB", "MA", "Intern", "2024", ("B one", "B two", "B three")),
-        ),
-        projects=(
-            Project("Proj1", "Python", "2025", ("P1 one", "P1 two", "P1 three")),
-            Project(r"Proj \& Two", "Rust", "2024", ("P2 one",)),
-        ),
+        experiences={
+            "org-a": Experience("org-a", "Engineer", "OrgA", "NY", "2025", {"a1": "A one", "a2": "A two", "a3": "A three"}),
+            "org-b": Experience("org-b", "Intern", "OrgB", "MA", "2024", {"b1": "B one", "b2": "B two", "b3": "B three"}),
+        },
+        projects={
+            "proj1": Project("proj1", "Proj1", "Python", "2025", {"p1": "P1 one", "p2": "P1 two", "p3": "P1 three"}),
+            "proj2": Project("proj2", r"Proj \& Two", "Rust", "2024", {"q1": "P2 one"}),
+        },
         skills={"languages": ("Python", "Rust"), "platforms_and_systems": ("AWS",)},
     )

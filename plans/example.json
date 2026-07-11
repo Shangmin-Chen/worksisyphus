@@ -1,0 +1,12 @@
+{
+  "name": "acme_backend_swe",
+  "experiences": {
+    "reset-standard": "all",
+    "ezesports": ["nextjs-migration", "supabase-schema"]
+  },
+  "projects": {
+    "persephone": ["live-pnl", "gbm-theo", "cython-kernels", "spsc-ring"],
+    "hermes-letters": "all"
+  },
+  "skills": "all"
+}

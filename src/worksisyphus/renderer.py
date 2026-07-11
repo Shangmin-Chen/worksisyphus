@@ -140,20 +140,20 @@ def _education(profile: Profile) -> list[str]:
     return lines + [r"  \resumeSubHeadingListEnd", ""]
 
 
-def _bullet_items(bullets: tuple[str, ...], picked: tuple[int, ...]) -> list[str]:
+def _bullet_items(bullets: dict[str, str], picked: tuple[str, ...]) -> list[str]:
     lines = [r"      \resumeItemListStart"]
-    lines += [rf"        \resumeItem{{{bullets[i]}}}" for i in picked if i < len(bullets)]
+    lines += [rf"        \resumeItem{{{bullets[slug]}}}" for slug in picked if slug in bullets]
     return lines + [r"      \resumeItemListEnd"]
 
 
 def _experiences(profile: Profile, selection: Selection) -> list[str]:
     lines = [r"\section{Experience}", r"  \resumeSubHeadingListStart", ""]
     for pick in selection.experiences:
-        entry = profile.experiences[pick.index]
+        entry = profile.experiences[pick.id]
         lines += [
             r"    \resumeSubheading",
             rf"      {{{entry.role}}}{{{entry.date}}}",
-            rf"      {{{entry.organization}}}{{{entry.location}}}",
+            rf"      {{{entry.org}}}{{{entry.location}}}",
             *_bullet_items(entry.bullets, pick.bullets),
             "",
         ]
@@ -163,8 +163,8 @@ def _experiences(profile: Profile, selection: Selection) -> list[str]:
 def _projects(profile: Profile, selection: Selection) -> list[str]:
     lines = [r"\section{Projects}", r"  \resumeSubHeadingListStart", ""]
     for pick in selection.projects:
-        entry = profile.projects[pick.index]
-        tech = rf" $|$ \emph{{{entry.technologies}}}" if entry.technologies else ""
+        entry = profile.projects[pick.id]
+        tech = rf" $|$ \emph{{{entry.tech}}}" if entry.tech else ""
         lines += [
             r"    \resumeProjectHeading",
             rf"      {{\textbf{{{entry.name}}}{tech}}}{{{entry.date}}}",

@@ -1,9 +1,7 @@
-# Generated job-specific outputs stay local; only the canonical resume is tracked
+# Intermediate TeX stays local (regenerable from plans); PDFs and applications/ are tracked
 tex_files/*.tex
 tex_files/*.pdf
 !tex_files/Simon_Chen_Resume_Compiled.tex
-resumes/*.pdf
-!resumes/Simon_Chen_Resume_Compiled.pdf
 .venv/
 __pycache__/
 *.py[cod]
