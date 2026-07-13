@@ -1,6 +1,8 @@
 """Render a Selection of the Profile into Jake's-template LaTeX. Values are trusted TeX."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from .profile import Contact, Profile
 from .selection import Selection
 
@@ -11,82 +13,24 @@ SKILL_GROUP_LABELS = {
     "platforms_and_systems": r"Platforms \& Systems",
 }
 
-_PREAMBLE = r"""\documentclass[letterpaper,11pt]{article}
-
-\usepackage{latexsym}
-\usepackage[empty]{fullpage}
-\usepackage{titlesec}
-\usepackage{marvosym}
-\usepackage[usenames,dvipsnames]{color}
-\usepackage{verbatim}
-\usepackage{enumitem}
-\usepackage[hidelinks]{hyperref}
-\usepackage{fancyhdr}
-\usepackage[english]{babel}
-\usepackage{tabularx}
-\input{glyphtounicode}
-
-\pagestyle{fancy}
-\fancyhf{}
-\fancyfoot{}
-\renewcommand{\headrulewidth}{0pt}
-\renewcommand{\footrulewidth}{0pt}
-
-% Adjust margins
-\addtolength{\oddsidemargin}{-0.5in}
-\addtolength{\evensidemargin}{-0.5in}
-\addtolength{\textwidth}{1in}
-\addtolength{\topmargin}{-.5in}
-\addtolength{\textheight}{1.0in}
-
-\urlstyle{same}
-
-\raggedbottom
-\raggedright
-\setlength{\tabcolsep}{0in}
-
-% Sections formatting
-\titleformat{\section}{
-  \vspace{-4pt}\scshape\raggedright\large
-}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
-
-% Ensure generated pdf is machine readable/ATS parsable
-\pdfgentounicode=1
-
-%-------------------------
-% Custom commands
-\newcommand{\resumeItem}[1]{
-  \item\small{
-    {#1 \vspace{-2pt}}
-  }
-}
-
-\newcommand{\resumeSubheading}[4]{
-  \vspace{-2pt}\item
-    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
-      \textbf{#1} & #2 \\
-      \textit{\small#3} & \textit{\small #4} \\
-    \end{tabular*}\vspace{-7pt}
-}
-
-\newcommand{\resumeProjectHeading}[2]{
-    \item
-    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
-      \small#1 & #2 \\
-    \end{tabular*}\vspace{-7pt}
-}
-
-\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
-
-\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
-\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
-\newcommand{\resumeItemListStart}{\begin{itemize}}
-\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
-"""
+DEFAULT_TEMPLATE_PATH = Path("source_of_truth_resume.tex")
+_DOCUMENT_START = r"\begin{document}"
 
 
-def render_resume(profile: Profile, selection: Selection) -> str:
-    parts = [_PREAMBLE, r"\begin{document}", "", *_heading(profile.contact)]
+def render_resume(
+    profile: Profile,
+    selection: Selection,
+    template_path: Path = DEFAULT_TEMPLATE_PATH,
+) -> str:
+    template_path = Path(template_path)
+    if not template_path.is_file():
+        raise FileNotFoundError(f"Resume template not found: {template_path}")
+    template = template_path.read_text(encoding="utf-8")
+    preamble, document_start, _ = template.partition(_DOCUMENT_START)
+    if not document_start:
+        raise ValueError(f"Resume template {template_path} has no {_DOCUMENT_START} marker.")
+
+    parts = [_DOCUMENT_START, "", *_heading(profile.contact)]
     if profile.education:
         parts += _education(profile)
     if selection.experiences:
@@ -96,7 +40,7 @@ def render_resume(profile: Profile, selection: Selection) -> str:
     if selection.skills:
         parts += _skills(selection)
     parts += [r"\end{document}", ""]
-    return "\n".join(parts)
+    return preamble + "\n".join(parts)
 
 
 def _display_url(url: str) -> str:

@@ -1,6 +1,7 @@
 """End-to-end flows: canonical rebuild and plan-driven one-page resume."""
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,6 +14,9 @@ from .selection import Selection, full_selection, trim_step
 TEX_DIR = Path("tex_files")
 PDF_DIR = Path("resumes")
 PAGE_LIMIT = 1
+OVERFULL_TOLERANCE_PT = 2.0
+
+_OVERFULL_WIDTH_RE = re.compile(r"^([\d.]+)pt too wide")
 
 Log = Callable[[str], None]
 
@@ -27,6 +31,8 @@ def build_canonical(profile_path: Path = DEFAULT_PROFILE_PATH, log: Log = _silen
     selection = full_selection(profile)
     log("Rendering canonical resume...")
     result = compile_tex(render_resume(profile, selection), selection.name, TEX_DIR, PDF_DIR)
+    if result.overfull:
+        log("Warning: horizontal overflow: " + "; ".join(result.overfull))
     log(f"Exported {result.pdf_path} ({result.pages} page{'s' if result.pages != 1 else ''}).")
     return result
 
@@ -46,6 +52,16 @@ def tailor(
     while selection is not None:
         result = compile_tex(render_resume(profile, selection), selection.name, TEX_DIR, PDF_DIR)
         if result.pages <= PAGE_LIMIT:
+            excessive_overfull = tuple(
+                entry
+                for entry in result.overfull
+                if (match := _OVERFULL_WIDTH_RE.match(entry))
+                and float(match.group(1)) > OVERFULL_TOLERANCE_PT
+            )
+            if excessive_overfull:
+                raise RuntimeError(
+                    "Horizontal overflow detected: " + "; ".join(excessive_overfull)
+                )
             log(f"Exported {result.pdf_path} ({result.pages} page).")
             return result
         log(f"{result.pages} pages; trimming and recompiling...")

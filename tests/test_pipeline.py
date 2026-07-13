@@ -52,3 +52,33 @@ def test_tailor_raises_when_nothing_left_to_trim(small_profile, monkeypatch, tmp
 def test_tailor_rejects_empty_plan() -> None:
     with pytest.raises(ValueError, match="empty"):
         tailor("   ")
+
+
+def test_tailor_rejects_horizontal_overflow(small_profile, monkeypatch, tmp_path) -> None:
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        return CompileResult(
+            pdf_path=tmp_path / f"{name}.pdf",
+            tex_path=tmp_path / f"{name}.tex",
+            pages=1,
+            overfull=("90.6pt too wide at tex line 127",),
+        )
+
+    monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
+
+    with pytest.raises(RuntimeError, match=r"Horizontal overflow.*90\.6pt"):
+        tailor(_plan_text())
+
+
+def test_tailor_accepts_one_page_without_horizontal_overflow(small_profile, monkeypatch, tmp_path) -> None:
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        return CompileResult(
+            pdf_path=tmp_path / f"{name}.pdf",
+            tex_path=tmp_path / f"{name}.tex",
+            pages=1,
+        )
+
+    monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
+
+    assert tailor(_plan_text()).overfull == ()

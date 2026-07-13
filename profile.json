@@ -96,7 +96,7 @@
       }
     },
     "whisperrr": {
-      "name": "Audio Transcription Platform / Whisperrr",
+      "name": "Whisperrr",
       "tech": "Java Spring Boot, Python FastAPI, React, PostgreSQL / Tailwind CSS",
       "date": "September 2025",
       "bullets": {

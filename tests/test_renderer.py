@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
 from worksisyphus import Pick, Selection, full_selection, render_resume
 
 
@@ -45,3 +49,26 @@ def test_full_render_of_real_profile_contains_all_sections(real_profile) -> None
         "github.com/shangminchen",
     ):
         assert marker in tex
+
+
+def test_render_starts_with_source_template_preamble(real_profile) -> None:
+    template = Path("source_of_truth_resume.tex").read_text(encoding="utf-8")
+    preamble = template.partition(r"\begin{document}")[0]
+
+    tex = render_resume(real_profile, full_selection(real_profile))
+
+    assert tex.startswith(preamble)
+    assert "% Author : Jake Gutierrez" in tex
+    assert tex.count(r"\begin{document}") == 1
+
+
+def test_render_requires_template_document_marker(small_profile, tmp_path) -> None:
+    template = tmp_path / "invalid.tex"
+    template.write_text(r"\documentclass{article}", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"no \\begin\{document\} marker"):
+        render_resume(
+            small_profile,
+            Selection(name="x_resume", experiences=(), projects=(), skills={}),
+            template_path=template,
+        )

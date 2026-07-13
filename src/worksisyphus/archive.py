@@ -33,7 +33,7 @@ def archive_application(
         raise FileExistsError(f"{folder} already exists; archives are immutable, use a new plan name.")
     folder.mkdir(parents=True)
     shutil.copy2(plan_path, folder / "plan.json")
-    shutil.copy2(pdf_path, folder / "resume.pdf")
+    shutil.copy2(pdf_path, folder / "Simon_Chen_Resume.pdf")
     (folder / "jd.txt").write_text((jd_text.strip() or "No job description recorded.") + "\n", encoding="utf-8")
     meta = {"company": company, "role": role, "date": when.isoformat(), "source_url": source_url, "status": STATUSES[0]}
     (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")

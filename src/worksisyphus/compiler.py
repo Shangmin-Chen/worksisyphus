@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 _PAGES_RE = re.compile(r"Output written on .*\((\d+) pages?")
+_OVERFULL_RE = re.compile(r"Overfull \\hbox \(([\d.]+)pt too wide\) in .*? at lines? (\d+)")
 
 
 class CompileError(RuntimeError):
@@ -20,6 +21,7 @@ class CompileResult:
     pdf_path: Path
     tex_path: Path
     pages: int
+    overfull: tuple[str, ...] = ()
 
 
 def compile_tex(tex: str, name: str, tex_dir: Path, pdf_dir: Path) -> CompileResult:
@@ -44,11 +46,21 @@ def compile_tex(tex: str, name: str, tex_dir: Path, pdf_dir: Path) -> CompileRes
         if proc.returncode != 0 or not built_pdf.is_file():
             tail = "\n".join((proc.stdout or "").splitlines()[-15:])
             raise CompileError(f"pdflatex failed for {tex_path.name}:\n{tail}")
-        # pdflatex hard-wraps log lines, which can split the page-count line.
-        match = _PAGES_RE.search("".join(proc.stdout.splitlines()))
+        # pdflatex hard-wraps log lines, which can split diagnostics.
+        stdout = " ".join(proc.stdout.splitlines())
+        match = _PAGES_RE.search(stdout)
         if match is None:
             raise CompileError(f"Could not determine page count for {tex_path.name}.")
+        overfull = tuple(
+            f"{float(width):.1f}pt too wide at tex line {line}"
+            for width, line in _OVERFULL_RE.findall(stdout)
+        )
         pdf_path = pdf_dir / f"{name}.pdf"
         shutil.copyfile(built_pdf, pdf_path)
 
-    return CompileResult(pdf_path=pdf_path, tex_path=tex_path, pages=int(match.group(1)))
+    return CompileResult(
+        pdf_path=pdf_path,
+        tex_path=tex_path,
+        pages=int(match.group(1)),
+        overfull=overfull,
+    )

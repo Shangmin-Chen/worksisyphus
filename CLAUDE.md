@@ -5,7 +5,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 ## Bounded rules (never violate)
 
 1. **One page.** Every resume delivered to the user must compile to exactly 1 page. The pipeline's trim loop enforces this mechanically; never bypass it, and never deliver a multi-page tailored PDF.
-2. **Jake's template formatting.** All output goes through the renderer in `src/worksisyphus/renderer.py`, which implements Jake's resume template. Never modify the LaTeX preamble, section styles, or spacing to squeeze content in — fit is achieved by selecting less, not by shrinking margins or fonts.
+2. **Jake's template formatting.** Formatting lives in `source_of_truth_resume.tex`. At build time the renderer copies its preamble verbatim, replaces only the body in memory, and never modifies the source file. Never modify the LaTeX preamble, section styles, or spacing to squeeze content in — fit is achieved by selecting less, not by shrinking margins or fonts.
 3. **Best combination for the JD.** Selection is your judgment call: read the job description, then pick the experiences, projects, bullets, and skills that best match it. Rank order in the plan is relevance order — the trim loop cuts from the bottom, so put the most JD-critical items first.
 4. **Select, propose, never write.** You choose slugs; you do not author resume content. If a JD genuinely begs for a reworded or new bullet, you may PROPOSE the exact text to the user, but you must never edit `profile.json` without their explicit approval of that specific text. This is the core guarantee of the system: a plan can omit a bullet, never corrupt one.
 
@@ -27,16 +27,16 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 3. `uv run worksisyphus validate --plan plans/<name>.json` — catches unknown slugs and shows the resolved selection without compiling.
 4. `uv run worksisyphus tailor --plan plans/<name>.json` — renders, compiles, trims to one page. Output is always `resumes/Simon_Chen_Resume.pdf`, regardless of plan.
 5. ATS check: `uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume.pdf` — must pass.
-6. **Deliver.** The resume is done when it compiles to exactly 1 page AND the ATS check passes — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
+6. **Deliver.** The resume is done when it compiles to exactly 1 page AND has no horizontal overflow (tailor fails mechanically on overflow) AND the ATS check passes — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
 7. **Archive.** Immediately after delivering, freeze the application:
 
    ```bash
    uv run worksisyphus archive --plan plans/<name>.json --company <Company> [--jd <file|->] [--role <Role>] [--url <posting url>]
    ```
 
-   This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting; save the user's pasted JD to a file first, or note "internal referral — no JD"), `plan.json` and `resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`). Archive immediately after tailoring: all plans share the `Simon_Chen_Resume.pdf` output, so a later tailor run overwrites it.
+   This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting; save the user's pasted JD to a file first, or note "internal referral — no JD"), `plan.json` and `Simon_Chen_Resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`). Archive immediately after tailoring: all plans share the `Simon_Chen_Resume.pdf` output, so a later tailor run overwrites it.
 
-   Archived folders are immutable history: never modify an archived `resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json`.
+   Archived folders are immutable history: never modify an archived `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json`.
 
 ## Editing profile.json (only with approval)
 

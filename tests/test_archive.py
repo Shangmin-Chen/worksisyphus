@@ -23,7 +23,7 @@ def test_archive_freezes_all_four_files(built) -> None:
                                  source_url="https://acme.jobs/1", when=date(2026, 7, 11), applications_dir=apps)
     assert folder == apps / "2026-07-11_acme_swe"
     assert (folder / "plan.json").read_text() == plan.read_text()
-    assert (folder / "resume.pdf").read_bytes() == b"%PDF-fake"
+    assert (folder / "Simon_Chen_Resume.pdf").read_bytes() == b"%PDF-fake"
     assert (folder / "jd.txt").read_text() == "the JD text\n"
     meta = json.loads((folder / "meta.json").read_text())
     assert meta == {"company": "Acme", "role": "SWE", "date": "2026-07-11",
