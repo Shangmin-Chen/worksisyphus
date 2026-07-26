@@ -95,6 +95,17 @@
         "automation-pipelines": "Configured automated workflow pipelines with inter-container networking and Nginx reverse proxy routing, establishing centralized monitoring for resource optimization"
       }
     },
+    "personal-website": {
+      "name": "Personal Portfolio",
+      "tech": "React 19, Vite, Cloudflare Workers, Cloudflare R2, JavaScript",
+      "date": "July 2026",
+      "bullets": {
+        "bundle-split": "Cut initial JS 54\\% (187KB to 87KB gzipped) by code-splitting Recharts behind a lazy boundary with manual Rollup chunks, deferring the charting bundle until the stats panel actually mounts.",
+        "edge-deployment": "Run the site as a single Cloudflare Workers deployment serving static assets plus 4 same-origin API routes, holding upstream credentials in Worker secrets and absorbing repeat traffic at the edge cache so no third-party key or CORS dependency reaches the browser.",
+        "publish-decoupling": "Decoupled publishing from deploys by serving gallery photos and their JSON manifest from R2 through the Worker, with a sharp preprocessing step emitting 1800px and 700px derivatives so new albums go live without a rebuild.",
+        "client-cache": "Made repeat navigation network-free with a two-tier client cache (module memory plus sessionStorage) and in-flight promise deduping that collapses concurrent component mounts onto a single request."
+      }
+    },
     "whisperrr": {
       "name": "Whisperrr",
       "tech": "Java Spring Boot, Python FastAPI, React, PostgreSQL / Tailwind CSS",
@@ -162,6 +173,7 @@
       "React",
       "Next.js",
       "Node.js",
+      "Vite",
       "React Native",
       "Ruby on Rails",
       "Django",

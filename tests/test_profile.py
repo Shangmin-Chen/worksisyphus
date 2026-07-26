@@ -6,7 +6,7 @@ from worksisyphus import profile_index
 def test_real_profile_loads_expected_shape(real_profile) -> None:
     assert real_profile.contact.name == "Simon Chen"
     assert len(real_profile.experiences) == 3
-    assert len(real_profile.projects) == 8
+    assert len(real_profile.projects) == 9
     persephone = real_profile.projects["persephone"]
     assert len(persephone.bullets) == 8
     assert persephone.tech == "Python, Cython/C++17, Rust, Modal, FAISS"
