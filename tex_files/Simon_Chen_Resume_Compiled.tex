@@ -107,7 +107,7 @@
 
 \begin{center}
     \textbf{\Huge \scshape Simon Chen} \\ \vspace{1pt}
-    \small 347-322-4133 $|$ \href{mailto:shangminch@gmail.com}{\underline{shangminch@gmail.com}} $|$ \href{https://simon-chen.com}{\underline{simon-chen.com}} $|$ \href{https://linkedin.com/in/shangmin-chen}{\underline{linkedin.com/in/shangmin-chen}} $|$ \href{https://github.com/shangminchen}{\underline{github.com/shangminchen}}
+    \small 347-322-4133 $|$ \href{mailto:shangminch@gmail.com}{\underline{shangminch@gmail.com}} $|$ \href{https://simon-chen.com}{\underline{simon-chen.com}} $|$ \href{https://linkedin.com/in/shangmin-chen}{\underline{linkedin.com/in/shangmin-chen}} $|$ \href{https://github.com/shangmin-chen}{\underline{github.com/shangmin-chen}}
 \end{center}
 
 \section{Education}
@@ -124,8 +124,8 @@
   \resumeSubHeadingListStart
 
     \resumeSubheading
-      {Product Lead}{December 2025 -- Present}
-      {Ezesports}{New York, NY}
+      {Lead Product Engineer}{December 2025 -- Present}
+      {EZ Esports}{New York, NY}
       \resumeItemListStart
         \resumeItem{Migrated an esports league platform from Google Sites to Next.js with a Supabase backend, replacing manual content updates with live scoring and automated season management.}
         \resumeItem{Designed a PostgreSQL schema on Supabase using Drizzle ORM, supporting 500+ matches across 20+ teams, and built RESTful endpoints for player statistics, standings, and historical data.}
@@ -186,6 +186,15 @@
       \resumeItemListEnd
 
     \resumeProjectHeading
+      {\textbf{Personal Portfolio} $|$ \emph{React 19, Vite, Cloudflare Workers, Cloudflare R2, JavaScript}}{July 2026}
+      \resumeItemListStart
+        \resumeItem{Cut initial JS 54\% (187KB to 87KB gzipped) by code-splitting Recharts behind a lazy boundary with manual Rollup chunks, deferring the charting bundle until the stats panel actually mounts.}
+        \resumeItem{Run the site as a single Cloudflare Workers deployment serving static assets plus 4 same-origin API routes, holding upstream credentials in Worker secrets and absorbing repeat traffic at the edge cache so no third-party key or CORS dependency reaches the browser.}
+        \resumeItem{Decoupled publishing from deploys by serving gallery photos and their JSON manifest from R2 through the Worker, with a sharp preprocessing step emitting 1800px and 700px derivatives so new albums go live without a rebuild.}
+        \resumeItem{Made repeat navigation network-free with a two-tier client cache (module memory plus sessionStorage) and in-flight promise deduping that collapses concurrent component mounts onto a single request.}
+      \resumeItemListEnd
+
+    \resumeProjectHeading
       {\textbf{Whisperrr} $|$ \emph{Java Spring Boot, Python FastAPI, React, PostgreSQL / Tailwind CSS}}{September 2025}
       \resumeItemListStart
         \resumeItem{Built full-stack transcription platform processing audio at 32x realtime speed, supporting 99+ languages across multiple audio formats with real-time results}
@@ -231,7 +240,7 @@
  \begin{itemize}[leftmargin=0.15in, label={}]
     \small{\item{
      \textbf{Languages}{: Python, C++17, Cython, Rust, TypeScript, JavaScript, Java, Ruby, SQL} \\
-     \textbf{Frameworks \& Libraries}{: React, Next.js, Node.js, React Native, Ruby on Rails, Django, Spring Boot, FastAPI, Tailwind CSS, FAISS, CuPy} \\
+     \textbf{Frameworks \& Libraries}{: React, Next.js, Node.js, Vite, React Native, Ruby on Rails, Django, Spring Boot, FastAPI, Tailwind CSS, FAISS, CuPy} \\
      \textbf{Databases \& Infrastructure}{: PostgreSQL, SQLite, Redis, RabbitMQ, Sidekiq, Supabase, Docker, Nginx, Cloudflare, Modal, OpenMP}
     }}
  \end{itemize}
