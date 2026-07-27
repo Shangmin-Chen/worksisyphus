@@ -1,0 +1,7 @@
+Aladdin is BlackRock's industry-leading investment and risk management platform, used by BlackRock and many of the world's largest financial institutions to manage portfolios, analyze risk, and support investment decision-making. As an engineer, you'll help build the technology that powers these capabilities, working on challenges across cloud computing, distributed systems, AI, analytics, and user-facing applications.
+
+It's a strong entry point if you're looking to build a foundation in engineering, with:
+
+    Exposure to one of the world's leading fintech platforms and collaboration with experienced engineers, product managers, and business leaders
+    Opportunities to work on products used across global markets and asset classes
+    Early ownership of meaningful, high-impact work that directly influences how investors manage risk and make decisions

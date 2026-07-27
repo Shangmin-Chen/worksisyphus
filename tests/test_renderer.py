@@ -46,7 +46,7 @@ def test_full_render_of_real_profile_contains_all_sections(real_profile) -> None
         r"\section{Technical Skills}",
         r"\$8K",
         r"$\sim$20$\mu$s",
-        "github.com/shangminchen",
+        "github.com/shangmin-chen",
     ):
         assert marker in tex
 

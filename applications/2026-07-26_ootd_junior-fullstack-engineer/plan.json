@@ -1,0 +1,12 @@
+{
+  "experiences": {
+    "ezesports": "all",
+    "reset-standard": ["water-waste-integration", "async-pipelines"]
+  },
+  "projects": {
+    "hermes-letters": ["letters-platform", "atomic-claims", "media-hardening"],
+    "personal-website": ["bundle-split", "edge-deployment"],
+    "persephone": ["live-pnl"]
+  },
+  "skills": "all"
+}

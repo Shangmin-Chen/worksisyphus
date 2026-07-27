@@ -1,0 +1,44 @@
+Job description
+About US Tech Force
+
+
+The US Tech Force is an elite corps advancing federal technology. Backed by the White House, it deploys top AI and engineering talent across government. The Department of War (DoW) is among the participating agencies seeking innovators ready to tackle critical national challenges.
+
+While most positions are based in the Washington, DC area, agencies may also use this announcement to fill vacancies at additional duty locations.
+
+Through a two-year program, participants will work in teams reporting directly to agency leadership. In collaboration with leading technology companies, participants will receive technical training, engage with industry leaders, and work closely with senior managers from companies partnering with the Tech Force.
+
+Upon completing the program, engineers can seek employment with the partnering private-sector companies for potential full-time roles - demonstrating the value of combining civil service with technical expertise.
+
+
+
+https://techforce.gov/
+
+
+About the Role
+
+The role involves leading the planning, coordination, and execution of major IT applications and software projects, ensuring high-quality delivery and effective team collaboration.
+
+
+Responsibilities
+
+    Coordinates with cross-functional teams to integrate software technologies into secure, scalable, and interoperable solutions.
+    Leads efforts to modernize CI/CD pipelines, integrate automated test frameworks, and improve infrastructure-as-code implementations.
+    Continuously researches and evaluates emerging technologies, frameworks, and methodologies that improve delivery efficiency and product quality.
+    Aligns project outcomes with agency-wide IT strategies, digital modernization goals, and mission priorities.
+    Recommends and implements innovative tools, methodologies, and frameworks to improve project execution and service delivery.
+    Participates in interagency working groups, task forces, and strategic planning sessions to align IT initiatives with broader government priorities.
+    Collaborates with one or more delivery teams with technical and non-technical stakeholders to align on requirements, triage issues, validate implementation plans, and ensure technical cohesion and consistent standards across the enterprise.
+    Elevates other engineers by reviewing designs, code, and delivery practices, ensuring quality and technical growth across the organization.
+
+
+Qualifications
+
+One cumulative year of experience related to each of the responsibilities below. This can include paid or unpaid internships, volunteer experiences, student organizations, and jobs. Demonstrated proficiency (e.g., skills) will be assessed through the structured evaluation process.
+
+
+Required Skills
+
+    Cross-functional collaboration: You have partnered with a diverse range of stakeholders (such as mission partners, program staff, or end-users) to understand needs, align priorities, or deliver successful technical outcomes.
+    Technology Integration: You have deployed and integrated technical solutions (such as data pipelines, AI/ML models, automation tools, or other systems) within an organizational environment to support mission or operational needs.
+    Software Engineering: You have experience in one or more areas of software engineering and can design, build, deploy, or maintain reliable technical solutions that address user or mission requirements.
