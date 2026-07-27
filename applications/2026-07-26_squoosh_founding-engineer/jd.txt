@@ -1,0 +1,127 @@
+Squoosh.AI
+Internet & Software
+Founding Engineer - AI Systems & Product
+Posted 2 weeks ago - Apply by August 8, 2026 at 11:59 PM
+At a glance
+$60-250K/yr
+Remote or onsite, based in New York City, NY
+Work from home, or in person all of the week from the location
+Job
+Full-time
+US work authorization required
+
+Job description
+
+What we're building
+
+We're building a system that helps ecommerce companies improve their websites dramatically faster.
+
+The product takes a site, creates a safe sandbox, generates conversion experiments, and sends AI-powered synthetic shoppers through each version. It then helps determine which changes are actually worth testing with real customers.
+
+That sounds simple. It is not.
+
+There are browser agents, behavioral simulation, distributed execution, analytics integrations, experiment design, statistics, frontend product work, infrastructure, and a healthy amount of "why is this browser doing that?"
+
+On a random Tuesday, you might:
+
+    Debug state leakage across hundreds of browser agents.
+    Figure out why synthetic shoppers behave differently from real traffic.
+    Build an interface for reviewing 100 proposed experiments.
+    Improve an experiment runner from 20 minutes to 4.
+    Decide whether an apparent conversion lift is real or nonsense.
+    Ship the whole thing so a nontechnical customer can use it.
+
+We're looking for someone who finds that list exciting rather than alarming.
+
+Who we're looking for
+
+We are looking for a deeply technical, highly curious generalist.
+
+You do not need to know our exact stack. You do need to be the kind of person who can enter an unfamiliar codebase, form a mental model quickly, and start making useful changes without waiting for a twelve-page specification.
+
+You probably:
+
+    Go down technical rabbit holes because you genuinely need to understand how something works.
+    Have built things that nobody asked you to build.
+    Can move comfortably between product, backend, infrastructure, data, and frontend problems.
+    Care about correctness, but also know when something is good enough to ship.
+    Have strong opinions, explain them clearly, and update them when the evidence changes.
+    Notice when something is technically functional but confusing, fragile, or untrustworthy.
+    Use AI tools aggressively without outsourcing your judgment to them.
+    Are low-ego, direct, dependable, and unusually good at figuring things out.
+
+We care much more about your slope than your pedigree.
+
+What you'll own
+
+You will help design and build the core product end to end.
+
+That will likely include:
+
+    Building systems that run large numbers of browser-using agents reliably and in parallel.
+    Creating sandboxed versions of ecommerce sites and safely applying UI variants.
+    Developing synthetic-user calibration and experiment orchestration pipelines.
+    Building statistical and behavioral guardrails around experiment results.
+    Integrating with analytics platforms, ecommerce platforms, and live testing tools.
+    Creating product interfaces for configuring experiments, reviewing recommendations, and understanding results.
+    Improving system speed, reproducibility, observability, and cost.
+    Working directly with the founders and early customers to turn messy problems into useful product.
+    Helping establish the engineering culture, architecture, and standards of the company.
+
+You will have a lot of ownership. That means freedom, but it also means there may not already be a person, process, or document telling you exactly what to do.
+
+Strong signals
+
+Any of these will get our attention:
+
+    You can show us a technically interesting product, tool, library, experiment, or side project you built.
+    You have owned a difficult system in production and can explain what broke.
+    You have taught yourself a new technical domain quickly enough to ship something real.
+    You have experience working across the stack rather than staying inside one narrow layer.
+    You enjoy benchmarking, instrumenting, reverse-engineering, profiling, or reading source code.
+    You can explain both how a system works and where its conclusions might be wrong.
+    You have a story about changing your mind after the data contradicted your original theory.
+
+Useful experience, but not a checklist
+
+Experience with any of the following is helpful:
+
+    Browser automation, Playwright, Puppeteer, or computer-use agents.
+    LLM applications, agent orchestration, evaluation, or synthetic data.
+    Distributed systems, queues, containers, concurrency, or job scheduling.
+    Experimentation platforms, statistics, causal inference, or A/B testing.
+    Product analytics, Google Analytics, Shopify, or ecommerce infrastructure.
+    Full-stack product engineering.
+    Performance optimization and production observability.
+
+Nobody will have all of this. That is fine.
+
+Things we do not care much about
+
+    Whether you went to a particular school.
+    Whether you worked at a famous company.
+    Whether you have exactly eight years of experience.
+    Whether you already know every technology in our stack.
+    Whether you can solve an obscure algorithm problem on a whiteboard from memory.
+    Whether your resume is beautifully formatted.
+
+We care whether you can learn, build, debug, reason, communicate, and finish.
+
+This probably is not a fit if
+
+    You need every requirement to be fully specified before starting.
+    You want to stay inside one narrow technical lane.
+    You enjoy architecture discussions more than shipping working systems.
+    You treat frontend quality, reliability, instrumentation, or customer experience as someone else's job.
+    You confidently repeat AI output without checking whether it is true.
+    You consistently reach for the most complicated solution available.
+    You want the structure and specialization of a large engineering organization.
+
+Why join
+
+    You will work on a genuinely difficult technical product with unanswered questions.
+    You will influence the architecture and product rather than inheriting them.
+    You will work directly with customers and see whether what you built actually matters.
+    You will have meaningful ownership and equity.
+    You will ship quickly without pretending that reliability and rigor do not matter.
+    You will work with people who care more about solving the problem than performing startup theater.

@@ -1,0 +1,12 @@
+{
+  "experiences": {
+    "ezesports": ["nextjs-migration", "supabase-schema", "edge-caching"],
+    "reset-standard": ["water-waste-integration", "async-pipelines", "device-mapping"]
+  },
+  "projects": {
+    "persephone": ["live-pnl", "modal-gpu-sweeps", "risk-gates", "cython-kernels"],
+    "hermes-letters": ["letters-platform", "media-hardening"],
+    "whisperrr": ["transcription-platform", "three-tier-architecture"]
+  },
+  "skills": "all"
+}
