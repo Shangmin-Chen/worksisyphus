@@ -1,2 +1,6 @@
 Not recorded — this application predates the archive convention. Backfilled from the
-compiled PDF on 2026-07-11; the plan file and job description were never saved.
+compiled PDF on 2026-07-11; the original plan file and job description were never saved.
+
+This is the only archive without a plan.json. The plan cannot be faithfully reconstructed
+because the profile has changed since the original tailoring. This gap is accepted as a
+known historical exception.
