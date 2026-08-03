@@ -1,1 +1,17 @@
-No job description recorded.
+About the position
+
+We're looking for Software Engineers who want to help us design and build the systems and tools that run the firm. You'll find Software Engineers in all parts of Jane Street, solving real problems in critical areas ranging from trading desks to our accounting team, as well as building foundational infrastructure, whether that means implementing network monitoring or risk models.
+
+We are big believers in functional programming and, using OCaml, a statically-typed functional programming language, as our primary tool. More recently, Python has become a vital part of Jane Street's research and trading work, acting as the go-to language for data analysis, visualization, and machine learning.
+
+Beyond our own environment, we also recognize the value of open source software, leveraging it in our daily work and releasing over a million lines of our own code as open source. We're also always looking for ways to expand open source projects, and provide ongoing support to things like Mercurial, the OCaml compiler, and the OPAM package manager. That said, we're interested in talented engineers with experience in any language—most of us came in with little to no practical experience in OCaml before we joined.
+
+If you'd like to learn more, you can read about our interview process and meet some of our newest hires.
+
+About you
+
+We don't expect you to have a background in functional programming, OCaml, Python, finance, or any other specific field—we're looking for smart programmers who enjoy solving interesting problems. We're more interested in how you think and learn than what you currently know. You should be:
+
+    A top-notch programmer with a love for technology
+    Intellectually curious, collaborative, and eager to learn
+    Humble and unafraid to ask questions and admit mistakes
