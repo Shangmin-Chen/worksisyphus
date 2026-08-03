@@ -1,0 +1,42 @@
+Software Engineer - Datapath
+Alkira (a Lumen company)
+Engineering - R&D - San Jose, California (Hybrid, onsite Tuesdays and Thursdays)
+Posted salary range: $125,000 - $150,000 USD
+
+THE MISSION
+
+When a company connects its data centers, clouds, and offices on Alkira, our team is what makes it happen. The customer tells us what they want — connect these networks, across these clouds, with these policies — and we turn that into a real, working network in minutes instead of weeks, automatically.
+
+We're the Playbooks / Orchestration team, and we build that automation. Using a mix of Ansible, Python, and Go, we set up the networking stack on our Cloud Exchange Points (CXPs) and run the workflows that keep it healthy — including tricky operations like safely restarting a node. We bring up new virtual network functions (VNFs), build the tooling and CLI used to inspect and configure each node, and work closely with the Routing, Data Path, and Backend teams. Our team spans the US and India, and above all we make sure every customer network comes up correctly and reliably, across every cloud.
+
+WHAT YOU'LL WORK ON
+
+- Automate the cloud. Write the Ansible playbooks that provision infrastructure and stand up network services across AWS, Azure, and GCP — VPCs/VNets, subnets, tunnels, NAT, routing, and security policy.
+- Build the engines. Develop the Go task engines that push this configuration onto the CXP nodes at scale — running provisioning and teardown against live state, and rebuilding a node's entire configuration after a controlled restart.
+- Bring up new capabilities. Integrate new VNFs as we light up new services and capabilities.
+- Own the tooling. Build the Python tooling and CLI engineers use to inspect, configure, and debug the networking stack on the nodes.
+- Model the work. Extend the configuration and task models that translate a single provisioning request into the exact commands applied on the nodes.
+- Keep it fast and correct. Help connectivity stay correct, fast, and reliable across clouds and at scale.
+- Solve real problems. Chase tricky production provisioning issues to their root cause and drive the fix — and collaborate with Routing, Data Path, and Backend on how configuration flows end to end.
+
+WHO YOU ARE
+
+We're looking for a well-rounded Software Engineer with a basic grounding in networking technologies. Our stack spans several layers — Ansible playbooks, Go task engines, Python tooling, the networking stack on the nodes — and sits right next to the C-based data path.
+
+You'll thrive here if you have:
+- Strong software fundamentals — data structures, problem-solving, clean code, and the patience to debug.
+- Hands-on coding in at least one of C, Python, or Go, and the appetite to pick up the others.
+- Comfort on Linux — the shell, processes, logs, and the everyday networking tools.
+- Hands-on familiarity with core networking — TCP/IP, and the curiosity to go deeper.
+- A working mental model of the cloud — at least one of AWS, Azure, or GCP.
+- A debugging mindset.
+
+Bonus Points:
+- Ansible or other configuration-automation experience.
+- Use of AI-assisted development tools like Claude Code.
+- Experience building CLIs, task runners, or automation that runs at scale.
+- Familiarity with firewalls, load balancers, and similar network services.
+
+ON-CALL: On-call is a mandatory part of this role, coordinated across the US and India.
+
+Applicants must be authorized to work in the United States without the need for employer-sponsored visa (e.g., H-1B) now or in the future. No visa sponsorship for this position.

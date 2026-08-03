@@ -1,0 +1,12 @@
+{
+  "experiences": {
+    "reset-standard": ["async-pipelines", "water-waste-integration", "device-mapping"],
+    "ezesports": ["supabase-schema", "nextjs-migration", "edge-caching"]
+  },
+  "projects": {
+    "persephone": ["live-pnl", "durable-orders", "spsc-ring", "risk-gates"],
+    "hermes-letters": ["atomic-claims", "media-hardening", "derived-connections"],
+    "home-server": ["cloudflare-tunnels", "docker-stack"]
+  },
+  "skills": "all"
+}

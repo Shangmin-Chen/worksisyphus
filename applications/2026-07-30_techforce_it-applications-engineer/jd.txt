@@ -1,0 +1,43 @@
+About US Tech Force
+
+
+The US Tech Force is recruiting an elite corps of engineers to build the next generation of government technology. Backed by the White House, Tech Force will tackle the most complex and large-scale civic and defense challenges of our era – from administering critical financial infrastructure at the Treasury Department to advancing cutting-edge programs at the Department of Defense – and everything in between.
+
+
+
+Through a two-year program, participants will work in teams reporting directly to agency leadership. In collaboration with leading technology companies, participants will receive technical training, engage with industry leaders, and work closely with senior managers from companies partnering with the Tech Force.
+
+
+
+Upon completing the program, engineers can seek employment with the partnering private-sector companies for potential full-time roles – demonstrating the value of combining civil service with technical expertise.
+
+
+
+https://techforce.gov/
+
+
+About the Role
+
+The role involves leading the planning, coordination, and execution of major IT applications and software projects, ensuring high-quality delivery and effective team collaboration.
+
+
+Responsibilities
+
+    Leads the planning, coordination, and execution of major IT applications software projects, including software design, development, testing, and implementation.
+    Leverages AI-assisted development tools and prompt-engineering techniques to streamline delivery processes, enhance code quality, and automate documentation and defect detection.
+    Serves as a technical lead for large-scale or cross-product initiatives, independently resolving technical ambiguity and setting implementation direction.
+    Coordinates with vendors to evaluate solutions, manage support agreements, and ensure timely delivery of services.
+    Leads project teams composed of technical specialists, analysts, and support staff.
+
+
+Qualifications
+
+One cumulative year of experience related to each of the responsibilities below. This can include paid or unpaid internships, volunteer experiences, student organizations, and jobs. Demonstrated proficiency (e.g., skills) will be assessed through the structured evaluation process.
+
+
+Required Skills
+
+    Coordinating software work, such as coordinating building applications (guiding tasks, reviewing code, or setting technical direction) using common languages and frameworks (for example, Python, Java, JavaScript/TypeScript, .NET, Spring, React, Node).
+    Running projects end to end, such as planning and delivering software projects, creating a timeline, tracking risks, coordinating with teammates, or keeping work moving.
+    Solving problems with secure, scalable solutions, such as diagnosing issues (e.g., bugs, performance, integration), improving reliability, or building with security in mind (e.g., authentication/authorization, data protection) so systems can handle growth.
+    Explaining technical ideas, such as sharing updates and tradeoffs with different audiences (e.g., engineers, product partners, and senior leaders) through briefings, reports, or documentation.

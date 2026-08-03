@@ -1,6 +1,6 @@
 {
   "experiences": {
-    "ezesports": ["nextjs-migration", "supabase-schema"],
+    "ezesports": ["nextjs-migration", "supabase-schema", "edge-caching"],
     "reset-standard": ["water-waste-integration", "async-pipelines", "device-mapping"],
     "bu-engineering-it": ["mdt-deployment", "crowdstrike"]
   },

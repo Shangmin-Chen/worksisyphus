@@ -1,0 +1,12 @@
+{
+  "experiences": {
+    "reset-standard": ["async-pipelines", "water-waste-integration", "device-mapping"],
+    "ezesports": ["supabase-schema", "nextjs-migration", "edge-caching"]
+  },
+  "projects": {
+    "persephone": ["live-pnl", "durable-orders", "cython-kernels", "spsc-ring"],
+    "whisperrr": ["three-tier-architecture", "transcription-platform", "containerization"],
+    "home-server": ["docker-stack"]
+  },
+  "skills": "all"
+}

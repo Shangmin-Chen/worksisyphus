@@ -1,0 +1,21 @@
+Do not apply through this platform. To apply, you must submit a short video by email. See the full application instructions at https://tasklet.ai/careers.
+
+Tasklet is building the AI platform companies use to run their business on agents. A customer describes an outcome in plain English, and Tasklet gets the work done across their tools and systems—immediately or in the cloud 24×7. We're looking for unusually strong systems engineers to build the core machinery that makes Tasklet's agents capable, reliable, efficient, and scalable. The work spans our agent harness, context management, filesystem, and execution environment, as well as model serving, databases, Kubernetes, networking, and cloud infrastructure. This role has a deep systems center of gravity, but no fixed boundary. You may move from reasoning about model behavior to runtimes, storage, distributed systems, or production infrastructure in the course of solving one problem. We care more about intelligence, first-principles reasoning, and strong computer-science fundamentals than a conventional AI résumé or exact stack match. We're open to candidates from mid-level to Staff+. Regardless of level, this is a hands-on IC role: everyone at Tasklet personally builds and ships.
+
+What you'll do
+
+    Build the agent harness, including orchestration, tool execution, state, evaluation, and failure recovery.
+    Develop context-management, filesystem, memory, storage, and sandboxed-execution systems.
+    Work on model routing and serving, databases, Kubernetes, networking, queues, and cloud infrastructure.
+    Make long-running agent workloads faster, safer, more reliable, and more cost-efficient.
+    Turn fast-moving advances in models and agent systems into robust production capabilities.
+    Work across the stack and across role boundaries whenever that is the best way to solve the problem.
+
+Who you are
+
+    You're an exceptional problem solver with deep computer-science and systems fundamentals.
+    You reason from first principles, form precise mental models, and enjoy understanding what is happening all the way down the stack.
+    You've built and operated complex production systems and can debug across application code, runtimes, storage, networking, and infrastructure.
+    You care about both elegant architecture and real operational outcomes: performance, reliability, safety, and cost.
+    You learn quickly, operate well with ambiguity, and prefer responsibility over process.
+    Prior professional AI experience is not required, but genuine depth of engagement is. You already use current models seriously, probe their limits, follow the field closely, and have your own ideas about how AI systems should work. This role is full-time and primarily in person at our office at 1 Post St. in San Francisco.
