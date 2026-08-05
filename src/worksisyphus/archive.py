@@ -34,7 +34,9 @@ def archive_application(
     folder.mkdir(parents=True)
     shutil.copy2(plan_path, folder / "plan.json")
     shutil.copy2(pdf_path, folder / "Simon_Chen_Resume.pdf")
-    (folder / "jd.txt").write_text((jd_text.strip() or "No job description recorded.") + "\n", encoding="utf-8")
+    if not jd_text.strip():
+        raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
+    (folder / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
     meta = {"company": company, "role": role, "date": when.isoformat(), "source_url": source_url, "status": STATUSES[0]}
     (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     return folder

@@ -38,7 +38,7 @@ def main(argv: list[str] | None = None) -> int:
     archive_cmd = sub.add_parser("archive", help="Freeze a compiled application into applications/<date>_<name>/.")
     archive_cmd.add_argument("--plan", required=True, help="Path to the plan JSON file that built the resume.")
     archive_cmd.add_argument("--company", required=True, help="Company applied to.")
-    archive_cmd.add_argument("--jd", default="", help="Path to the job description text file, or - for stdin.")
+    archive_cmd.add_argument("--jd", required=True, help="Path to the job description text file, or - for stdin.")
     archive_cmd.add_argument("--role", default="", help="Role title, if known.")
     archive_cmd.add_argument("--url", default="", help="Posting URL, if any.")
     args = parser.parse_args(argv)
@@ -53,7 +53,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "archive":
             plan_path = Path(args.plan)
             selection = parse_plan(plan_path.read_text(encoding="utf-8"), load_profile())
-            jd_text = "" if not args.jd else _read_plan(args.jd)
+            jd_text = _read_plan(args.jd)
             folder = archive_application(
                 plan_path, PDF_DIR / f"{selection.name}.pdf", jd_text,
                 company=args.company, role=args.role, source_url=args.url,
