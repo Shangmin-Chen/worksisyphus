@@ -27,6 +27,8 @@ def archive_application(
     """Freeze an application into applications/<date>_<plan-stem>/ and return the folder."""
     if not pdf_path.is_file():
         raise FileNotFoundError(f"{pdf_path} does not exist; run tailor before archiving.")
+    if not jd_text.strip():
+        raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
     when = when or date.today()
     folder = applications_dir / f"{when.isoformat()}_{plan_path.stem}"
     if folder.exists():
@@ -34,8 +36,6 @@ def archive_application(
     folder.mkdir(parents=True)
     shutil.copy2(plan_path, folder / "plan.json")
     shutil.copy2(pdf_path, folder / "Simon_Chen_Resume.pdf")
-    if not jd_text.strip():
-        raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
     (folder / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
     meta = {"company": company, "role": role, "date": when.isoformat(), "source_url": source_url, "status": STATUSES[0]}
     (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
