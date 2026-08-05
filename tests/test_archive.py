@@ -30,10 +30,10 @@ def test_archive_freezes_all_four_files(built) -> None:
                     "source_url": "https://acme.jobs/1", "status": "applied"}
 
 
-def test_archive_records_missing_jd(built) -> None:
+def test_archive_rejects_empty_jd(built) -> None:
     plan, pdf, apps = built
-    folder = archive_application(plan, pdf, "  ", company="Acme", when=date(2026, 7, 11), applications_dir=apps)
-    assert (folder / "jd.txt").read_text() == "No job description recorded.\n"
+    with pytest.raises(ValueError, match="jd_text is empty"):
+        archive_application(plan, pdf, "  ", company="Acme", when=date(2026, 7, 11), applications_dir=apps)
 
 
 def test_archive_is_immutable(built) -> None:

@@ -32,10 +32,12 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 7. **Archive.** Immediately after delivering, freeze the application:
 
    ```bash
-   uv run worksisyphus archive --plan plans/<name>.json --company <Company> [--jd <file|->] [--role <Role>] [--url <posting url>]
+   uv run worksisyphus archive --plan plans/<name>.json --company <Company> --jd <file|-> [--role <Role>] [--url <posting url>]
    ```
 
-   This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting; save the user's pasted JD to a file first, or note "internal referral — no JD"), `plan.json` and `Simon_Chen_Resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`). Archive immediately after tailoring: all plans share the `Simon_Chen_Resume.pdf` output, so a later tailor run overwrites it.
+   `--jd` is **required**. Before archiving, save the user's pasted JD to a file and pass its path. If there is genuinely no JD (internal referral, career fair), write a file explaining the absence (e.g. "Internal referral — no formal job description.") and pass that. The command refuses empty JD text.
+
+   This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting), `plan.json` and `Simon_Chen_Resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`). Archive immediately after tailoring: all plans share the `Simon_Chen_Resume.pdf` output, so a later tailor run overwrites it.
 
    Archived folders are immutable history: never modify an archived `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json`.
 
@@ -53,12 +55,18 @@ uv run worksisyphus compile                      # canonical 3-page database vie
 uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
 uv run worksisyphus tailor --plan <file|->       # build the one-page PDF
-uv run worksisyphus archive --plan <file> --company <name>   # freeze an application folder
+uv run worksisyphus archive --plan <file> --company <name> --jd <file>  # freeze an application folder
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
 ```
 
 Exit codes: 0 success, 1 failure with a one-line `error: ...` on stderr. Plan validation errors name the offending slug.
+
+## Deterministic enforcement over workflow instructions
+
+When a constraint matters, enforce it in code — not in agent instructions. A CLI flag that is `required=True` can never be forgotten; a workflow step that says "remember to pass `--jd`" will eventually be skipped. Prefer compilation-level gates (argparse, validation errors, test assertions) over prose rules. If a new guardrail can be a test in `tests/test_consistency.py` or a check in a CLI command, put it there. Reserve CLAUDE.md rules for judgment calls that code cannot express (e.g. selection guardrails).
+
+When changing a schema or data format, migrate **all** existing data files — not just the source copies. Check both `plans/` and `applications/*/` for stale formats. A parser that rejects old data it once accepted is a bug if the old data wasn't migrated.
 
 ## Architecture (for code changes)
 
