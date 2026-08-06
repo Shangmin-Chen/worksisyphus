@@ -1,0 +1,12 @@
+{
+  "experiences": {
+    "reset-standard": "all",
+    "ezesports": "all"
+  },
+  "projects": {
+    "personal-website": "all",
+    "hermes-letters": "all",
+    "whisperrr": ["transcription-platform", "three-tier-architecture", "containerization"]
+  },
+  "skills": "all"
+}

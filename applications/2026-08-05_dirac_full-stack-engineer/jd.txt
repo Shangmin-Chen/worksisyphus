@@ -1,0 +1,43 @@
+About the Company
+
+American manufacturing is broken and burdened by inefficiency, bureaucracy, and outdated processes. At Dirac, we are pioneering Model-Based Manufacturing, where context-aware production planning informs design in real-time, eliminating the disconnect between engineering and manufacturing. Our platform automates what can be automated and captures tribal knowledge where automation falls short, creating a seamless system for building at scale. We're building the tools modern manufacturers need to move faster and build better, the pillars of a more abundant future. We are a mission-driven company of world-class engineers and operators with a culture of high trust, high agency, and high autonomy.
+Technical Requirements
+
+    Experience in web development with a strong focus on frontend engineering.
+    Expert-level proficiency in React, Javascript/Typescript, Redux, and TailwindCSS.
+    Deep understanding of modern frontend architecture, component-based development, and best practices.
+    Experience designing highly complex frontends from the ground-up with re-usable component design.
+    Experience with Three.js or other 3D web-based visualization frameworks.
+    Strong understanding of UI/UX principles, with an ability to implement clean and intuitive interfaces.
+    Familiarity with frontend performance optimization techniques, accessibility, and responsive design.
+
+Nice To Have
+
+    Proficiency in backend technologies using Python, Node.js, Go, and C++.
+    Strong experience designing and implementing RESTful APIs and gRPC services with Protocol Buffers.
+    Deep understanding of database design and querying with relational databases, NoSQL databases, and caching strategies.
+    Experience building scalable, high-performance, and event-driven distributed systems using tools such as Celery, Kafka, and AWS SQS.
+    Familiarity with background task processing frameworks like Celery.
+    Experience designing and implementing authentication systems and role-based access control.
+    Exposure to Next.js or other SSR/SSG frameworks.
+    Knowledge of WebAssembly or Rust for frontend performance optimization.
+
+Benefits
+
+    Health, Dental, Vision Insurance: Comprehensive coverage to ensure you and your family stay healthy.
+    Generous Paid Time Off: Enjoy flexible, high-trust PTO and sick leave.
+    Stock Options: Participate in our success with a generous stock option plan.
+    Commuter Benefits (NYC): Save on transportation costs with our commuter benefits program.
+
+Salary Range
+
+$120,000 - $150,000 + Equity
+Location
+
+This role will be full-time, onsite in our NYC office (Empire State Building)
+Eligibility
+
+Employment is restricted to U.S. Persons as defined by ITAR (22 CFR §120.15)
+Equal Opportunity Employer
+
+Dirac is an Equal Opportunity Employer; employment with Dirac is governed on the basis of merit, competence and qualifications and will not be influenced in any manner by race, color, religion, gender, national origin/ethnicity, veteran status, disability status, age, sexual orientation, gender identity, marital status, mental or physical disability or any other legally protected status. Dirac, Inc. Full Stack Engineer
