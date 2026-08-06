@@ -6,6 +6,7 @@ from datetime import date
 import pytest
 
 from worksisyphus import archive_application
+from worksisyphus.archive import list_applications, update_application_status
 
 
 @pytest.fixture()
@@ -48,3 +49,29 @@ def test_archive_requires_compiled_pdf(built) -> None:
     pdf.unlink()
     with pytest.raises(FileNotFoundError, match="tailor"):
         archive_application(plan, pdf, "jd", company="Acme", applications_dir=apps)
+
+
+def test_archive_rejects_provenance_mismatch(built) -> None:
+    plan, pdf, apps = built
+    prov = pdf.parent / ".provenance.json"
+    prov.write_text(json.dumps({"plan_hash": "deadbeef1234"}) + "\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="provenance mismatch"):
+        archive_application(plan, pdf, "jd", company="Acme", applications_dir=apps)
+
+
+def test_list_and_update_application_status(built) -> None:
+    plan, pdf, apps = built
+    folder = archive_application(plan, pdf, "jd text", company="Acme", role="SWE", when=date(2026, 7, 11), applications_dir=apps)
+    app_list = list_applications(applications_dir=apps)
+    assert len(app_list) == 1
+    assert app_list[0]["company"] == "Acme"
+    assert app_list[0]["status"] == "applied"
+
+    target, old, new = update_application_status("acme_swe", "phone_screen", applications_dir=apps)
+    assert target == folder
+    assert old == "applied"
+    assert new == "phone_screen"
+
+    updated_meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
+    assert updated_meta["status"] == "phone_screen"
+

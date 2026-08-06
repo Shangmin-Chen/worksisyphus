@@ -56,6 +56,8 @@ uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
 uv run worksisyphus tailor --plan <file|->       # build the one-page PDF
 uv run worksisyphus archive --plan <file> --company <name> --jd <file>  # freeze an application folder
+uv run worksisyphus status                       # list all archived applications and their status
+uv run worksisyphus update-status --app <name> --status <status>  # update status (applied -> phone_screen / onsite / offer / rejected)
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
 ```

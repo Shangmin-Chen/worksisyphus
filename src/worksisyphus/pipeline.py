@@ -1,6 +1,8 @@
 """End-to-end flows: canonical rebuild and plan-driven one-page resume."""
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -63,6 +65,8 @@ def tailor(
                     "Horizontal overflow detected: " + "; ".join(excessive_overfull)
                 )
             log(f"Exported {result.pdf_path} ({result.pages} page).")
+            plan_hash = hashlib.sha256(plan_text.encode("utf-8")).hexdigest()
+            (PDF_DIR / ".provenance.json").write_text(json.dumps({"plan_hash": plan_hash}) + "\n", encoding="utf-8")
             return result
         log(f"{result.pages} pages; trimming and recompiling...")
         selection = trim_step(selection)
