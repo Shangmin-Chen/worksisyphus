@@ -58,4 +58,3 @@ def test_every_archive_meta_json_is_valid() -> None:
         except json.JSONDecodeError as exc:
             invalid.append(f"{d.name}/meta.json JSON error: {exc}")
     assert invalid == [], f"Invalid meta.json files: {invalid}"
-

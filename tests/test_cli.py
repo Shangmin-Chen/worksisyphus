@@ -40,3 +40,40 @@ def test_validate_reads_stdin(monkeypatch, capsys) -> None:
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps({"projects": ["proj2"]})))
     assert cli.main(["validate", "--plan", "-"]) == 0
     assert "proj2: q1" in capsys.readouterr().out
+
+
+def test_status_prints_application_identifier(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        cli,
+        "list_applications",
+        lambda: [
+            {
+                "date": "2026-08-05",
+                "company": "Dirac",
+                "role": "A Full Stack Engineer Role With A Very Long Title",
+                "status": "applied",
+                "folder": "2026-08-05_dirac_full-stack-engineer",
+            }
+        ],
+    )
+
+    assert cli.main(["status"]) == 0
+    output = capsys.readouterr().out
+    assert "Application" in output
+    assert "A Full Stack Engineer Role With… applied" in output
+    assert "2026-08-05_dirac_full-stack-engineer" in output
+
+
+def test_update_status_reports_transition(monkeypatch, capsys, tmp_path) -> None:
+    folder = tmp_path / "2026-08-05_dirac_full-stack-engineer"
+    monkeypatch.setattr(
+        cli,
+        "update_application_status",
+        lambda app, status: (folder, "applied", status),
+    )
+
+    assert cli.main(["update-status", "--app", folder.name, "--status", "phone_screen"]) == 0
+    assert (
+        capsys.readouterr().out
+        == "Updated 2026-08-05_dirac_full-stack-engineer: applied -> phone_screen\n"
+    )

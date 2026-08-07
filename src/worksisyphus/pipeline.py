@@ -43,6 +43,8 @@ def tailor(
     plan_text: str,
     profile_path: Path = DEFAULT_PROFILE_PATH,
     log: Log = _silent,
+    tex_dir: Path = TEX_DIR,
+    pdf_dir: Path = PDF_DIR,
 ) -> CompileResult:
     """Render the plan and trim deterministically until it fits one page."""
     if not plan_text.strip():
@@ -50,9 +52,14 @@ def tailor(
     profile = load_profile(profile_path)
     selection: Selection | None = parse_plan(plan_text, profile)
     log(f"Plan parsed; output name: {selection.name}")
+    normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
+    plan_hash = hashlib.sha256(normalized_plan.encode("utf-8")).hexdigest()
+    provenance_path = pdf_dir / ".provenance.json"
+    provenance_path.parent.mkdir(parents=True, exist_ok=True)
+    _write_provenance(provenance_path, {"plan_hash": plan_hash})
 
     while selection is not None:
-        result = compile_tex(render_resume(profile, selection), selection.name, TEX_DIR, PDF_DIR)
+        result = compile_tex(render_resume(profile, selection), selection.name, tex_dir, pdf_dir)
         if result.pages <= PAGE_LIMIT:
             excessive_overfull = tuple(
                 entry
@@ -65,10 +72,17 @@ def tailor(
                     "Horizontal overflow detected: " + "; ".join(excessive_overfull)
                 )
             log(f"Exported {result.pdf_path} ({result.pages} page).")
-            plan_hash = hashlib.sha256(plan_text.encode("utf-8")).hexdigest()
-            (PDF_DIR / ".provenance.json").write_text(json.dumps({"plan_hash": plan_hash}) + "\n", encoding="utf-8")
+            pdf_hash = hashlib.sha256(result.pdf_path.read_bytes()).hexdigest()
+            _write_provenance(provenance_path, {"plan_hash": plan_hash, "pdf_hash": pdf_hash})
             return result
         log(f"{result.pages} pages; trimming and recompiling...")
         selection = trim_step(selection)
 
     raise RuntimeError("Could not fit the resume on one page even after maximum trimming.")
+
+
+def _write_provenance(path: Path, data: dict[str, str]) -> None:
+    """Atomically replace the build marker, avoiding a partially-written valid record."""
+    temporary_path = path.with_name(f"{path.name}.tmp")
+    temporary_path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+    temporary_path.replace(path)
