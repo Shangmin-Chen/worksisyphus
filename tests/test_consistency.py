@@ -1,7 +1,10 @@
 """Lint-style tests that verify plan/archive consistency across the repo."""
 from __future__ import annotations
 
+import json
 from pathlib import Path
+
+from worksisyphus.archive import STATUSES
 
 ROOT = Path(__file__).resolve().parents[1]
 PLANS_DIR = ROOT / "plans"
@@ -34,3 +37,24 @@ def test_every_archive_has_required_files() -> None:
             if not (d / name).is_file():
                 missing.append(f"{d.name}/{name}")
     assert missing == [], f"Missing archive files: {missing}"
+
+
+def test_every_archive_meta_json_is_valid() -> None:
+    invalid: list[str] = []
+    for d in sorted(APPLICATIONS_DIR.iterdir()):
+        if not d.is_dir():
+            continue
+        meta_file = d / "meta.json"
+        if not meta_file.is_file():
+            continue
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+            if not isinstance(meta, dict):
+                invalid.append(f"{d.name}/meta.json is not a dict")
+            elif "company" not in meta or not meta["company"]:
+                invalid.append(f"{d.name}/meta.json missing company")
+            elif meta.get("status") not in STATUSES:
+                invalid.append(f"{d.name}/meta.json has invalid status {meta.get('status')!r}")
+        except json.JSONDecodeError as exc:
+            invalid.append(f"{d.name}/meta.json JSON error: {exc}")
+    assert invalid == [], f"Invalid meta.json files: {invalid}"

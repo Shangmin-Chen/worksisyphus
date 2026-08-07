@@ -14,3 +14,5 @@ build/
 .env
 .DS_Store
 .claude/
+resumes/.provenance.json*
+applications/*/meta.json.tmp
