@@ -1,0 +1,29 @@
+{
+  "experiences": {
+    "reset-standard": ["async-pipelines", "water-waste-integration", "device-mapping"],
+    "ezesports": ["supabase-schema", "edge-caching", "nextjs-migration"]
+  },
+  "projects": {
+    "persephone": [
+      "modal-gpu-sweeps",
+      "gbm-theo",
+      "cython-kernels",
+      "spsc-ring",
+      "faiss-ivf",
+      "risk-gates"
+    ],
+    "whisperrr": [
+      "three-tier-architecture",
+      "transcription-platform"
+    ],
+    "home-server": [
+      "automation-pipelines",
+      "docker-stack"
+    ]
+  },
+  "skills": {
+    "languages": ["Python", "C++17", "Cython", "Rust", "SQL", "TypeScript", "JavaScript", "Java", "Ruby"],
+    "frameworks_and_libraries": ["FAISS", "CuPy", "FastAPI", "Django", "Spring Boot", "React", "Next.js", "Node.js", "Vite", "React Native", "Ruby on Rails", "Tailwind CSS"],
+    "databases_and_infrastructure": ["PostgreSQL", "Redis", "RabbitMQ", "Docker", "Modal", "OpenMP", "Nginx", "Cloudflare", "Sidekiq", "SQLite", "Supabase"]
+  }
+}
