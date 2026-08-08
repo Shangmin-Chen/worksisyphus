@@ -1,0 +1,38 @@
+Company: Max Tech
+Role: Software Engineer
+Location: Irvine, CA (Onsite)
+Compensation: $122–180K/yr
+
+Job Description:
+We are seeking a dynamic and innovative Software Engineer to join our technology team! In this role, you will be at the forefront of developing scalable, high-performance software solutions that drive our business forward. Your expertise in software development, system design, and cloud infrastructure will be essential in creating robust applications and services. You will collaborate within an Agile environment, utilizing modern programming languages and frameworks to deliver impactful features and enhancements. This is an exciting opportunity for passionate engineers eager to shape the future of our digital platforms through cutting-edge technology.
+
+Duties:
+- Design, develop, and maintain scalable software systems using programming languages such as Java, Python, C++, PHP and JavaScript frameworks like React and Express.
+- Build and optimize RESTful APIs and microservices architectures to ensure seamless integration across platforms.
+- Implement best practices in software engineering including design patterns, version control (Git, SVN), CI/CD pipelines, and system security protocols such as RBAC (Role-Based Access Control).
+- Collaborate with cross-functional teams in Agile sprints to deliver high-quality application features on time.
+- Develop front-end interfaces with modern web development tools while ensuring responsiveness and user experience excellence.
+- Architect solutions leveraging cloud infrastructure platforms such as AWS and Azure to enhance scalability and reliability.
+- Conduct system design for system development projects, emphasizing scalability, performance, and security considerations.
+
+Qualifications:
+- Full-stack development experience, with leadership or technical team collaboration experience
+- Proficiency in at least two or more development languages and frameworks
+- Deep understanding of database design, SQL optimization, and caching strategies
+- Proven experience in architecture design and optimization for high-concurrency systems
+- Understanding of core trading system logic (orders, positions, margins)
+- Ability to independently design and implement complex functional modules
+- Backend: PHP (Laravel/Symfony), Node.js, Python, or Java
+- Database: MySQL / PostgreSQL, Redis, and database optimization
+- API: RESTful API design, WebSocket, GraphQL (Optional)
+- Frontend: React, Vue.js, or other modern frameworks
+- Mobile: iOS/Android development or React Native/Flutter
+- Tools: Docker, Git, Linux, CI/CD
+- MT5 Knowledge: Basic understanding of the MetaTrader 5 platform, FIX protocol, or trading APIs
+- Proven experience in software development with a strong understanding of IT infrastructure components.
+- Proficiency in programming languages including Java, Python, C++, Ruby on Rails, and JavaScript frameworks like React or Angular.
+- Hands-on experience designing RESTful APIs, microservices architectures, and working with SQL databases such as MySQL or PostgreSQL.
+- Familiarity with cloud infrastructure services like AWS or Azure for deploying scalable applications.
+- Knowledge of software design patterns, system architecture principles, and best practices for application development.
+- Experience working within Agile software development environments using tools like GitHub or SVN for version control.
+- Understanding of DevOps practices including CI/CD pipelines to streamline deployment processes.

@@ -1,0 +1,33 @@
+Metro Global Ventures
+Investment / Portfolio Management
+Java Developer
+Hybrid, based in Ocean City, NJ
+
+Job description:
+Java Developer
+
+We are seeking a skilled Java Developer to join our dynamic backend development team. This opportunity is with one of our portfolio companies that specializes in developing software for a broad range of legal and business functions. Our team includes veterans of the legal services industry, technology experts, and business operations professionals. We leverage our expertise to maximize opportunities for improved workflows and processes. We bring together our talent and technology to help clients achieve greater operational efficiency, reduce risks, and take advantage of innovative software solutions.
+
+For this role, we welcome junior and mid-level candidates to apply.
+
+Candidates must reside within commutable distance to Ocean City, NJ. This is a hybrid role with the expectation that team members must work two (2) days per week in our office located in Ocean City, NJ.
+
+Responsibilities:
+- Design, develop, and maintain Java-based applications, ensuring high performance and responsiveness.
+- Collaborate with cross-functional teams to deliver high-quality software solutions that meet the business requirements of our global clients.
+
+Required Technical Skills:
+- Java
+- Spring Framework
+- SQL and JPA
+- Spring Boot
+- Test-driven development experience using Mockito, Spring Boot testing, and JUnit
+- Git
+- Integrating applications with a REST API
+- Understanding of JSON
+
+Qualifications:
+- Bachelor's degree in computer science or a related field.
+- Good written and oral communication with the ability to understand and coherently explain technical concepts and solutions.
+- Good team player, can work independently and a trustworthy individual with a commitment to excellent work ethics.
+- Quality focused and detail oriented
