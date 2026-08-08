@@ -1,0 +1,24 @@
+BlackRock
+Investment / Portfolio Management
+Systems Research Engineer
+San Francisco, CA (Onsite)
+
+Job description:
+We are seeking a Systems Research Engineer to design and build distributed computing platforms that support large-scale quantitative research for systematic investing.
+
+This is fundamentally a computer science and software engineering role focused on distributed systems, cloud infrastructure, large-scale data processing, simulation, and performance engineering.
+
+You will work closely with software engineers, computer scientists, and quantitative researchers to build reliable, scalable systems that enable research at scale. Prior experience in finance is not required.
+
+We offer:
+- Challenging computer science and systems engineering problems at significant scale.
+- The opportunity to design and build algorithms and infrastructure supporting one of the world's largest systematic investment platforms, with over $400 billion USD under management.
+
+You have:
+- A passion for building scalable, high-quality software and solving challenging systems problems.
+- A degree in Computer Science, Computer Engineering, or a related field, with 2+ years of applied software engineering or systems experience.
+- Strong software engineering skills in Python and systems language such as C++, Java, Go, or Rust.
+- Excellent knowledge of Linux/UNIX systems and modern software engineering practices.
+- Experience with distributed computing, cloud-native or serverless architectures - Kubernetes, AWS, Arrow, etc - GPUs, or high-performance computing.
+- Interest in one or more areas such as distributed systems, data-intensive computing, systems performance, machine learning infrastructure, or applied cryptography.
+- The ability to work collaboratively with engineers, computer scientists, and quantitative researchers from diverse technical backgrounds.

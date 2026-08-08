@@ -1,0 +1,24 @@
+Company: AmTrust Insurance
+Role: Software Engineer
+Location: Cleveland, OH (Onsite / 4 days in office, 1 day remote)
+Compensation: $60–70K/yr
+
+Job Description:
+Overview:
+AmTrust Financial is currently seeking a talented individual to fill a role as Software Engineer. This position requires 0-2 years of experience with knowledge of basic knowledge of object-oriented development concepts with preferable exposure to C# or VB.NET and .NET Framework.
+
+Responsibilities:
+- Will be responsible for handling enhancements and bug fixes on existing ASP.NET web sites or assist on new projects of smaller scope
+- Employee will be responsible for handling tickets pertaining to issues documenting their work and what was fixed.
+- Write beginner to intermediate SQL queries to consume in the application
+- Manage code changes with version control using Git branches
+- Will be required to interface with business analysts to discuss timelines, and clarify requirements as it pertains to new projects and/or enhancements and bug fixes.
+
+Qualifications:
+- 0-2 years of typical work experience
+- Basic knowledge of object-oriented development concepts
+- Preferable exposure to C# or VB.NET and .NET Framework
+- College Degree Desired
+- Basic to intermediate knowledge of SQL and SQL querying
+- ASP.NET experience
+- ASP.NET WebAPI experience is a plus

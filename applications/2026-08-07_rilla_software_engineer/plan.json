@@ -1,0 +1,12 @@
+{
+  "experiences": {
+    "ezesports": "all",
+    "reset-standard": "all"
+  },
+  "projects": {
+    "persephone": ["live-pnl", "cython-kernels", "durable-orders", "gbm-theo", "modal-gpu-sweeps"],
+    "hermes-letters": "all",
+    "whisperrr": "all"
+  },
+  "skills": "all"
+}

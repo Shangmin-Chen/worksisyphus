@@ -1,0 +1,40 @@
+{
+  "experiences": {
+    "reset-standard": [
+      "water-waste-integration",
+      "async-pipelines",
+      "device-mapping"
+    ],
+    "ezesports": [
+      "supabase-schema",
+      "nextjs-migration",
+      "edge-caching"
+    ]
+  },
+  "projects": {
+    "persephone": [
+      "cython-kernels",
+      "spsc-ring",
+      "modal-gpu-sweeps",
+      "faiss-ivf",
+      "gbm-theo",
+      "durable-orders"
+    ],
+    "whisperrr": [
+      "three-tier-architecture",
+      "transcription-platform",
+      "containerization"
+    ],
+    "home-server": [
+      "docker-stack",
+      "cloudflare-tunnels",
+      "automation-pipelines"
+    ],
+    "hermes-letters": [
+      "atomic-claims",
+      "derived-connections",
+      "media-hardening"
+    ]
+  },
+  "skills": "all"
+}

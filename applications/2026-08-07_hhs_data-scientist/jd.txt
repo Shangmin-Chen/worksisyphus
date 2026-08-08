@@ -1,0 +1,12 @@
+U.S. Department of Health and Human Services
+Administration for Children and Families
+Office of Refugee Resettlement (ORR)
+Data Scientist
+Boston, MA / New York City, NY (Onsite)
+
+Job description:
+As a Data Scientist, you will use your knowledge and experience to optimize business results and customer experience by:
+- Utilizing tools such as Microsoft Power Automate, PowerBI, Tableau, Python, Structured Query Language (SQL), SAS, Oracle, machine learning methods, and other data analytics tools, as necessary.
+- Developing mathematical and/or statistical models for evaluation, identification, collection, and analysis of all data used to support assigned projects or program(s). Analyzing complex data elements and systems, data flows, dependencies, and relationships.
+- Preparing presentations, writing reports, building data visualization products, and working to communicate technical results and actionable insights to decision-makers with varying levels of analytic sophistication.
+- Interfacing and collaborating with staff elements, and others to refine understanding of underlying problem(s) and devise possible solutions. Expert understanding of issues and requirements of each division as well as leadership, to report/dashboard requirements and data needs.

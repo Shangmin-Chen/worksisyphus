@@ -1,0 +1,20 @@
+Company: Roblox
+Role: [2027] Software Engineer, Early Career
+Location: San Mateo, CA (Hybrid)
+
+Job Description:
+As an Early Career Software Engineer at Roblox, your story begins with supportive mentorship and immediate, global impact. You’ll work alongside seasoned engineers and curious experts, designing, coding, and deploying real features that reach millions of people globally. By the end of your first year, you’ll have directly influenced the future of our platform and the experience of our global community with millions of daily active users.
+
+You Will:
+- Join a community of curious, supportive engineers, actively engaging in architectural discussions and system design.
+- Investigate and experiment with cutting-edge technologies, like machine learning frameworks and large language models (LLMs), to solve complex technical challenges and improve our engineering systems.
+- Design, code, and test innovative features, navigating the full development lifecycle from initial design to production deployment.
+- Partner closely with cross-functional teams, including Design, Product, Data, QA, and DevOps, to deliver cohesive products and features.
+- Support the continuous evolution of our distributed systems, operating at our massive scale of 2 trillion analytics events a day.
+- Engage in our team matching process, chatting directly with engineering managers from across Roblox, including Infra, Engine, Search & Discovery, Foundational AI, Economy, and more, to help guide your placement.
+
+You Are:
+- Pursuing or in possession of an undergraduate/graduate degree in computer science, engineering, a related technical field, or an equivalent practical experience.
+- Experienced with software engineering concepts through coursework, internships, personal projects, or previous roles.
+- Proficient in one or more programming languages, including C#, Lua, Java, Go, Node.js, Ruby, Python, C++, and Swift.
+- Able to thrive in ambiguous environments, quickly adapting to new challenges and collaborating across the company to solve complex technical challenges while developing proficiency in coding standards.
