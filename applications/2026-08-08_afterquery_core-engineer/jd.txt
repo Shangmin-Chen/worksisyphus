@@ -1,0 +1,33 @@
+About AfterQuery
+AfterQuery is an applied research lab curating data solutions for foundation model development.
+We serve every frontier AI lab with the mission of delivering the best data to power the best models. In doing so, we can make expertise that once took a lifetime to build available to anyone who needs it. Our customers are the ones building the foundation models themselves and our work sits directly in the loop of how those systems improve.
+This is a rare opportunity to join a company at a defining moment in AI. Since raising our $30M Series A at a $300M valuation, AfterQuery has grown well over a $100M revenue run rate.
+We're based in San Francisco and backed by leading investors including Altos Ventures, BoxGroup, and Y Combinator and angels from Google DeepMind, OpenAI, Anthropic, Meta Superintelligence Labs, and Microsoft AI.
+
+Why Apply
+Massive Opportunity:
+We were one of the fastest-growing YC companies in our batch, and we believe we can become one of the fastest-growing YC companies of all time.
+Founding Impact:
+You will own and architect core infrastructure systems that power our platform from the ground up.
+Equity & Growth:
+Competitive salary and meaningful equity. As we scale, you’ll have the opportunity to shape the engineering organization and lead major technical initiatives.
+Strong Team:
+Our founding team has experience from Citadel Securities, Meta, Google, Silver Lake, and Morgan Stanley — work alongside world-class engineers and researchers.
+
+Overview
+As one of our core engineers, you’ll be critical in creating data infrastructure that will be shaping the future development of frontier models. You will be one of our first hires, and will get a lot of responsibility, owning entire projects end-to-end – meaning you can see your impact instantly.
+
+Responsibilities
+Build and scale complex data capturing workflows across web (Next.js) and desktop (Python)
+Architect and optimize data pipelines that experience high throughput, with heavy loads
+Collaborate with the founding team to define product strategy and ship features fast.
+Set engineering best practices and lay the groundwork for future team growth.
+
+Required Qualifications
+Proficiency in JavaScript (Next.js) and Python, with demonstrated experience building full-stack web applications
+Experience with serverless architecture and cloud functions for implementing heavy data processing (GCP/AWS)
+Storage, caching & search: Hands‑on with Redis (caching), Elasticsearch (indexing), and message queues (Kafka/RabbitMQ) to build scalable, low‑latency pipelines.
+Experience getting your ideas into production (founder experience preferred)
+
+Preferred Qualifications
+Background in AI research, LLM evaluations, or human‑in‑the‑loop systems

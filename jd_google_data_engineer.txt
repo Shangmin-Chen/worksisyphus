@@ -1,0 +1,43 @@
+Data Engineer, gTech Users and Products Engineering
+Google
+Boulder, CO, USA
+
+The application window will be open until at least August 21, 2026. This opportunity will remain online based on business needs which may be before or after the specified date.
+
+Minimum qualifications:
+
+Bachelor's degree or equivalent practical experience.
+1 year of experience coding in one or more programming languages.
+1 year of experience designing data pipelines, and dimensional data modeling for synch and asynch system integration and implementation using internal (e.g., Flume, etc.) and external stacks (DataFlow, Spark, etc.).
+Experience working with data models by performing exploratory queries and scripts.
+
+Preferred qualifications:
+
+Experience partnering with stakeholders (e.g., users, partners, customer), and managing stakeholders/customers.
+Experience developing project plans and delivering projects on time within budget and scope.
+Experience designing data models, data warehouses, and modeling complex business processes or real-world business data.
+Experience writing and maintaining ETL pipelines for structured and unstructured sources, alongside large-scale distributed data processing.
+Proficiency with Unix or Linux environments and non-relational data storage systems, including NoSQL and distributed databases.
+Excellent written communication, organizational, and investigative skills.
+
+About the job
+
+In gTech Users and Products (gUP), our mission is to advocate for Google’s users by creating helpful and trusted experiences across the product ecosystem. We achieve this by meeting partners and consumers where they are with support and help, representing their needs with our product partners and proposing fixes and features that elevate their engagement with Google's diverse product ecosystem. Additionally we provide a range of product services that ensure our products are optimized for every user, no matter where they are in the world (e.g., localization, digitization, partner integration, and more).
+
+Google creates products and services that make the world a better place, and gTech’s role is to help bring them to life. Our teams of trusted advisors support customers globally. Our solutions are rooted in our technical skill, product expertise, and a thorough understanding of our customers’ complex needs. Whether the answer is a bespoke solution to solve a unique problem, or a new tool that can scale across Google, everything we do aims to ensure our customers benefit from the full potential of Google products.
+
+To learn more about gTech, check out our video.
+
+Individual pay is determined by factors including job-related skills, experience, and relevant education or training.
+
+US: $106000 - $150000 (USD) + 15% bonus target + equity + benefits
+
+Learn more about benefits at Google.
+
+Responsibilities
+
+Leverage advanced AI to design, develop, and support robust, full-stack data pipelines, warehouses, and reporting systems.
+Create, optimize, and modify scalable ETL processes using traditional and large-scale distributed data systems to manage evolving business demands.
+Partner closely with data scientists to transition, scale, and productionize statistical and machine learning models within data processing pipelines.
+Align and collaborate with product, user, and engineering stakeholders to ensure data infrastructure meets dynamically evolving operational requirements.
+Author comprehensive technical design documents while managing continuous innovation using investigative tools for business insights.

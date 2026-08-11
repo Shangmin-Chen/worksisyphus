@@ -1,0 +1,16 @@
+{
+  "experiences": {
+    "reset-standard": ["async-pipelines", "water-waste-integration", "device-mapping"],
+    "ezesports": ["nextjs-migration", "edge-caching", "supabase-schema"]
+  },
+  "projects": {
+    "persephone": ["modal-gpu-sweeps", "gbm-theo", "faiss-ivf", "live-pnl", "cython-kernels"],
+    "whisperrr": ["transcription-platform", "three-tier-architecture"],
+    "personal-website": ["edge-deployment", "bundle-split"]
+  },
+  "skills": {
+    "languages": ["Python", "JavaScript", "TypeScript", "C++17", "Cython", "SQL", "Java"],
+    "frameworks_and_libraries": ["Next.js", "React", "FastAPI", "Vite", "Node.js", "FAISS", "CuPy", "Tailwind CSS"],
+    "databases_and_infrastructure": ["Redis", "RabbitMQ", "PostgreSQL", "Modal", "Cloudflare", "Docker", "Sidekiq", "Nginx"]
+  }
+}

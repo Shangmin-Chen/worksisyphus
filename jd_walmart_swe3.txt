@@ -1,0 +1,42 @@
+(USA) Software Engineer III
+811 11 Th Ave
+Sunnyvale, CA 94089-4731
+R-2430866
+SUNNYVALE TECH CORNERS BLDG 6
+
+$117,000 - $234,000/yr
+Regular/Permanent
+Salaried
+
+Position Summary...
+What you'll do...
+Role Summary
+
+As a Software Engineer III on the OneSource team, you will develop and deliver scalable, production-quality solutions using Java, Spring Boot, React, and emerging agentic technologies — integrating with Walmart’s core tech platforms. You will contribute directly to OneSource’s mission of becoming the backbone of Walmart’s sourcing and product development transformation, building platform capabilities that enable seamless workflows, intelligent automation, and data-driven sourcing across global markets.
+
+*****Immigration Sponsorship support will NOT be available for this position*****
+
+What You’ll Do:
+Analyze and classify requirements to align technical solutions with business and functional needs, contributing to user story refinement and iterative development cycles
+Develop and configure code adhering to team standards to meet both functional and non-functional requirements across assigned features
+Participate in code reviews and implement automated testing to ensure quality, reliability, and adherence to platform test conventions
+Troubleshoot defects and performance issues , applying root cause analysis to identify and resolve problems effectively
+Collaborate with stakeholders — product owners, business analysts, and partner engineering teams — to clarify requirements and support delivery
+Monitor application performance using telemetry, logging, and CI/CD tooling to maintain production health and reliability
+
+What You’ll Bring:
+Strong proficiency in software design patterns and experience building scalable, distributed systems as an individual contributor
+Hands-on coding skills in object-oriented and functional programming — proficiency in Java, Spring Boot, React, JavaScript, and/or Python
+Experience with iterative development practices — CI/CD pipelines, sprint-based delivery, and incremental feature releases
+Ability to conduct thorough code reviews and debug complex issues, with a focus on high-quality, well-tested software delivery
+Solid requirement analysis skills — ability to break down user stories and translate business needs into clean technical implementations
+Familiarity with telemetry, testing methodologies, and automation tools (SonarQube, Jest, Playwright, @testing-library/react) supporting robust software lifecycle management
+Effective cross-functional collaboration — works well with distributed teams, communicates technical trade-offs clearly, and contributes to shared team goals
+
+Technical Skills - Domain Technologies
+Backend - Java, Spring Boot, Python, RESTful APIs, async patterns
+Frontend - React, TypeScript, JavaScript, Module Federation
+Data - PostgreSQL, AzureSQL, Cosmos DB
+Testing - Jest, @testing-library/react, Playwright, SonarQube
+DevOps / Observability - CI/CD pipelines, monitoring, alerting, tracing
+Cloud - Azure, GCP , WCNP

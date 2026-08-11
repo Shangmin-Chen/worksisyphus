@@ -16,3 +16,5 @@ build/
 .claude/
 resumes/.provenance.json*
 applications/*/meta.json.tmp
+scratch/
+
