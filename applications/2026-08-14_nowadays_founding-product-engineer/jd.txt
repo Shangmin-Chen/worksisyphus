@@ -1,0 +1,98 @@
+Founding Product Engineer
+Build beautiful, customer-driven features and shape our product as a founding engineer ☀️
+☀️
+About Nowadays
+We're building the future of in-person connection, from intimate exec offsites to a conference-level company offsite.
+Nowadays is the first AI-powered platform for planning corporate events. Our software handles everything from venue sourcing to vendor negotiations, making it easier and faster for teams to meet up in real life.
+We've planned events across the globe for companies like Google, Airbnb, and Quantstamp and we're just getting started.
+Our mission is simple: make it easier for teams to create meaningful moments together.
+👥
+Who We Are
+We're a sister-founded team based in San Francisco. We move fast, care deeply, and love bringing people together (whether it's a strategic offsite or a Friendsgiving in our Nowadays home).
+We believe the best teams:
+•
+Take ownership
+•
+Keep things scrappy
+•
+Celebrate wins (big and small)
+•
+Genuinely enjoy working (+ hanging out) together
+Some of our favorite team excursions so far:
+•
+Flying trapeze
+•
+Steak-offs at home
+•
+Hauling a Christmas tree up to the office
+•
+Hitting the spa after a big launch
+•
+Racing an Ironman Relay
+💼
+What You'll Do
+•
+Build full-stack features (React/TypeScript, Next.js, Node/Python) with exceptional design and user experience
+•
+Work directly with large enterprise customers to understand their needs and build custom features
+•
+Own the end-to-end product development cycle from customer conversations to production
+•
+Partner closely with sales and ops teams to prioritize high-impact customer requests
+•
+Make key product and technical decisions that shape our platform for enterprise use cases
+•
+Ship features quickly and iterate based on real customer feedback
+•
+Help define our product culture and processes from day one
+🥇
+What We're Looking For
+•
+You've built and shipped full-stack products with excellent design and UX
+•
+You have strong product intuition and can translate customer needs into elegant solutions
+•
+You're comfortable working directly with customers and gathering requirements
+•
+You have a strong eye for design and can build beautiful, polished interfaces
+•
+You're confident in modern web frameworks and SQL
+•
+You like moving fast, taking ownership, and shipping features that customers love
+•
+You want to shape the product and work closely with enterprise customers
+✨
+Bonus Points
+•
+Experience building custom features for enterprise customers
+•
+Strong design skills or experience working closely with designers
+•
+Background in product management or customer-facing engineering roles
+•
+Startup zero-to-one experience
+•
+Experience with B2B SaaS platforms
+📝
+The Details
+Compensation
+$130K - $170K / 0.5% - 1.5%
+Location
+In-person in San Francisco
+Perks
+•
+Free lunch + dinner
+•
+Quarterly team offsites (yes, we went to the White Lotus S3 hotel in Thailand), and exclusive access to top venues and events
+•
+Monthly fitness stipend
+•
+Health insurance
+•
+12 weeks paid parental leave
+•
+Generous PTO with required time off to recharge
+•
+High ownership, autonomy, and direct access to founders
+•
+Access to top venues, events, and travel experiences JD
