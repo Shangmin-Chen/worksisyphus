@@ -31,10 +31,12 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 7. **Archive.** Immediately after delivering, freeze the application:
 
    ```bash
-   uv run worksisyphus archive --plan plans/<name>.json --company <Company> --jd <file|-> [--role <Role>] [--url <posting url>]
+   cat << 'EOF' | uv run worksisyphus archive --plan plans/<name>.json --company <Company> --jd - [--role <Role>] [--url <posting url>]
+   <Pasted JD text>
+   EOF
    ```
 
-   `--jd` is **required**. Before archiving, save the user's pasted JD to a file and pass its path. If there is genuinely no JD (internal referral, career fair), write a file explaining the absence (e.g. "Internal referral — no formal job description.") and pass that. The command refuses empty JD text.
+   `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
 
    This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting), `plan.json` and `Simon_Chen_Resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`). Archive immediately after tailoring: all plans share the `Simon_Chen_Resume.pdf` output, so a later tailor run overwrites it.
 
