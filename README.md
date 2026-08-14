@@ -37,7 +37,7 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan plans/x.json  # check a plan and print the resolved selection
 uv run worksisyphus tailor --plan plans/x.json    # one-page resume from a plan (- for stdin)
-uv run worksisyphus archive --plan plans/x.json --company Acme --jd jd.txt   # freeze an application folder
+uv run worksisyphus archive --plan plans/x.json --company Acme --jd <file|->   # freeze an application folder (- for stdin)
 uv run worksisyphus status                        # list archived applications and identifiers
 uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)

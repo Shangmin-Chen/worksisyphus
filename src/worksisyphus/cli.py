@@ -65,7 +65,11 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "validate":
             print(_describe(parse_plan(_read_plan(args.plan), load_profile())))
         elif args.command == "archive":
+            if args.plan == "-":
+                raise ValueError("archive requires a plan file path, not stdin (use --plan <path>).")
             plan_path = Path(args.plan)
+            if not plan_path.is_file():
+                raise FileNotFoundError(f"Plan file not found: {plan_path}")
             selection = parse_plan(plan_path.read_text(encoding="utf-8"), load_profile())
             jd_text = _read_plan(args.jd)
             folder = archive_application(

@@ -77,3 +77,35 @@ def test_update_status_reports_transition(monkeypatch, capsys, tmp_path) -> None
         capsys.readouterr().out
         == "Updated 2026-08-05_dirac_full-stack-engineer: applied -> phone_screen\n"
     )
+
+
+def test_archive_reads_jd_from_stdin(monkeypatch, tmp_path, capsys) -> None:
+    import io
+    from pathlib import Path
+
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+    recorded_args = {}
+
+    def fake_archive(plan_path, pdf_path, jd_text, company, role="", source_url=""):
+        recorded_args["plan_path"] = plan_path
+        recorded_args["jd_text"] = jd_text
+        recorded_args["company"] = company
+        return Path("applications/2026-08-14_acme_swe")
+
+    monkeypatch.setattr(cli, "archive_application", fake_archive)
+    monkeypatch.setattr("sys.stdin", io.StringIO("Frontend engineer job description"))
+
+    assert cli.main(["archive", "--plan", plan, "--company", "Acme", "--jd", "-"]) == 0
+    assert "Archived applications/2026-08-14_acme_swe" in capsys.readouterr().out
+    assert recorded_args["jd_text"] == "Frontend engineer job description"
+    assert recorded_args["company"] == "Acme"
+
+
+def test_archive_rejects_plan_from_stdin(capsys) -> None:
+    assert cli.main(["archive", "--plan", "-", "--company", "Acme", "--jd", "-"]) == 1
+    assert "error: archive requires a plan file path, not stdin" in capsys.readouterr().err
+
+
+def test_archive_rejects_missing_plan_file(capsys) -> None:
+    assert cli.main(["archive", "--plan", "nonexistent_plan.json", "--company", "Acme", "--jd", "-"]) == 1
+    assert "error: Plan file not found" in capsys.readouterr().err
