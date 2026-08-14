@@ -24,3 +24,21 @@ Output written on /tmp/x.pdf (1 page, 1234 bytes).
 
     assert result.pages == 1
     assert result.overfull == ("90.6pt too wide at tex line 127",)
+
+
+def test_find_pdflatex_missing_raises_compile_error(monkeypatch) -> None:
+    import pytest
+
+    monkeypatch.setattr(compiler.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(compiler.Path, "is_file", lambda self: False)
+
+    with pytest.raises(compiler.CompileError, match="MacTeX"):
+        compiler.find_pdflatex()
+
+
+def test_find_pdflatex_fallback_location(monkeypatch) -> None:
+    monkeypatch.setattr(compiler.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(compiler.Path, "is_file", lambda self: str(self) == "/Library/TeX/texbin/pdflatex")
+
+    engine = compiler.find_pdflatex()
+    assert engine == "/Library/TeX/texbin/pdflatex"

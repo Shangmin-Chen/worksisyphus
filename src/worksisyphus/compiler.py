@@ -24,11 +24,36 @@ class CompileResult:
     overfull: tuple[str, ...] = ()
 
 
+def find_pdflatex() -> str:
+    """Locate the pdflatex executable on PATH or in standard MacTeX / TeX Live locations."""
+    which_path = shutil.which("pdflatex")
+    if which_path is not None:
+        return which_path
+
+    known_locations = (
+        "/Library/TeX/texbin/pdflatex",
+        "/usr/local/texlive/2026/bin/universal-darwin/pdflatex",
+        "/usr/local/texlive/2025/bin/universal-darwin/pdflatex",
+        "/usr/local/texlive/2024/bin/universal-darwin/pdflatex",
+        "/opt/homebrew/bin/pdflatex",
+        "/usr/local/bin/pdflatex",
+    )
+    for loc in known_locations:
+        if Path(loc).is_file():
+            return loc
+
+    raise CompileError(
+        "pdflatex not found. MacTeX (or a compatible LaTeX distribution) is required to compile resumes.\n"
+        "Install via Homebrew on macOS:\n"
+        "  brew install --cask mactex      # Full MacTeX distribution\n"
+        "  brew install --cask basictex    # Lightweight MacTeX distribution\n"
+        "If already installed, ensure /Library/TeX/texbin is on your PATH (e.g. run: eval \"$(/usr/libexec/path_helper)\")."
+    )
+
+
 def compile_tex(tex: str, name: str, tex_dir: Path, pdf_dir: Path) -> CompileResult:
     """Write <name>.tex to tex_dir, compile it in a temp dir, export <name>.pdf to pdf_dir."""
-    engine = shutil.which("pdflatex")
-    if engine is None:
-        raise CompileError("pdflatex not found on PATH.")
+    engine = find_pdflatex()
 
     tex_dir.mkdir(parents=True, exist_ok=True)
     pdf_dir.mkdir(parents=True, exist_ok=True)

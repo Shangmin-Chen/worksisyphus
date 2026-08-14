@@ -4,7 +4,17 @@ Simon Chen's resume compiler. One slug-keyed JSON database of everything I've do
 
 Nothing writes resume text but me. A plan can omit a bullet, never corrupt one — whether the plan is written by hand or by an AI agent.
 
-## How I use it: paste a JD into Claude Code
+## Prerequisites
+
+- **Python package manager**: `uv` (`brew install uv`)
+- **LaTeX distribution**: **MacTeX** is required for `pdflatex` to compile rendered LaTeX resumes into PDFs.
+  - Install via Homebrew:
+    ```bash
+    brew install --cask mactex      # Full MacTeX distribution
+    # or
+    brew install --cask basictex    # Lightweight distribution
+    ```
+  - Ensure `/Library/TeX/texbin` is in your PATH (e.g. `eval "$(/usr/libexec/path_helper)"`). The compiler automatically checks standard MacTeX paths and raises an explicit error if missing.
 
 The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules (one page, Jake's template, select-don't-write, content guardrails), so tailoring a resume is one prompt:
 

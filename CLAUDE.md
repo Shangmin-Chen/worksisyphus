@@ -62,6 +62,8 @@ uv run python -m pytest tests/ -q               # test suite (no network, no pdf
 uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
 ```
 
+> **Prerequisite:** MacTeX (or BasicTeX) is required for `pdflatex` compilation: `brew install --cask mactex`. The compiler automatically checks PATH and `/Library/TeX/texbin` and fails with an explicit error if missing.
+
 Exit codes: 0 success, 1 failure with a one-line `error: ...` on stderr. Plan validation errors name the offending slug.
 
 ## Deterministic enforcement over workflow instructions
