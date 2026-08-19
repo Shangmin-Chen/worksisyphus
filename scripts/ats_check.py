@@ -9,16 +9,15 @@ Exit 0 = pass, 1 = fail with one line per problem.
 
 from __future__ import annotations
 
-import json
 import re
 import sys
 from pathlib import Path
 
-from pdfminer.high_level import extract_text
-from pdfminer.pdfpage import PDFPage
-
 ROOT = Path(__file__).resolve().parents[1]
-CANONICAL_STEM = "Simon_Chen_Resume_Compiled"
+sys.path.insert(0, str(ROOT / "src"))
+
+from worksisyphus.ats import check_pdf_ats  # noqa: E402
+from worksisyphus.profile import load_profile  # noqa: E402
 
 
 def main() -> int:
@@ -26,36 +25,36 @@ def main() -> int:
         print("usage: ats_check.py <resume.pdf>", file=sys.stderr)
         return 1
     pdf = Path(sys.argv[1])
-    contact = json.loads((ROOT / "profile.json").read_text(encoding="utf-8"))["contact"]
-    text = extract_text(pdf)
-    with pdf.open("rb") as fh:
-        pages = sum(1 for _ in PDFPage.get_pages(fh))
+    profile_path = ROOT / "profile.json"
+    if not profile_path.is_file():
+        profile_path = ROOT / "profile.example.json"
+    if not profile_path.is_file():
+        profile_path = ROOT / "tests" / "fixtures" / "profile.json"
 
-    problems: list[str] = []
-    if pdf.stem != CANONICAL_STEM and pages != 1:
-        problems.append(f"expected 1 page, got {pages}")
-    for label, needle in (("name", contact["name"]), ("email", contact["email"]), ("phone", contact["phone"])):
-        if needle and needle not in text:
-            problems.append(f"contact {label} {needle!r} did not extract")
-    for section in ("Education", "Experience", "Technical Skills"):
-        if section not in text:
-            problems.append(f"section header {section!r} did not extract")
-    if "(cid:" in text:
-        problems.append("broken glyphs: extraction produced (cid:N) placeholders")
+    profile = load_profile(profile_path)
+    contact = profile.contact
+
+    result = check_pdf_ats(
+        pdf_path=pdf,
+        name=contact.name,
+        email=contact.email,
+        phone=contact.phone,
+    )
+
     merges = re.findall(
         r"[A-Za-z]{3,}(?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d",
-        text,
+        result.text,
     )
     for merge in merges:
         print(f"WARN: {merge!r} extracted with no whitespace before the date; that keyword will not match")
 
-    if problems:
-        for problem in problems:
+    if not result.passed:
+        for problem in result.problems:
             print(f"FAIL: {problem}")
         return 1
-    print(
-        f"ATS check passed: {pdf.name} ({pages} page{'s' if pages != 1 else ''}, {len(text.split())} words extracted)"
-    )
+
+    page_str = f"{result.pages} page{'s' if result.pages != 1 else ''}"
+    print(f"ATS check passed: {pdf.name} ({page_str}, {result.word_count} words extracted)")
     return 0
 
 

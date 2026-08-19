@@ -59,3 +59,8 @@ jobs:
 
       - name: Run Pytest with Coverage
         run: uv run python -m pytest tests/ -v --cov=worksisyphus --cov-report=term-missing
+
+      - name: ATS Extraction Check on Tracked Resumes
+        run: |
+          uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume.pdf
+          uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume_Compiled.pdf
