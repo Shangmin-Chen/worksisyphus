@@ -74,6 +74,25 @@ def archive_application(
     (folder / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
     meta = {"company": company, "role": role, "date": when.isoformat(), "source_url": source_url, "status": STATUSES[0]}
     (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+
+    from .db import DEFAULT_DB_PATH, archive_application_to_db, get_connection
+    if DEFAULT_DB_PATH.is_file():
+        try:
+            conn = get_connection(DEFAULT_DB_PATH)
+            archive_application_to_db(
+                conn=conn,
+                app_id=folder.name,
+                company=company,
+                role=role,
+                date_str=when.isoformat(),
+                source_url=source_url,
+                status=STATUSES[0],
+                jd_text=jd_text.strip(),
+                plan_json=normalized_plan,
+            )
+        except Exception:
+            pass
+
     return folder
 
 
@@ -139,4 +158,13 @@ def update_application_status(
     temporary_meta = meta_file.with_name(f"{meta_file.name}.tmp")
     temporary_meta.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     temporary_meta.replace(meta_file)
+
+    from .db import DEFAULT_DB_PATH, get_connection, update_application_status_in_db
+    if DEFAULT_DB_PATH.is_file():
+        try:
+            conn = get_connection(DEFAULT_DB_PATH)
+            update_application_status_in_db(conn, target_folder.name, new_status)
+        except Exception:
+            pass
+
     return target_folder, old_status, new_status

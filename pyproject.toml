@@ -8,7 +8,9 @@ version = "2.1.0"
 description = "Simon Chen's resume compiler: hand-written slug plans in, one-page LaTeX PDFs out."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "libsql-experimental>=0.0.55",
+]
 
 [project.scripts]
 worksisyphus = "worksisyphus.cli:main"

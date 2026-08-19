@@ -57,9 +57,11 @@ uv run worksisyphus compile                      # canonical 3-page database vie
 uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
 uv run worksisyphus tailor --plan <file|->       # build the one-page PDF
-uv run worksisyphus archive --plan <file> --company <name> --jd <file|->  # freeze an application folder
 uv run worksisyphus status                       # list all archived applications and their status
 uv run worksisyphus update-status --app <name> --status <status>  # update status (applied -> phone_screen / onsite / offer / rejected)
+uv run worksisyphus db status                    # show database overview, metrics, and connection status
+uv run worksisyphus db history [--limit N]       # show append-only timestamped audit trail
+uv run worksisyphus db sync                      # export profile.json and sync to Turso cloud
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
 ```
@@ -76,4 +78,4 @@ When changing a schema or data format, migrate **all** existing data files — n
 
 ## Architecture (for code changes)
 
-`profile.py` (slug-keyed database loader) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `cli.py`; `archive.py` freezes applications. Tests use a small fixture profile and an injectable fake compiler; they must keep passing without network or pdflatex.
+`db.py` (SQLite/Turso database & append-only audit trail) → `profile.py` (slug-keyed database loader) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `cli.py`; `archive.py` freezes applications. Tests use a small fixture profile, in-memory SQLite, and an injectable fake compiler; they must keep passing without network or pdflatex.

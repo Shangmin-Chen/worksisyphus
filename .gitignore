@@ -12,6 +12,9 @@ dist/
 build/
 *.egg-info/
 .env
+*.db*
+*.sqlite*
+*.sqlite3*
 .DS_Store
 .claude/
 resumes/.provenance.json*

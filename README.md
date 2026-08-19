@@ -40,6 +40,9 @@ uv run worksisyphus tailor --plan plans/x.json    # one-page resume from a plan 
 uv run worksisyphus archive --plan plans/x.json --company Acme --jd <file|->   # freeze an application folder (- for stdin)
 uv run worksisyphus status                        # list archived applications and identifiers
 uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
+uv run worksisyphus db status                        # show database stats and metrics
+uv run worksisyphus db history [--limit N]           # show timestamped append-only audit trail
+uv run worksisyphus db sync                          # export profile.json and sync to Turso cloud
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
 uv run --with pdfminer.six python scripts/ats_check.py resumes/x.pdf   # ATS extraction check
 ```
@@ -56,6 +59,7 @@ Every tailored resume compiles to `resumes/Simon_Chen_Resume.pdf` — a clean, h
 ├── CLAUDE.md               # rules for AI agents operating this repo
 ├── scripts/ats_check.py    # verify a compiled PDF extracts cleanly for ATS parsers
 ├── src/worksisyphus/
+│   ├── db.py               # SQLite/Turso database & append-only audit trail
 │   ├── profile.py          # database loader + slug index
 │   ├── plan.py             # plan-file parser and validation
 │   ├── selection.py        # Selection model + deterministic one-page trim order

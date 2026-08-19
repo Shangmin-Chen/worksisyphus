@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -55,6 +56,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Exact application folder name or unique plan stem (e.g. dirac_full-stack-engineer).",
     )
     update_cmd.add_argument("--status", required=True, choices=STATUSES, help="New status value.")
+    db_cmd = sub.add_parser("db", help="Manage SQLite and Turso database layer.")
+    db_sub = db_cmd.add_subparsers(dest="db_action", required=True)
+    db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
+    db_sub.add_parser("sync", help="Sync database: export profile.json and push to Turso cloud.")
+    db_sub.add_parser("status", help="Show database metrics and connection status.")
+    history_cmd = db_sub.add_parser("history", help="Show append-only audit trail.")
+    history_cmd.add_argument("--limit", type=int, default=20, help="Number of audit events to display.")
+    history_cmd.add_argument("--type", dest="entity_type", default=None, help="Filter by entity type.")
     args = parser.parse_args(argv)
 
     try:
@@ -95,6 +104,63 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "update-status":
             folder, old_status, new_status = update_application_status(args.app, args.status)
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
+        elif args.command == "db":
+            from .db import (
+                DEFAULT_DB_PATH,
+                export_profile_json,
+                get_audit_history,
+                get_connection,
+                load_profile_from_db,
+                seed_database,
+                sync_to_turso,
+            )
+            conn = get_connection(DEFAULT_DB_PATH)
+            if args.db_action == "init":
+                seed_database(conn)
+                print(f"Initialized and seeded {DEFAULT_DB_PATH}")
+                turso_ok = sync_to_turso()
+                print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
+            elif args.db_action == "sync":
+                export_profile_json(conn)
+                print("Exported active database state to profile.json")
+                turso_ok = sync_to_turso()
+                print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
+            elif args.db_action == "status":
+                profile = load_profile_from_db(conn)
+                events = get_audit_history(conn, limit=1)
+                cur = conn.execute("SELECT count(*) FROM applications")
+                app_count = cur.fetchone()[0]
+                cur2 = conn.execute("SELECT count(*) FROM audit_events")
+                event_count = cur2.fetchone()[0]
+                print(f"Database: {DEFAULT_DB_PATH}")
+                print(f"Contact: {profile.contact.name} ({profile.contact.email})")
+                print(f"Education: {len(profile.education)} record(s)")
+                print(f"Experiences: {len(profile.experiences)} with {sum(len(e.bullets) for e in profile.experiences.values())} bullets")
+                print(f"Projects: {len(profile.projects)} with {sum(len(p.bullets) for p in profile.projects.values())} bullets")
+                print(f"Skill Groups: {len(profile.skills)} ({sum(len(s) for s in profile.skills.values())} total skills)")
+                print(f"Tracked Applications: {app_count}")
+                print(f"Audit Events: {event_count}")
+            elif args.db_action == "history":
+                events = get_audit_history(conn, limit=args.limit, entity_type=args.entity_type)
+                if not events:
+                    print("No audit events found.")
+                else:
+                    header = f"{'Timestamp':<30} {'Action':<15} {'Entity':<20} {'ID':<35} Details"
+                    print(header)
+                    print("-" * len(header))
+                    for ev in events:
+                        details = ""
+                        if ev["field_name"]:
+                            details = f"{ev['field_name']}: {ev['old_value']} -> {ev['new_value']}"
+                        elif ev["metadata"]:
+                            details = json.dumps(ev["metadata"])
+                        print(
+                            f"{_fit_column(ev['timestamp'], 30):<30} "
+                            f"{_fit_column(ev['action'], 15):<15} "
+                            f"{_fit_column(ev['entity_type'], 20):<20} "
+                            f"{_fit_column(ev['entity_id'], 35):<35} "
+                            f"{details}"
+                        )
         else:
             tailor(_read_plan(args.plan), log=print)
     except Exception as exc:
