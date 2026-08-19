@@ -19,13 +19,29 @@ def _plan_slugs() -> set[str]:
 
 
 def _archive_slugs() -> set[str]:
-    return {"_".join(d.name.split("_")[1:]) for d in APPLICATIONS_DIR.iterdir() if d.is_dir()}
+    slugs = set()
+    if APPLICATIONS_DIR.is_dir():
+        slugs |= {"_".join(d.name.split("_")[1:]) for d in APPLICATIONS_DIR.iterdir() if d.is_dir()}
+    from worksisyphus.db import DEFAULT_DB_PATH, get_connection, list_applications_from_db
+
+    if DEFAULT_DB_PATH.is_file():
+        try:
+            conn = get_connection(DEFAULT_DB_PATH)
+            try:
+                db_apps = list_applications_from_db(conn)
+                slugs |= {"_".join(app["folder"].split("_")[1:]) for app in db_apps if "folder" in app}
+            finally:
+                conn.close()
+        except Exception:
+            pass
+    return slugs
 
 
 def test_every_plan_has_a_matching_archive() -> None:
-    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
-        pytest.skip("Applications directory not present or empty")
-    orphaned = _plan_slugs() - _archive_slugs()
+    archive_slugs = _archive_slugs()
+    if not archive_slugs:
+        pytest.skip("Applications not present in filesystem or database")
+    orphaned = _plan_slugs() - archive_slugs
     assert orphaned == set(), f"Plans without matching archives: {sorted(orphaned)}"
 
 
