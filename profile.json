@@ -12,7 +12,7 @@
       "institution": "Boston University",
       "location": "Boston, MA",
       "degree": "Bachelor of Arts in Computer Science",
-      "date": "Graduated: Spring 2026",
+      "date": "August 2026",
       "coursework": [
         "Data Structures \\& Algorithms",
         "Operating Systems",
@@ -25,7 +25,7 @@
   ],
   "experiences": {
     "ezesports": {
-      "role": "Lead Product Engineer",
+      "role": "Lead Software Engineer",
       "org": "EZ Esports",
       "location": "New York, NY",
       "date": "December 2025 -- Present",
@@ -158,16 +158,18 @@
     }
   },
   "skills": {
-    "languages": [
-      "Python",
-      "C++17",
-      "Cython",
-      "Rust",
-      "TypeScript",
-      "JavaScript",
-      "Java",
-      "Ruby",
-      "SQL"
+    "databases_and_infrastructure": [
+      "PostgreSQL",
+      "SQLite",
+      "Redis",
+      "RabbitMQ",
+      "Sidekiq",
+      "Supabase",
+      "Docker",
+      "Nginx",
+      "Cloudflare",
+      "Modal",
+      "OpenMP"
     ],
     "frameworks_and_libraries": [
       "React",
@@ -183,18 +185,16 @@
       "FAISS",
       "CuPy"
     ],
-    "databases_and_infrastructure": [
-      "PostgreSQL",
-      "SQLite",
-      "Redis",
-      "RabbitMQ",
-      "Sidekiq",
-      "Supabase",
-      "Docker",
-      "Nginx",
-      "Cloudflare",
-      "Modal",
-      "OpenMP"
+    "languages": [
+      "Python",
+      "C++17",
+      "Cython",
+      "Rust",
+      "TypeScript",
+      "JavaScript",
+      "Java",
+      "Ruby",
+      "SQL"
     ]
   }
 }

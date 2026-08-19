@@ -1,0 +1,28 @@
+2027 Software Engineer - New York
+Location: New York
+Business Area: Engineering and CTO
+Ref #: 10053208
+Salary Range: 158,000 - 158,000 USD Annual + Benefits + Bonus
+
+Description & Requirements:
+As a Bloomberg engineer, you will impact the real world by solving complex problems in an ever-evolving market. Our engineers sit at the center of finance and tech where people and machines will challenge your ideas and push your engineering skills to the next level.
+
+We work in a fast-paced, solutions-oriented environment that rolls new software out daily. Our code is used every day by leading business and finance clients across the globe that help shape the financial markets.
+
+Ahead of joining your full-time team, you will attend a multi-week, on-boarding program, learning the ins and outs of our technology stack and how to be a successful software engineer in our dynamic and innovative environment. You’ll be exposed to new technology while simultaneously building a strong network of friends and colleagues. Mentorship is key at Bloomberg, so you will be connected with software engineers who will serve as guides and support you along the way.
+
+This is how you'll make an impact:
+- Taking ownership of the full development cycle
+- Partnering with clients and other developers to design, build and roll out solutions that will optimize complex workflows
+- Leveraging your knowledge of data structures and algorithms and problem solving skills
+- Using AI tools thoughtfully and effectively to accelerate your work while maintaining ultimate responsibility for the ownership and quality of the code you produce
+- Fostering an inclusive workforce
+- Collaborating with members of your team
+
+You'll need to have:
+- Experience in any programming language, such as C, C++, Java, JavaScript/TypeScript, or Python
+- This position requires at least one of the following:
+  - A BA, BS, MS or PhD in Computer Science or related field, and/or
+  - An equivalent combination of education, and/or
+  - Specialized training, and/or
+  - Related professional experience
