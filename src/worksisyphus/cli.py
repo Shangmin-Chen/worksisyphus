@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -195,21 +194,21 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 conn.close()
         elif args.command == "evaluate":
-            from .evaluator import evaluate_pdf_against_jd, evaluate_resume_text, format_evaluation_report
-            from .renderer import render_resume
+            from .archive import resolve_application_folder
+            from .evaluator import (
+                evaluate_pdf_against_jd,
+                evaluate_resume_text,
+                format_evaluation_report,
+                selection_to_plain_text,
+            )
 
             profile = load_profile()
             if args.app:
-                app_path = Path("applications") / args.app if (Path("applications") / args.app).is_dir() else None
-                if not app_path and Path("applications").is_dir():
-                    matches = [
-                        d for d in Path("applications").iterdir() if d.is_dir() and d.name.endswith(f"_{args.app}")
-                    ]
-                    if matches:
-                        app_path = matches[0]
-                if not app_path or not (app_path / "jd.txt").is_file():
-                    raise FileNotFoundError(f"Application archive or jd.txt not found for {args.app}")
-                jd_text = (app_path / "jd.txt").read_text(encoding="utf-8")
+                app_path = resolve_application_folder(args.app)
+                jd_file = app_path / "jd.txt"
+                if not jd_file.is_file():
+                    raise FileNotFoundError(f"Missing jd.txt in {app_path}")
+                jd_text = jd_file.read_text(encoding="utf-8")
                 pdf_path = app_path / "Simon_Chen_Resume.pdf"
                 role = args.app
                 report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
@@ -217,16 +216,20 @@ def main(argv: list[str] | None = None) -> int:
                 if not args.jd:
                     raise ValueError("Job description required: pass --jd <file|-> or --app <name>")
                 jd_text = _read_plan(args.jd)
-                pdf_path = Path(args.resume) if args.resume else (PDF_DIR / "Simon_Chen_Resume.pdf")
-                role = Path(args.plan).stem if args.plan else "Target Role"
 
-                if args.plan and not pdf_path.is_file():
+                if args.resume:
+                    pdf_path = Path(args.resume)
+                    role = pdf_path.stem
+                    report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+                elif args.plan:
                     plan_text = _read_plan(args.plan)
                     selection = parse_plan(plan_text, profile)
-                    rendered_tex = render_resume(profile, selection)
-                    plain_text = re.sub(r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?(?:\{[^\}]*\})*", " ", rendered_tex)
+                    plain_text = selection_to_plain_text(selection, profile)
+                    role = Path(args.plan).stem
                     report = evaluate_resume_text(plain_text, jd_text, candidate_name=profile.contact.name)
                 else:
+                    pdf_path = PDF_DIR / "Simon_Chen_Resume.pdf"
+                    role = "Simon_Chen_Resume"
                     report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
 
             print(format_evaluation_report(report, target_role=role))

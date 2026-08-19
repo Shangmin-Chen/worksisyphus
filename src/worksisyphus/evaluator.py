@@ -5,9 +5,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .ats import check_pdf_ats
 from .gates import check_resume_gates
+
+if TYPE_CHECKING:
+    from .profile import Profile
+    from .selection import Selection
 
 COMMON_TECH_TERMS = {
     # Languages
@@ -90,7 +95,7 @@ METRIC_PATTERNS = (
     r"\b\d+(?:\.\d+)?%",  # Percentages (99%, 75.5%)
     r"\b\d+(?:\.\d+)?\s*(?:[muµn]s|ms|seconds|sec)\b",  # Latency (20µs, 5ms, 100ns)
     r"\b\d+(?:\.\d+)?[KkMBb]?\s*(?:req|queries|qps|events|users|rows|ops)\b",  # Scale/throughput
-    r"\b\d+x\b",  # Multipliers (10x, 2.5x)
+    r"\b\d+(?:\.\d+)?x\b",  # Multipliers (10x, 2.5x)
 )
 
 
@@ -132,6 +137,44 @@ def _extract_metrics(text: str) -> list[str]:
             if m not in metrics:
                 metrics.append(m)
     return metrics
+
+
+def selection_to_plain_text(selection: Selection, profile: Profile) -> str:
+    """Build unformatted plain text directly from a Selection and Profile model."""
+    chunks = [
+        profile.contact.name,
+        profile.contact.email,
+        profile.contact.phone,
+    ]
+    # Education
+    for edu in profile.education:
+        chunks.append(f"{edu.degree} {edu.institution}")
+        chunks.extend(edu.coursework)
+
+    # Selected Experiences
+    for pick in selection.experiences:
+        if pick.id in profile.experiences:
+            exp = profile.experiences[pick.id]
+            chunks.append(f"{exp.role} {exp.org}")
+            for b_slug in pick.bullets:
+                if b_slug in exp.bullets:
+                    chunks.append(exp.bullets[b_slug])
+
+    # Selected Projects
+    for pick in selection.projects:
+        if pick.id in profile.projects:
+            proj = profile.projects[pick.id]
+            chunks.append(f"{proj.name} {proj.tech}")
+            for b_slug in pick.bullets:
+                if b_slug in proj.bullets:
+                    chunks.append(proj.bullets[b_slug])
+
+    # Selected Skills
+    for group, skills in selection.skills.items():
+        chunks.append(group)
+        chunks.extend(skills)
+
+    return "\n".join(chunks)
 
 
 def evaluate_resume_text(
@@ -181,13 +224,17 @@ def evaluate_resume_text(
     # 4. Quality Gate Compliance (0 - 10 pts)
     gate_score = 10
     gate_diagnostics: list[str] = []
-    if pdf_path and pdf_path.is_file():
-        gates = check_resume_gates(pdf_path, candidate_name=candidate_name)
-        failed_gates = [g for g in gates if not g.passed]
-        if failed_gates:
-            gate_score = max(0, 10 - len(failed_gates) * 3)
-            for g in failed_gates:
-                gate_diagnostics.extend(g.diagnostics)
+    if pdf_path is not None:
+        if not pdf_path.is_file():
+            gate_score = 0
+            gate_diagnostics.append(f"PDF file not found: {pdf_path}")
+        else:
+            gates = check_resume_gates(pdf_path, candidate_name=candidate_name)
+            failed_gates = [g for g in gates if not g.passed]
+            if failed_gates:
+                gate_score = max(0, 10 - len(failed_gates) * 3)
+                for g in failed_gates:
+                    gate_diagnostics.extend(g.diagnostics)
 
     overall_score = role_alignment_score + technical_depth_score + impact_metrics_score + gate_score
 
