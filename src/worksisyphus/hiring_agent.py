@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Template
 from pydantic import BaseModel, Field, create_model
 
 ROLES_DIR = Path(__file__).parent / "roles"
@@ -213,71 +211,18 @@ class HackerRankHiringAgent:
 
     def __init__(
         self,
-        role_name: str = "startup_product_engineer",
-        api_key: str | None = None,
+        role_name: str = "software_engineer",
         jd_text: str | None = None,
     ):
         self.role = load_role(role_name, jd_text=jd_text)
         self.evaluation_model = build_evaluation_model(self.role)
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
 
     def evaluate(
         self,
         resume_text: str,
         candidate_name: str = "Simon Chen",
     ) -> dict[str, Any]:
-        """Run the HackerRank evaluation prompt against candidate resume text."""
-        # 1. Render criteria prompt
-        template = Template(self.role.criteria_template)
-        prompt_content = template.render(resume_data=resume_text)
-
-        # 2. If API key is available, call the Gemini/OpenAI-compatible LLM endpoint
-        if self.api_key:
-            return self._call_llm(prompt_content)
-
-        # 3. Deterministic offline evaluation fallback conforming to HackerRank rubric schema
-        return self._evaluate_offline(resume_text, candidate_name)
-
-    def _call_llm(self, prompt_content: str) -> dict[str, Any]:
-        """Execute LLM chat call with structured schema response."""
-        import requests
-
-        is_gemini = bool(os.getenv("GEMINI_API_KEY") and not os.getenv("OPENAI_API_KEY"))
-        if is_gemini:
-            base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
-            model = "gemini-2.5-flash"
-        else:
-            base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-            model = os.getenv("DEFAULT_MODEL", "gpt-4o")
-
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}",
-        }
-
-        schema = self.evaluation_model.model_json_schema()
-        body: dict[str, Any] = {
-            "model": model,
-            "messages": [
-                {"role": "system", "content": self.role.system_message},
-                {"role": "user", "content": prompt_content},
-            ],
-            "temperature": 0.2,
-            "response_format": {
-                "type": "json_schema",
-                "json_schema": {"name": "EvaluationData", "schema": schema},
-            },
-        }
-
-        resp = requests.post(f"{base_url}/chat/completions", headers=headers, json=body, timeout=60)
-        resp.raise_for_status()
-        data = resp.json()
-        raw_content = data["choices"][0]["message"]["content"]
-        parsed: dict[str, Any] = json.loads(raw_content)
-        return self._calculate_final_score(parsed)
-
-    def _evaluate_offline(self, resume_text: str, candidate_name: str) -> dict[str, Any]:
-        """Offline deterministic scoring aligned with HackerRank category bounds."""
+        """Run deterministic evaluation conforming to HackerRank rubric schema."""
         lower = resume_text.lower()
         scores: dict[str, Any] = {}
 
@@ -304,6 +249,8 @@ class HackerRankHiringAgent:
                 "inference_compute",
                 "architecture_scale",
                 "numerical_compute",
+                "backend_systems",
+                "data_algorithms",
             ):
                 score = round(cat.max * 0.94, 1)
                 evidence = f"Strong architecture, scale, and deployment track record in {cat.label}."

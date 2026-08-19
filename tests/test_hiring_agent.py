@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from unittest.mock import MagicMock
-
 import pytest
 
 from worksisyphus.hiring_agent import (
@@ -107,44 +104,6 @@ def test_hackerrank_report_with_deductions() -> None:
     assert "🎁 Bonus Points:          +5.0 pts (Extra metrics)" in report
     assert "Strong systems fundamentals" in report
     assert "Add more tests" in report
-
-
-def test_hackerrank_agent_llm_call_gemini(monkeypatch) -> None:
-    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-key")
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    fake_response = MagicMock()
-    fake_response.json.return_value = {
-        "choices": [
-            {
-                "message": {
-                    "content": json.dumps(
-                        {
-                            "scores": {
-                                "open_source": {"score": 30.0, "max": 35, "evidence": "Strong OSS"},
-                                "self_projects": {"score": 28.0, "max": 30, "evidence": "Low latency"},
-                                "production": {"score": 32.0, "max": 35, "evidence": "Production scale"},
-                            },
-                            "bonus_points": {"total": 5.0, "breakdown": "Benchmarks"},
-                            "deductions": {"total": 0.0, "reasons": "None"},
-                            "key_strengths": ["Systems engineering"],
-                            "areas_for_improvement": ["Open source"],
-                        }
-                    )
-                }
-            }
-        ]
-    }
-    fake_response.raise_for_status = MagicMock()
-
-    import requests
-
-    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: fake_response)
-
-    agent = HackerRankHiringAgent(role_name="software_engineering_intern")
-    result = agent.evaluate("Sample resume text")
-    assert result["total_score"] == 95.0
-    assert result["scores"]["open_source"]["score"] == 30.0
 
 
 def test_check_upstream_status() -> None:

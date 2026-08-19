@@ -76,8 +76,6 @@ def main(argv: list[str] | None = None) -> int:
     eval_cmd.add_argument("--app", default=None, help="Archived application folder or unique stem to evaluate.")
     eval_cmd.add_argument(
         "--hackerrank",
-        "--llm",
-        dest="hackerrank",
         action="store_true",
         help="Run 1:1 HackerRank hiring agent rubric evaluation.",
     )
