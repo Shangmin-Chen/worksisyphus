@@ -14,7 +14,10 @@ from worksisyphus.profile import Contact, Education, Experience, Project  # noqa
 
 @pytest.fixture(scope="session")
 def real_profile() -> Profile:
-    return load_profile(ROOT / "profile.json")
+    profile_path = ROOT / "profile.json"
+    if not profile_path.is_file():
+        profile_path = ROOT / "tests" / "fixtures" / "profile.json"
+    return load_profile(profile_path)
 
 
 @pytest.fixture()

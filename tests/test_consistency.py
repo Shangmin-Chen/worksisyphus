@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from worksisyphus.archive import STATUSES
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,11 +23,15 @@ def _archive_slugs() -> set[str]:
 
 
 def test_every_plan_has_a_matching_archive() -> None:
+    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
+        pytest.skip("Applications directory not present or empty")
     orphaned = _plan_slugs() - _archive_slugs()
     assert orphaned == set(), f"Plans without matching archives: {sorted(orphaned)}"
 
 
 def test_every_archive_has_required_files() -> None:
+    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
+        pytest.skip("Applications directory not present or empty")
     missing: list[str] = []
     for d in sorted(APPLICATIONS_DIR.iterdir()):
         if not d.is_dir():
@@ -37,6 +43,8 @@ def test_every_archive_has_required_files() -> None:
 
 
 def test_every_archive_meta_json_is_valid() -> None:
+    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
+        pytest.skip("Applications directory not present or empty")
     invalid: list[str] = []
     for d in sorted(APPLICATIONS_DIR.iterdir()):
         if not d.is_dir():

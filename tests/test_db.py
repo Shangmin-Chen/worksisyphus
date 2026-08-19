@@ -212,7 +212,7 @@ def test_get_audit_history_filtered() -> None:
 def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
     real_profile_path = Path("profile.json")
     if not real_profile_path.is_file():
-        return
+        real_profile_path = Path("tests/fixtures/profile.json")
     real_data = json.loads(real_profile_path.read_text(encoding="utf-8"))
 
     conn = get_connection(":memory:")

@@ -17,11 +17,17 @@ build/
 *.sqlite3*
 .DS_Store
 .claude/
+# Data backed by SQLite / Turso cloud (kept locally, ignored from git)
+applications/
+profile.json
+
 resumes/.provenance.json*
-applications/*/meta.json.tmp
 scratch/
+
 .coverage
 .coverage.*
 htmlcov/
 coverage.xml
+
+
 
