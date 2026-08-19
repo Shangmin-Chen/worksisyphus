@@ -73,10 +73,7 @@ def test_update_status_reports_transition(monkeypatch, capsys, tmp_path) -> None
     )
 
     assert cli.main(["update-status", "--app", folder.name, "--status", "phone_screen"]) == 0
-    assert (
-        capsys.readouterr().out
-        == "Updated 2026-08-05_dirac_full-stack-engineer: applied -> phone_screen\n"
-    )
+    assert capsys.readouterr().out == "Updated 2026-08-05_dirac_full-stack-engineer: applied -> phone_screen\n"
 
 
 def test_archive_reads_jd_from_stdin(monkeypatch, tmp_path, capsys) -> None:
@@ -109,3 +106,50 @@ def test_archive_rejects_plan_from_stdin(capsys) -> None:
 def test_archive_rejects_missing_plan_file(capsys) -> None:
     assert cli.main(["archive", "--plan", "nonexistent_plan.json", "--company", "Acme", "--jd", "-"]) == 1
     assert "error: Plan file not found" in capsys.readouterr().err
+
+
+def test_cli_index(capsys) -> None:
+    assert cli.main(["index"]) == 0
+    out = capsys.readouterr().out
+    assert "EXPERIENCES:" in out
+    assert "org-a: Engineer at OrgA" in out
+
+
+def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr(db, "sync_to_turso", lambda *args, **kwargs: True)
+
+    # 1. Status before init
+    assert cli.main(["db", "status"]) == 0
+    assert "Database not initialized" in capsys.readouterr().out
+
+    # 2. History before init
+    assert cli.main(["db", "history"]) == 0
+    assert "Database not initialized" in capsys.readouterr().out
+
+    # 3. Init
+    assert cli.main(["db", "init"]) == 0
+    init_out = capsys.readouterr().out
+    assert "Initialized and seeded" in init_out
+    assert "Turso cloud sync: synced" in init_out
+
+    # 4. Status after init
+    assert cli.main(["db", "status"]) == 0
+    status_out = capsys.readouterr().out
+    assert "Database:" in status_out
+    assert "Contact:" in status_out
+
+    # 5. History after init
+    assert cli.main(["db", "history"]) == 0
+    hist_out = capsys.readouterr().out
+    assert "Timestamp" in hist_out
+    assert "Action" in hist_out
+
+    # 6. Sync
+    assert cli.main(["db", "sync"]) == 0
+    sync_out = capsys.readouterr().out
+    assert "Exported active database state to profile.json" in sync_out
+    assert "Turso cloud sync: synced" in sync_out

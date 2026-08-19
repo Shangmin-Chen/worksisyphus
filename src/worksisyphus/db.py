@@ -7,13 +7,14 @@ Provides:
 - Profile loading, seeding, and export.
 - Application archiving, listing, and status updates.
 """
+
 from __future__ import annotations
 
 import json
 import shutil
 import sqlite3
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -161,7 +162,7 @@ def log_audit_event(
     commit: bool = True,
 ) -> None:
     """Append a timestamped event into the audit_events table."""
-    ts = timestamp or datetime.now(timezone.utc).isoformat()
+    ts = timestamp or datetime.now(UTC).isoformat()
     meta_str = json.dumps(metadata) if metadata else None
     conn.execute(
         """
@@ -276,7 +277,9 @@ def seed_database(
                     """,
                     (group, item, i),
                 )
-        log_audit_event(conn, "skills", "skills", "INSERT", metadata={"groups": list(data.get("skills", {}).keys())}, commit=False)
+        log_audit_event(
+            conn, "skills", "skills", "INSERT", metadata={"groups": list(data.get("skills", {}).keys())}, commit=False
+        )
 
     # 6. Applications
     if applications_dir.is_dir():
@@ -451,20 +454,26 @@ def list_applications_from_db(conn: sqlite3.Connection) -> list[dict[str, str]]:
     )
     results: list[dict[str, str]] = []
     for app_id, company, role, dt, url, status in cur.fetchall():
-        results.append({
-            "folder": app_id,
-            "company": company,
-            "role": role,
-            "date": dt,
-            "source_url": url,
-            "status": status,
-        })
+        results.append(
+            {
+                "folder": app_id,
+                "company": company,
+                "role": role,
+                "date": dt,
+                "source_url": url,
+                "status": status,
+            }
+        )
     return results
 
 
-def update_application_status_in_db(conn: sqlite3.Connection, app_identifier: str, new_status: str) -> tuple[str, str, str]:
+def update_application_status_in_db(
+    conn: sqlite3.Connection, app_identifier: str, new_status: str
+) -> tuple[str, str, str]:
     """Update status in DB and record an append-only audit event."""
-    cur = conn.execute("SELECT id, status FROM applications WHERE id = ? OR id LIKE ?", (app_identifier, f"%_{app_identifier}"))
+    cur = conn.execute(
+        "SELECT id, status FROM applications WHERE id = ? OR id LIKE ?", (app_identifier, f"%_{app_identifier}")
+    )
     rows = cur.fetchall()
     if not rows:
         raise FileNotFoundError(f"No application found matching {app_identifier!r}.")
@@ -472,7 +481,10 @@ def update_application_status_in_db(conn: sqlite3.Connection, app_identifier: st
         names = ", ".join(r[0] for r in rows)
         raise ValueError(f"Application identifier {app_identifier!r} is ambiguous; matches: {names}")
     app_id, old_status = rows[0]
-    conn.execute("UPDATE applications SET status = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) WHERE id = ?", (new_status, app_id))
+    conn.execute(
+        "UPDATE applications SET status = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) WHERE id = ?",
+        (new_status, app_id),
+    )
     log_audit_event(
         conn,
         "application",
@@ -486,7 +498,9 @@ def update_application_status_in_db(conn: sqlite3.Connection, app_identifier: st
     return app_id, old_status, new_status
 
 
-def get_audit_history(conn: sqlite3.Connection, limit: int = 50, entity_type: str | None = None) -> list[dict[str, Any]]:
+def get_audit_history(
+    conn: sqlite3.Connection, limit: int = 50, entity_type: str | None = None
+) -> list[dict[str, Any]]:
     """Query append-only audit log."""
     if entity_type:
         cur = conn.execute(
@@ -506,17 +520,19 @@ def get_audit_history(conn: sqlite3.Connection, limit: int = 50, entity_type: st
         )
     events: list[dict[str, Any]] = []
     for row in cur.fetchall():
-        events.append({
-            "id": row[0],
-            "timestamp": row[1],
-            "entity_type": row[2],
-            "entity_id": row[3],
-            "action": row[4],
-            "field_name": row[5],
-            "old_value": row[6],
-            "new_value": row[7],
-            "metadata": json.loads(row[8]) if row[8] else None,
-        })
+        events.append(
+            {
+                "id": row[0],
+                "timestamp": row[1],
+                "entity_type": row[2],
+                "entity_id": row[3],
+                "action": row[4],
+                "field_name": row[5],
+                "old_value": row[6],
+                "new_value": row[7],
+                "metadata": json.loads(row[8]) if row[8] else None,
+            }
+        )
     return events
 
 

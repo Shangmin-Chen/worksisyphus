@@ -6,6 +6,7 @@ Checks that the text layer extracts cleanly: contact info findable, standard
 section headers present, no broken glyphs, and (for tailored resumes) one page.
 Exit 0 = pass, 1 = fail with one line per problem.
 """
+
 from __future__ import annotations
 
 import json
@@ -41,7 +42,10 @@ def main() -> int:
             problems.append(f"section header {section!r} did not extract")
     if "(cid:" in text:
         problems.append("broken glyphs: extraction produced (cid:N) placeholders")
-    merges = re.findall(r"[A-Za-z]{3,}(?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d", text)
+    merges = re.findall(
+        r"[A-Za-z]{3,}(?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d",
+        text,
+    )
     for merge in merges:
         print(f"WARN: {merge!r} extracted with no whitespace before the date; that keyword will not match")
 
@@ -49,7 +53,9 @@ def main() -> int:
         for problem in problems:
             print(f"FAIL: {problem}")
         return 1
-    print(f"ATS check passed: {pdf.name} ({pages} page{'s' if pages != 1 else ''}, {len(text.split())} words extracted)")
+    print(
+        f"ATS check passed: {pdf.name} ({pages} page{'s' if pages != 1 else ''}, {len(text.split())} words extracted)"
+    )
     return 0
 
 

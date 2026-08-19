@@ -20,4 +20,8 @@ build/
 resumes/.provenance.json*
 applications/*/meta.json.tmp
 scratch/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
 

@@ -1,4 +1,5 @@
 """Tiny CLI for compiling, tailoring, archiving, and tracking applications."""
+
 from __future__ import annotations
 
 import argparse
@@ -30,7 +31,7 @@ def _describe(selection: Selection) -> str:
 def _fit_column(value: object, width: int) -> str:
     """Keep table columns aligned while preserving the full application identifier."""
     text = str(value)
-    return text if len(text) <= width else f"{text[:width - 1]}…"
+    return text if len(text) <= width else f"{text[: width - 1]}…"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -82,8 +83,12 @@ def main(argv: list[str] | None = None) -> int:
             selection = parse_plan(plan_path.read_text(encoding="utf-8"), load_profile())
             jd_text = _read_plan(args.jd)
             folder = archive_application(
-                plan_path, PDF_DIR / f"{selection.name}.pdf", jd_text,
-                company=args.company, role=args.role, source_url=args.url,
+                plan_path,
+                PDF_DIR / f"{selection.name}.pdf",
+                jd_text,
+                company=args.company,
+                role=args.role,
+                source_url=args.url,
             )
             print(f"Archived {folder}")
         elif args.command == "status":
@@ -114,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
                 seed_database,
                 sync_to_turso,
             )
+
             conn = get_connection(DEFAULT_DB_PATH)
             try:
                 if args.db_action == "init":
@@ -140,9 +146,15 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Database: {DEFAULT_DB_PATH}")
                     print(f"Contact: {profile.contact.name} ({profile.contact.email})")
                     print(f"Education: {len(profile.education)} record(s)")
-                    print(f"Experiences: {len(profile.experiences)} with {sum(len(e.bullets) for e in profile.experiences.values())} bullets")
-                    print(f"Projects: {len(profile.projects)} with {sum(len(p.bullets) for p in profile.projects.values())} bullets")
-                    print(f"Skill Groups: {len(profile.skills)} ({sum(len(s) for s in profile.skills.values())} total skills)")
+                    print(
+                        f"Experiences: {len(profile.experiences)} with {sum(len(e.bullets) for e in profile.experiences.values())} bullets"
+                    )
+                    print(
+                        f"Projects: {len(profile.projects)} with {sum(len(p.bullets) for p in profile.projects.values())} bullets"
+                    )
+                    print(
+                        f"Skill Groups: {len(profile.skills)} ({sum(len(s) for s in profile.skills.values())} total skills)"
+                    )
                     print(f"Tracked Applications: {app_count}")
                     print(f"Audit Events: {event_count}")
                 elif args.db_action == "history":

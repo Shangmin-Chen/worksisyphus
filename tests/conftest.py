@@ -23,8 +23,12 @@ def small_profile() -> Profile:
         contact=Contact(name="Simon Chen", email="s@example.com", phone="555-0100"),
         education=(Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),),
         experiences={
-            "org-a": Experience("org-a", "Engineer", "OrgA", "NY", "2025", {"a1": "A one", "a2": "A two", "a3": "A three"}),
-            "org-b": Experience("org-b", "Intern", "OrgB", "MA", "2024", {"b1": "B one", "b2": "B two", "b3": "B three"}),
+            "org-a": Experience(
+                "org-a", "Engineer", "OrgA", "NY", "2025", {"a1": "A one", "a2": "A two", "a3": "A three"}
+            ),
+            "org-b": Experience(
+                "org-b", "Intern", "OrgB", "MA", "2024", {"b1": "B one", "b2": "B two", "b3": "B three"}
+            ),
         },
         projects={
             "proj1": Project("proj1", "Proj1", "Python", "2025", {"p1": "P1 one", "p2": "P1 two", "p3": "P1 three"}),

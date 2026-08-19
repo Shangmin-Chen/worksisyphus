@@ -26,7 +26,9 @@ def test_tailor_trims_until_one_page(small_profile, monkeypatch, tmp_path) -> No
     def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
         compiled.append(tex)
         (pdf_dir / f"{name}.pdf").write_bytes(b"%PDF-fake")
-        return CompileResult(pdf_path=tmp_path / f"{name}.pdf", tex_path=tmp_path / f"{name}.tex", pages=pages_by_call[len(compiled) - 1])
+        return CompileResult(
+            pdf_path=tmp_path / f"{name}.pdf", tex_path=tmp_path / f"{name}.tex", pages=pages_by_call[len(compiled) - 1]
+        )
 
     monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
     monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
@@ -96,9 +98,7 @@ def test_tailor_invalidates_provenance_before_compile(small_profile, monkeypatch
     pdf_dir = tmp_path / "pdf"
     pdf_dir.mkdir()
     provenance_path = pdf_dir / ".provenance.json"
-    provenance_path.write_text(
-        json.dumps({"plan_hash": "old-plan", "pdf_hash": "old-pdf"}), encoding="utf-8"
-    )
+    provenance_path.write_text(json.dumps({"plan_hash": "old-plan", "pdf_hash": "old-pdf"}), encoding="utf-8")
 
     def failed_compile(tex: str, name: str, tex_dir, output_dir) -> CompileResult:
         (output_dir / f"{name}.pdf").write_bytes(b"partially replaced")

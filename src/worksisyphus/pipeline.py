@@ -1,4 +1,5 @@
 """End-to-end flows: canonical rebuild and plan-driven one-page resume."""
+
 from __future__ import annotations
 
 import hashlib
@@ -50,27 +51,25 @@ def tailor(
     if not plan_text.strip():
         raise ValueError("Plan is empty.")
     profile = load_profile(profile_path)
-    selection: Selection | None = parse_plan(plan_text, profile)
-    log(f"Plan parsed; output name: {selection.name}")
+    initial_selection = parse_plan(plan_text, profile)
+    log(f"Plan parsed; output name: {initial_selection.name}")
     normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
     plan_hash = hashlib.sha256(normalized_plan.encode("utf-8")).hexdigest()
     provenance_path = pdf_dir / ".provenance.json"
     provenance_path.parent.mkdir(parents=True, exist_ok=True)
     _write_provenance(provenance_path, {"plan_hash": plan_hash})
 
+    selection: Selection | None = initial_selection
     while selection is not None:
         result = compile_tex(render_resume(profile, selection), selection.name, tex_dir, pdf_dir)
         if result.pages <= PAGE_LIMIT:
             excessive_overfull = tuple(
                 entry
                 for entry in result.overfull
-                if (match := _OVERFULL_WIDTH_RE.match(entry))
-                and float(match.group(1)) > OVERFULL_TOLERANCE_PT
+                if (match := _OVERFULL_WIDTH_RE.match(entry)) and float(match.group(1)) > OVERFULL_TOLERANCE_PT
             )
             if excessive_overfull:
-                raise RuntimeError(
-                    "Horizontal overflow detected: " + "; ".join(excessive_overfull)
-                )
+                raise RuntimeError("Horizontal overflow detected: " + "; ".join(excessive_overfull))
             log(f"Exported {result.pdf_path} ({result.pages} page).")
             pdf_hash = hashlib.sha256(result.pdf_path.read_bytes()).hexdigest()
             _write_provenance(provenance_path, {"plan_hash": plan_hash, "pdf_hash": pdf_hash})

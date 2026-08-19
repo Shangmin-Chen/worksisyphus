@@ -3,6 +3,7 @@
 Archived folders are immutable history — re-applying to the same company gets
 a new dated folder; only meta.json's "status" is ever updated afterwards.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -33,8 +34,7 @@ def archive_application(
     prov_path = pdf_path.parent / ".provenance.json"
     if not prov_path.is_file():
         raise ValueError(
-            f"No build provenance found for {pdf_path}. "
-            f"Run `worksisyphus tailor --plan {plan_path}` before archiving."
+            f"No build provenance found for {pdf_path}. Run `worksisyphus tailor --plan {plan_path}` before archiving."
         )
     try:
         prov = json.loads(prov_path.read_text(encoding="utf-8"))
@@ -45,9 +45,7 @@ def archive_application(
         or not isinstance(prov.get("plan_hash"), str)
         or not isinstance(prov.get("pdf_hash"), str)
     ):
-        raise ValueError(
-            f"Could not validate build provenance at {prov_path}: missing plan_hash or pdf_hash."
-        )
+        raise ValueError(f"Could not validate build provenance at {prov_path}: missing plan_hash or pdf_hash.")
     plan_bytes = plan_path.read_bytes()
     normalized_plan = plan_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
     expected_plan_hash = hashlib.sha256(normalized_plan.encode("utf-8")).hexdigest()
@@ -76,6 +74,7 @@ def archive_application(
     (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
     from .db import DEFAULT_DB_PATH, archive_application_to_db, get_connection
+
     if DEFAULT_DB_PATH.is_file():
         try:
             conn = get_connection(DEFAULT_DB_PATH)
@@ -163,6 +162,7 @@ def update_application_status(
     temporary_meta.replace(meta_file)
 
     from .db import DEFAULT_DB_PATH, get_connection, update_application_status_in_db
+
     if DEFAULT_DB_PATH.is_file():
         try:
             conn = get_connection(DEFAULT_DB_PATH)

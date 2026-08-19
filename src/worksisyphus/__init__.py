@@ -1,4 +1,5 @@
 """worksisyphus: Simon Chen's deterministic resume compiler."""
+
 from .archive import archive_application
 from .compiler import CompileError, CompileResult, compile_tex
 from .pipeline import build_canonical, tailor

@@ -1,4 +1,5 @@
 """Selection of profile content for one resume, and the deterministic one-page trim order."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
@@ -47,11 +48,11 @@ def trim_step(selection: Selection) -> Selection | None:
     if len(selection.projects) > 1:
         return replace(selection, projects=selection.projects[:-1])
 
-    for pick_list, field_name in ((selection.projects, "projects"), (selection.experiences[::-1], "experiences")):
+    for pick_list, is_projects in ((selection.projects, True), (selection.experiences[::-1], False)):
         for pick in pick_list:
             if len(pick.bullets) > MIN_BULLETS:
                 trimmed = replace(pick, bullets=pick.bullets[:-1])
-                originals = getattr(selection, field_name)
+                originals = selection.projects if is_projects else selection.experiences
                 updated = tuple(trimmed if p is pick else p for p in originals)
-                return replace(selection, **{field_name: updated})
+                return replace(selection, projects=updated) if is_projects else replace(selection, experiences=updated)
     return None

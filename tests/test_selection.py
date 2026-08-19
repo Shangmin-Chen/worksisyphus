@@ -14,18 +14,22 @@ def test_trim_drops_projects_first_then_bullets(small_profile) -> None:
     selection = full_selection(small_profile)
 
     step1 = trim_step(selection)
+    assert step1 is not None
     assert [p.id for p in step1.projects] == ["proj1"]
     assert step1.experiences == selection.experiences
 
     step2 = trim_step(step1)
+    assert step2 is not None
     assert step2.projects[0].bullets == ("p1", "p2")
 
     # Lowest-ranked experience trims before the top one.
     step3 = trim_step(step2)
+    assert step3 is not None
     assert step3.experiences[0].bullets == ("a1", "a2", "a3")
     assert step3.experiences[1].bullets == ("b1", "b2")
 
     step4 = trim_step(step3)
+    assert step4 is not None
     assert step4.experiences[0].bullets == ("a1", "a2")
 
 

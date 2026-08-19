@@ -21,7 +21,10 @@ def _plan(**overrides) -> str:
 def test_parses_valid_plan(small_profile) -> None:
     selection = parse_plan(_plan(), small_profile)
     assert selection.name == TAILORED_NAME == "Simon_Chen_Resume"
-    assert [(p.id, p.bullets) for p in selection.experiences] == [("org-a", ("a1", "a2", "a3")), ("org-b", ("b1", "b2"))]
+    assert [(p.id, p.bullets) for p in selection.experiences] == [
+        ("org-a", ("a1", "a2", "a3")),
+        ("org-b", ("b1", "b2")),
+    ]
     assert selection.projects == (Pick("proj1", ("p1", "p3")),)
     assert selection.skills == {"languages": ("Rust",)}
 

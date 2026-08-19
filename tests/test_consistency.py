@@ -1,4 +1,5 @@
 """Lint-style tests that verify plan/archive consistency across the repo."""
+
 from __future__ import annotations
 
 import json
@@ -16,11 +17,7 @@ def _plan_slugs() -> set[str]:
 
 
 def _archive_slugs() -> set[str]:
-    return {
-        "_".join(d.name.split("_")[1:])
-        for d in APPLICATIONS_DIR.iterdir()
-        if d.is_dir()
-    }
+    return {"_".join(d.name.split("_")[1:]) for d in APPLICATIONS_DIR.iterdir() if d.is_dir()}
 
 
 def test_every_plan_has_a_matching_archive() -> None:

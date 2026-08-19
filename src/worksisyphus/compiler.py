@@ -1,4 +1,5 @@
 """Compile trusted rendered TeX to PDF with pdflatex and report the page count."""
+
 from __future__ import annotations
 
 import re
@@ -47,7 +48,7 @@ def find_pdflatex() -> str:
         "Install via Homebrew on macOS:\n"
         "  brew install --cask mactex      # Full MacTeX distribution\n"
         "  brew install --cask basictex    # Lightweight MacTeX distribution\n"
-        "If already installed, ensure /Library/TeX/texbin is on your PATH (e.g. run: eval \"$(/usr/libexec/path_helper)\")."
+        'If already installed, ensure /Library/TeX/texbin is on your PATH (e.g. run: eval "$(/usr/libexec/path_helper)").'
     )
 
 
@@ -77,8 +78,7 @@ def compile_tex(tex: str, name: str, tex_dir: Path, pdf_dir: Path) -> CompileRes
         if match is None:
             raise CompileError(f"Could not determine page count for {tex_path.name}.")
         overfull = tuple(
-            f"{float(width):.1f}pt too wide at tex line {line}"
-            for width, line in _OVERFULL_RE.findall(stdout)
+            f"{float(width):.1f}pt too wide at tex line {line}" for width, line in _OVERFULL_RE.findall(stdout)
         )
         pdf_path = pdf_dir / f"{name}.pdf"
         shutil.copyfile(built_pdf, pdf_path)

@@ -15,6 +15,7 @@ Unknown slugs fail loudly; a plan can omit content, never invent it.
 The plan's filename identifies the application; the rendered PDF is always
 named Simon_Chen_Resume.pdf.
 """
+
 from __future__ import annotations
 
 import json

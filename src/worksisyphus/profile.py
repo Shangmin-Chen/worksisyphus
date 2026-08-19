@@ -1,9 +1,11 @@
 """Load the slug-keyed master profile database. All string values are trusted TeX."""
+
 from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 DEFAULT_PROFILE_PATH = Path("profile.json")
 
@@ -59,11 +61,13 @@ def load_profile(source: Path | str | Any = DEFAULT_PROFILE_PATH) -> Profile:
     """Load profile from SQLite DB if available/given, or from profile.json."""
     if hasattr(source, "execute"):
         from .db import load_profile_from_db
-        return load_profile_from_db(source)
+
+        return load_profile_from_db(source)  # type: ignore[arg-type]
 
     path = Path(source)
     if path.suffix in (".db", ".sqlite", ".sqlite3") and path.is_file():
         from .db import get_connection, load_profile_from_db
+
         conn = get_connection(path)
         try:
             return load_profile_from_db(conn)
@@ -71,6 +75,7 @@ def load_profile(source: Path | str | Any = DEFAULT_PROFILE_PATH) -> Profile:
             conn.close()
 
     from .db import DEFAULT_DB_PATH, get_connection, load_profile_from_db
+
     if path == DEFAULT_PROFILE_PATH and DEFAULT_DB_PATH.is_file():
         try:
             conn = get_connection(DEFAULT_DB_PATH)
@@ -85,7 +90,9 @@ def load_profile(source: Path | str | Any = DEFAULT_PROFILE_PATH) -> Profile:
         data = json.loads(path.read_text(encoding="utf-8"))
         return Profile(
             contact=Contact(**data.get("contact", {"name": ""})),
-            education=tuple(Education(**{**e, "coursework": tuple(e.get("coursework", []))}) for e in data.get("education", [])),
+            education=tuple(
+                Education(**{**e, "coursework": tuple(e.get("coursework", []))}) for e in data.get("education", [])
+            ),
             experiences={slug: Experience(id=slug, **e) for slug, e in data.get("experiences", {}).items()},
             projects={slug: Project(id=slug, **p) for slug, p in data.get("projects", {}).items()},
             skills={group: tuple(items) for group, items in data.get("skills", {}).items()},

@@ -1,4 +1,5 @@
 """Tests for the SQLite database layer and append-only audit log."""
+
 from __future__ import annotations
 
 import json
@@ -225,4 +226,3 @@ def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
     assert exported_data["experiences"] == real_data["experiences"]
     assert exported_data["projects"] == real_data["projects"]
     assert exported_data["skills"] == real_data["skills"]
-

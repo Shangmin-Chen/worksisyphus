@@ -1,4 +1,5 @@
 """Render a Selection of the Profile into Jake's-template LaTeX. Values are trusted TeX."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -81,13 +82,13 @@ def _education(profile: Profile) -> list[str]:
                 rf"        \resumeItem{{Relevant Coursework: {', '.join(entry.coursework)}.}}",
                 r"      \resumeItemListEnd",
             ]
-    return lines + [r"  \resumeSubHeadingListEnd", ""]
+    return [*lines, r"  \resumeSubHeadingListEnd", ""]
 
 
 def _bullet_items(bullets: dict[str, str], picked: tuple[str, ...]) -> list[str]:
     lines = [r"      \resumeItemListStart"]
     lines += [rf"        \resumeItem{{{bullets[slug]}}}" for slug in picked if slug in bullets]
-    return lines + [r"      \resumeItemListEnd"]
+    return [*lines, r"      \resumeItemListEnd"]
 
 
 def _experiences(profile: Profile, selection: Selection) -> list[str]:
@@ -101,7 +102,7 @@ def _experiences(profile: Profile, selection: Selection) -> list[str]:
             *_bullet_items(entry.bullets, pick.bullets),
             "",
         ]
-    return lines + [r"  \resumeSubHeadingListEnd", ""]
+    return [*lines, r"  \resumeSubHeadingListEnd", ""]
 
 
 def _projects(profile: Profile, selection: Selection) -> list[str]:
@@ -115,7 +116,7 @@ def _projects(profile: Profile, selection: Selection) -> list[str]:
             *_bullet_items(entry.bullets, pick.bullets),
             "",
         ]
-    return lines + [r"  \resumeSubHeadingListEnd", ""]
+    return [*lines, r"  \resumeSubHeadingListEnd", ""]
 
 
 def _skills(selection: Selection) -> list[str]:
