@@ -183,6 +183,12 @@ def seed_database(
     """Populate database from profile.json and applications/."""
     init_schema(conn)
 
+    if not profile_path.is_file() and profile_path == Path("profile.json"):
+        if Path("profile.example.json").is_file():
+            profile_path = Path("profile.example.json")
+        elif (Path("tests") / "fixtures" / "profile.json").is_file():
+            profile_path = Path("tests") / "fixtures" / "profile.json"
+
     # 1. Contact
     if profile_path.is_file():
         data = json.loads(profile_path.read_text(encoding="utf-8"))
