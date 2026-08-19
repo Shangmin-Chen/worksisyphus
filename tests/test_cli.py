@@ -218,8 +218,16 @@ def test_cli_evaluate_missing_app_error(capsys) -> None:
 
 
 def test_cli_evaluate_hackerrank_mode(capsys) -> None:
-    ret = cli.main(["evaluate", "--hackerrank", "--role", "software_engineering_intern"])
+    ret = cli.main(["evaluate", "--hackerrank", "--role", "startup_product_engineer"])
     assert ret == 0
     out = capsys.readouterr().out
     assert "HACKERRANK HIRING AGENT SCORECARD" in out
     assert "Overall Candidate Score:" in out
+
+
+def test_cli_evaluate_check_upstream(capsys) -> None:
+    ret = cli.main(["evaluate", "--check-upstream"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "HACKERRANK UPSTREAM SYNC STATUS" in out
+    assert "interviewstreet/hiring-agent" in out

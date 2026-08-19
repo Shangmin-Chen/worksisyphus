@@ -61,6 +61,8 @@ uv run worksisyphus status                       # list all archived application
 uv run worksisyphus update-status --app <name> --status <status>  # update status (applied -> phone_screen / onsite / offer / rejected)
 uv run worksisyphus evaluate --app <name>        # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
+uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation (startup_product_engineer, ai_engineer, mle, systems_engineer, quant_engineer, software_engineering_intern)
+uv run worksisyphus evaluate --check-upstream        # check sync status against upstream interviewstreet/hiring-agent
 uv run worksisyphus db status                    # show database overview, metrics, and connection status
 uv run worksisyphus db history [--limit N]       # show append-only timestamped audit trail
 uv run worksisyphus db sync                      # export profile.json and sync to Turso cloud

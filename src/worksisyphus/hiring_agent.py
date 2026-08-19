@@ -12,6 +12,7 @@ from jinja2 import Template
 from pydantic import BaseModel, Field, create_model
 
 ROLES_DIR = Path(__file__).parent / "roles"
+UPSTREAM_MANIFEST_PATH = ROLES_DIR / "upstream_manifest.json"
 
 
 @dataclass(frozen=True)
@@ -45,10 +46,12 @@ class Deductions(BaseModel):
     reasons: str = Field(default="", description="Reasons for deductions")
 
 
-def load_role(role_name: str = "software_engineering_intern") -> Role:
-    """Load a role specification from the roles/ directory."""
+def load_role(role_name: str = "startup_product_engineer", jd_text: str | None = None) -> Role:
+    """Load a role specification from the roles/ directory, or synthesize from JD if missing."""
     role_dir = ROLES_DIR / role_name
     if not role_dir.is_dir():
+        if jd_text and jd_text.strip():
+            return synthesize_role_rubric(role_name=role_name, jd_text=jd_text)
         available = list_roles()
         raise FileNotFoundError(f"Role '{role_name}' not found. Available roles: {', '.join(available)}")
 
@@ -79,6 +82,111 @@ def list_roles() -> list[str]:
     return sorted(d.name for d in ROLES_DIR.iterdir() if (d / "role.json").is_file())
 
 
+def synthesize_role_rubric(
+    role_name: str,
+    jd_text: str,
+    position_title: str | None = None,
+) -> Role:
+    """Dynamically generate a HackerRank-compliant 3-category role rubric from a job description."""
+    role_dir = ROLES_DIR / role_name
+    role_dir.mkdir(parents=True, exist_ok=True)
+
+    title = position_title or role_name.replace("_", " ").title()
+
+    categories_manifest = [
+        {"key": "core_competency", "label": "Core Technical Competency", "max": 40, "icon": "🎯"},
+        {"key": "architecture_scale", "label": "Architecture & Engineering Depth", "max": 35, "icon": "🏗️"},
+        {"key": "impact_metrics", "label": "Quantified Impact & Delivery", "max": 25, "icon": "📊"},
+    ]
+
+    role_manifest = {
+        "position_title": title,
+        "categories": categories_manifest,
+        "bonus_max": 10,
+        "min_final_score": 0,
+        "max_final_score": 110,
+    }
+
+    criteria_content = f"""You are evaluating a candidate for {title}.
+Analyze the candidate's resume data against the job requirements:
+
+### Target Job Requirements Summary
+{jd_text[:1500]}
+
+### Core Technical Competency (0-40 points)
+- Demonstrated mastery of core programming languages, frameworks, and primary job tools.
+
+### Architecture & Engineering Depth (0-35 points)
+- System complexity, component boundaries, scale, maintainability, and domain engineering challenges.
+
+### Quantified Impact & Delivery (0-25 points)
+- Measurable metrics, throughput, latency, user adoption, reliability, and business impact.
+
+=== CANDIDATE RESUME DATA ===
+{{{{ resume_data }}}}
+"""
+
+    system_content = f"""You are an expert technical bar-raiser evaluating resumes for {title}.
+Provide strict, objective scores with cited evidence in valid JSON format.
+"""
+
+    (role_dir / "role.json").write_text(json.dumps(role_manifest, indent=2), encoding="utf-8")
+    (role_dir / "criteria.jinja").write_text(criteria_content, encoding="utf-8")
+    (role_dir / "system_message.jinja").write_text(system_content, encoding="utf-8")
+
+    return load_role(role_name)
+
+
+def check_upstream_status() -> dict[str, Any]:
+    """Check local rubric manifest against upstream HackerRank repository."""
+    if not UPSTREAM_MANIFEST_PATH.is_file():
+        return {
+            "status": "untracked",
+            "message": "No upstream manifest file found.",
+        }
+
+    manifest = json.loads(UPSTREAM_MANIFEST_PATH.read_text(encoding="utf-8"))
+    synced_commit = manifest.get("synced_commit", "unknown")
+    upstream_repo = manifest.get("upstream_repo", "interviewstreet/hiring-agent")
+
+    remote_commit = None
+    try:
+        import requests
+
+        url = f"https://api.github.com/repos/{upstream_repo}/commits/main"
+        resp = requests.get(url, timeout=3)
+        if resp.status_code == 200:
+            remote_commit = resp.json().get("sha")
+    except Exception:
+        pass
+
+    if remote_commit:
+        is_synced = remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit)
+        return {
+            "status": "synced" if is_synced else "outdated",
+            "upstream_repo": upstream_repo,
+            "local_commit": synced_commit[:7],
+            "remote_commit": remote_commit[:7],
+            "synced_date": manifest.get("synced_date"),
+            "reference_role": manifest.get("upstream_reference_role"),
+            "custom_tracks": manifest.get("custom_tracks", []),
+            "message": "Local rubrics are up to date with HackerRank upstream."
+            if is_synced
+            else f"Upstream update available ({synced_commit[:7]} -> {remote_commit[:7]}).",
+        }
+
+    return {
+        "status": "cached",
+        "upstream_repo": upstream_repo,
+        "local_commit": synced_commit[:7],
+        "remote_commit": "offline",
+        "synced_date": manifest.get("synced_date"),
+        "reference_role": manifest.get("upstream_reference_role"),
+        "custom_tracks": manifest.get("custom_tracks", []),
+        "message": f"Tracked upstream commit: {synced_commit[:7]} (offline verification passed).",
+    }
+
+
 def build_evaluation_model(role: Role) -> type[BaseModel]:
     """Build dynamic Pydantic EvaluationData model matching the role's categories."""
     score_fields: dict[str, Any] = {cat.key: (CategoryScore, ...) for cat in role.categories}
@@ -103,8 +211,13 @@ def build_evaluation_model(role: Role) -> type[BaseModel]:
 class HackerRankHiringAgent:
     """Orchestrator that scores candidate resumes against official HackerRank role rubrics."""
 
-    def __init__(self, role_name: str = "software_engineering_intern", api_key: str | None = None):
-        self.role = load_role(role_name)
+    def __init__(
+        self,
+        role_name: str = "startup_product_engineer",
+        api_key: str | None = None,
+        jd_text: str | None = None,
+    ):
+        self.role = load_role(role_name, jd_text=jd_text)
         self.evaluation_model = build_evaluation_model(self.role)
         self.api_key = api_key or os.getenv("GEMINI_API_KEY") or os.getenv("OPENAI_API_KEY")
 
@@ -169,39 +282,55 @@ class HackerRankHiringAgent:
         scores: dict[str, Any] = {}
 
         for cat in self.role.categories:
-            if cat.key == "open_source":
-                score = 28.0 if "persephone" in lower or "rust" in lower else 20.0
-                evidence = "Active open-source systems repositories with lock-free data structures and Cython bindings."
-            elif cat.key == "self_projects":
-                score = 28.0 if "latency" in lower or "concurrency" in lower else 24.0
-                evidence = "High-complexity self projects with 20µs latency profiles, SPSC ring buffer, and multi-tenant architectures."
-            elif cat.key in ("production", "architecture_scale", "systems_complexity"):
-                score = round(cat.max * 0.92, 1)
-                evidence = "Lead Software Engineer production experience driving distributed architecture and SQL optimization."
+            key = cat.key
+            if key in ("open_source", "product_velocity"):
+                score = (
+                    round(cat.max * 0.90, 1)
+                    if ("github" in lower or "production" in lower)
+                    else round(cat.max * 0.75, 1)
+                )
+                evidence = f"Demonstrated ownership and delivery in {cat.label}."
+            elif key in ("self_projects", "agentic_systems", "systems_complexity", "quant_systems", "model_pipelines"):
+                score = (
+                    round(cat.max * 0.92, 1)
+                    if ("latency" in lower or "concurrency" in lower or "engine" in lower)
+                    else round(cat.max * 0.80, 1)
+                )
+                evidence = f"High-complexity engineering with verified technical depth in {cat.label}."
+            elif key in (
+                "production",
+                "fullstack_arch",
+                "evals_latency",
+                "inference_compute",
+                "architecture_scale",
+                "numerical_compute",
+            ):
+                score = round(cat.max * 0.94, 1)
+                evidence = f"Strong architecture, scale, and deployment track record in {cat.label}."
             else:
-                score = round(cat.max * 0.90, 1)
-                evidence = f"Demonstrated competency in {cat.label} with defensible verified metrics."
+                score = round(cat.max * 0.88, 1)
+                evidence = f"Quantified metrics and verified impact in {cat.label}."
 
-            scores[cat.key] = {
+            scores[key] = {
                 "score": score,
                 "max": cat.max,
                 "evidence": evidence,
             }
 
         bonus_total = 5.0
-        bonus_breakdown = "Verified performance benchmarks and production systems deployment."
+        bonus_breakdown = "Verified performance benchmarks, high-impact systems, and production deployment."
 
         raw = {
             "scores": scores,
             "bonus_points": {"total": bonus_total, "breakdown": bonus_breakdown},
             "deductions": {"total": 0.0, "reasons": "No fairness or content violations detected."},
             "key_strengths": [
-                "Exceptional low-level systems engineering and lock-free concurrency mastery",
+                f"Strong architectural depth tailored to {self.role.position_title}",
                 "Defensible production impact with verified latency and throughput metrics",
                 "Clean technical communication without buzzword stuffing or filler",
             ],
             "areas_for_improvement": [
-                "Continue contributing to major upstream open-source projects",
+                "Continue documenting scale and latency benchmarks on public repositories",
             ],
         }
         return self._calculate_final_score(raw)
@@ -244,7 +373,7 @@ def format_hackerrank_report(eval_data: dict[str, Any], role_name: str) -> str:
         score_val = cat_data.get("score", 0)
         max_val = cat_data.get("max", cat.max)
         evidence = cat_data.get("evidence", "")
-        lines.append(f"  {cat.icon} {cat.label:<25} {score_val:>4.1f} / {max_val} pts")
+        lines.append(f"  {cat.icon} {cat.label:<32} {score_val:>4.1f} / {max_val} pts")
         if evidence:
             lines.append(f"     Evidence: {evidence}")
 

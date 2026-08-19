@@ -82,9 +82,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Run 1:1 HackerRank hiring agent rubric evaluation.",
     )
     eval_cmd.add_argument(
+        "--check-upstream",
+        action="store_true",
+        help="Check HackerRank upstream repository commit status and rubric sync.",
+    )
+    eval_cmd.add_argument(
         "--role",
-        default="software_engineering_intern",
-        help="Role rubric for HackerRank evaluation (e.g. software_engineering_intern, systems_engineer).",
+        default="startup_product_engineer",
+        help="Role rubric for HackerRank evaluation (e.g. startup_product_engineer, ai_engineer, mle, systems_engineer, quant_engineer, software_engineering_intern).",
     )
     args = parser.parse_args(argv)
 
@@ -214,7 +219,26 @@ def main(argv: list[str] | None = None) -> int:
                 format_evaluation_report,
                 selection_to_plain_text,
             )
-            from .hiring_agent import HackerRankHiringAgent, format_hackerrank_report
+            from .hiring_agent import (
+                HackerRankHiringAgent,
+                check_upstream_status,
+                format_hackerrank_report,
+            )
+
+            if getattr(args, "check_upstream", False):
+                status = check_upstream_status()
+                print("=" * 68)
+                print(f"HACKERRANK UPSTREAM SYNC STATUS: {status.get('upstream_repo', '')}")
+                print("=" * 68)
+                print(f"Status:          {status.get('status', '').upper()}")
+                print(f"Local Commit:    {status.get('local_commit')}")
+                print(f"Remote Commit:   {status.get('remote_commit')}")
+                print(f"Synced Date:     {status.get('synced_date')}")
+                print(f"Reference Role:  {status.get('reference_role')}")
+                print(f"Custom Tracks:   {', '.join(status.get('custom_tracks', []))}")
+                print(f"Message:         {status.get('message')}")
+                print("=" * 68)
+                return 0
 
             profile = load_profile()
             resume_text = ""
@@ -253,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
                         resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
 
             if args.hackerrank:
-                agent = HackerRankHiringAgent(role_name=args.role)
+                agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)
                 result = agent.evaluate(resume_text=resume_text, candidate_name=profile.contact.name)
                 print(format_hackerrank_report(result, role_name=args.role))
             else:

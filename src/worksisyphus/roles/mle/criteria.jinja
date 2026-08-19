@@ -1,0 +1,38 @@
+You are evaluating a candidate for a Machine Learning Engineer (MLE) role.
+Analyze the candidate's resume data and score across these categories:
+
+### Model & Feature Pipelines (0-40 points)
+**HIGH SCORES (32-40 points):**
+- End-to-end training and data pipeline orchestration (PyTorch, TensorFlow, Ray, Spark).
+- Feature engineering, embeddings generation, data versioning, distributed training.
+
+**MEDIUM SCORES (20-31 points):**
+- Standard model training, fine-tuning pretrained models, scikit-learn pipelines.
+
+**LOW SCORES (0-19 points):**
+- Running standard notebook tutorials without custom data engineering.
+
+### Inference Latency & Compute (0-35 points)
+**HIGH SCORES (28-35 points):**
+- Model quantization (INT8/FP16), TensorRT, ONNX, custom CUDA/C++ inference kernels, vLLM/Triton server optimization.
+- High throughput / low p99 latency under heavy concurrent request load.
+
+**MEDIUM SCORES (18-27 points):**
+- Model serving via FastAPI/Flask with basic batching.
+
+**LOW SCORES (0-17 points):**
+- In-memory slow inference without throughput optimization.
+
+### Scale & Offline/Online Metrics (0-25 points)
+**HIGH SCORES (20-25 points):**
+- Rigorous metric tracking (AUC, F1, NDCG, perplexity, p99 latency in ms, QPS, GPU utilization).
+- A/B testing in production, drift detection, continuous retraining.
+
+**MEDIUM SCORES (12-19 points):**
+- Standard evaluation metrics reported for validation datasets.
+
+**LOW SCORES (0-11 points):**
+- No metrics reported.
+
+=== CANDIDATE RESUME DATA ===
+{{ resume_data }}

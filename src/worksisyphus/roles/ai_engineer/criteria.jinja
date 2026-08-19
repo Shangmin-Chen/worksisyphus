@@ -1,0 +1,38 @@
+You are evaluating a candidate for an AI & Agent Systems Engineer position.
+Analyze the candidate's resume data and score across these categories:
+
+### Agentic Systems & Loops (0-40 points)
+**HIGH SCORES (32-40 points):**
+- Complex multi-step agent architectures, tool use, autonomous feedback loops, self-correction, state management.
+- Multi-agent coordination, structured JSON schema generation, prompt routing.
+
+**MEDIUM SCORES (20-31 points):**
+- Standard RAG pipelines, simple tool-calling bots, LangChain/LlamaIndex wrappers.
+
+**LOW SCORES (0-19 points):**
+- Basic prompt engineering or single API wrapper calls.
+
+### Evals & Latency Optimization (0-35 points)
+**HIGH SCORES (28-35 points):**
+- Deterministic eval harnesses, synthetic benchmark generation, token streaming optimization.
+- Semantic caching, TTFT (Time-to-First-Token) reductions, cost management, fallback cascades.
+
+**MEDIUM SCORES (18-27 points):**
+- Basic accuracy evals, latency measurement, caching strategies.
+
+**LOW SCORES (0-17 points):**
+- No evaluation metrics or performance measurements.
+
+### Production LLM Pipelines (0-25 points)
+**HIGH SCORES (20-25 points):**
+- Production deployment of AI systems serving real traffic, vector databases (Qdrant/Pinecone/pgvector), asynchronous ingestion.
+- Robust guardrails against hallucinations, schema validation, telemetry.
+
+**MEDIUM SCORES (12-19 points):**
+- Functional prototypes with vector DB integration.
+
+**LOW SCORES (0-11 points):**
+- Toy Jupyter notebooks with no production deployment.
+
+=== CANDIDATE RESUME DATA ===
+{{ resume_data }}

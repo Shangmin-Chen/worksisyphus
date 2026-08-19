@@ -21,17 +21,20 @@ from worksisyphus.hiring_agent import (
 def test_list_roles() -> None:
     roles = list_roles()
     assert "software_engineering_intern" in roles
+    assert "startup_product_engineer" in roles
+    assert "ai_engineer" in roles
+    assert "mle" in roles
     assert "systems_engineer" in roles
     assert "quant_engineer" in roles
 
 
 def test_load_role_schema() -> None:
-    role = load_role("software_engineering_intern")
-    assert role.name == "software_engineering_intern"
+    role = load_role("startup_product_engineer")
+    assert role.name == "startup_product_engineer"
     assert len(role.categories) == 3
     assert role.bonus_max == 10
     assert role.max_final_score == 110
-    assert "open_source" in [c.key for c in role.categories]
+    assert "product_velocity" in [c.key for c in role.categories]
 
 
 def test_load_invalid_role() -> None:
@@ -62,7 +65,14 @@ def test_hackerrank_agent_evaluation_all_roles() -> None:
     Experience: Lead Software Engineer at EZ Esports building distributed real-time platforms.
     Projects: Persephone low-latency Rust/C++ order book engine with 20µs latency and lock-free SPSC queue.
     """
-    for role_name in ("software_engineering_intern", "systems_engineer", "quant_engineer"):
+    for role_name in (
+        "software_engineering_intern",
+        "startup_product_engineer",
+        "ai_engineer",
+        "mle",
+        "systems_engineer",
+        "quant_engineer",
+    ):
         agent = HackerRankHiringAgent(role_name=role_name)
         result = agent.evaluate(sample_resume)
         assert result["total_score"] >= 80
@@ -131,3 +141,29 @@ def test_hackerrank_agent_llm_call_gemini(monkeypatch) -> None:
     result = agent.evaluate("Sample resume text")
     assert result["total_score"] == 95.0
     assert result["scores"]["open_source"]["score"] == 30.0
+
+
+def test_check_upstream_status() -> None:
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    status = check_upstream_status()
+    assert "status" in status
+    assert "local_commit" in status
+    assert "custom_tracks" in status
+    assert len(status["custom_tracks"]) >= 3
+
+
+def test_synthesize_role_rubric_and_cleanup(tmp_path, monkeypatch) -> None:
+    from worksisyphus import hiring_agent
+
+    monkeypatch.setattr(hiring_agent, "ROLES_DIR", tmp_path / "roles")
+    (tmp_path / "roles").mkdir()
+
+    role = hiring_agent.synthesize_role_rubric(
+        role_name="cloud_platform_engineer",
+        jd_text="Experience with Kubernetes, AWS, Terraform, and Go.",
+    )
+    assert role.name == "cloud_platform_engineer"
+    assert len(role.categories) == 3
+    assert (tmp_path / "roles" / "cloud_platform_engineer" / "role.json").is_file()
+    assert (tmp_path / "roles" / "cloud_platform_engineer" / "criteria.jinja").is_file()
