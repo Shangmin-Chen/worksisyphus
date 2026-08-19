@@ -206,3 +206,23 @@ def test_get_audit_history_filtered() -> None:
 
     all_events = get_audit_history(conn)
     assert len(all_events) == 3
+
+
+def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
+    real_profile_path = Path("profile.json")
+    if not real_profile_path.is_file():
+        return
+    real_data = json.loads(real_profile_path.read_text(encoding="utf-8"))
+
+    conn = get_connection(":memory:")
+    seed_database(conn, profile_path=real_profile_path, applications_dir=tmp_path / "apps")
+
+    export_path = tmp_path / "exported.json"
+    exported_data = export_profile_json(conn, output_path=export_path)
+
+    assert exported_data["contact"] == real_data["contact"]
+    assert exported_data["education"] == real_data["education"]
+    assert exported_data["experiences"] == real_data["experiences"]
+    assert exported_data["projects"] == real_data["projects"]
+    assert exported_data["skills"] == real_data["skills"]
+

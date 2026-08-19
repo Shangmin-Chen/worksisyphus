@@ -280,6 +280,7 @@ def seed_database(
 
     # 6. Applications
     if applications_dir.is_dir():
+        conn.execute("DELETE FROM applications")
         for d in sorted(applications_dir.iterdir()):
             if not d.is_dir():
                 continue
