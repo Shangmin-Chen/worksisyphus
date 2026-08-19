@@ -89,6 +89,14 @@ def main(argv: list[str] | None = None) -> int:
         default="software_engineer",
         help="Role rubric for HackerRank evaluation (e.g. software_engineer, product_engineer, startup_product_engineer, ai_engineer, mle, systems_engineer, quant_engineer, software_engineering_intern).",
     )
+    opt_cmd = sub.add_parser("optimize", help="Combinatorially search and find the highest-scoring plan for a JD.")
+    opt_cmd.add_argument("--jd", required=True, help="Job description text file or - for stdin.")
+    opt_cmd.add_argument(
+        "--role",
+        default="software_engineer",
+        help="Role rubric to optimize against.",
+    )
+    opt_cmd.add_argument("--output", default=None, help="Optional plan JSON file path to write winning plan to.")
     args = parser.parse_args(argv)
 
     try:
@@ -289,6 +297,18 @@ def main(argv: list[str] | None = None) -> int:
                         pdf_path=pdf_path,
                     )
                 print(format_evaluation_report(report, target_role=role_label))
+        elif args.command == "optimize":
+            from .optimizer import format_optimization_report, optimize_plan
+
+            profile = load_profile()
+            jd_text = _read_plan(args.jd)
+            best_plan, best_eval, results = optimize_plan(profile, jd_text, role_name=args.role)
+            print(format_optimization_report(best_plan, best_eval, results))
+            if args.output:
+                out_path = Path(args.output)
+                out_path.parent.mkdir(parents=True, exist_ok=True)
+                out_path.write_text(json.dumps(best_plan, indent=2) + "\n", encoding="utf-8")
+                print(f"\nOptimal plan written to: {out_path}")
         else:
             tailor(_read_plan(args.plan), log=print)
     except Exception as exc:
