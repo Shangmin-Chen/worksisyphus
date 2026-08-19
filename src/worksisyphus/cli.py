@@ -115,52 +115,63 @@ def main(argv: list[str] | None = None) -> int:
                 sync_to_turso,
             )
             conn = get_connection(DEFAULT_DB_PATH)
-            if args.db_action == "init":
-                seed_database(conn)
-                print(f"Initialized and seeded {DEFAULT_DB_PATH}")
-                turso_ok = sync_to_turso()
-                print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
-            elif args.db_action == "sync":
-                export_profile_json(conn)
-                print("Exported active database state to profile.json")
-                turso_ok = sync_to_turso()
-                print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
-            elif args.db_action == "status":
-                profile = load_profile_from_db(conn)
-                events = get_audit_history(conn, limit=1)
-                cur = conn.execute("SELECT count(*) FROM applications")
-                app_count = cur.fetchone()[0]
-                cur2 = conn.execute("SELECT count(*) FROM audit_events")
-                event_count = cur2.fetchone()[0]
-                print(f"Database: {DEFAULT_DB_PATH}")
-                print(f"Contact: {profile.contact.name} ({profile.contact.email})")
-                print(f"Education: {len(profile.education)} record(s)")
-                print(f"Experiences: {len(profile.experiences)} with {sum(len(e.bullets) for e in profile.experiences.values())} bullets")
-                print(f"Projects: {len(profile.projects)} with {sum(len(p.bullets) for p in profile.projects.values())} bullets")
-                print(f"Skill Groups: {len(profile.skills)} ({sum(len(s) for s in profile.skills.values())} total skills)")
-                print(f"Tracked Applications: {app_count}")
-                print(f"Audit Events: {event_count}")
-            elif args.db_action == "history":
-                events = get_audit_history(conn, limit=args.limit, entity_type=args.entity_type)
-                if not events:
-                    print("No audit events found.")
-                else:
-                    header = f"{'Timestamp':<30} {'Action':<15} {'Entity':<20} {'ID':<35} Details"
-                    print(header)
-                    print("-" * len(header))
-                    for ev in events:
-                        details = ""
-                        if ev["field_name"]:
-                            details = f"{ev['field_name']}: {ev['old_value']} -> {ev['new_value']}"
-                        elif ev["metadata"]:
-                            details = json.dumps(ev["metadata"])
-                        print(
-                            f"{_fit_column(ev['timestamp'], 30):<30} "
-                            f"{_fit_column(ev['action'], 15):<15} "
-                            f"{_fit_column(ev['entity_type'], 20):<20} "
-                            f"{_fit_column(ev['entity_id'], 35):<35} "
-                            f"{details}"
-                        )
+            try:
+                if args.db_action == "init":
+                    seed_database(conn)
+                    print(f"Initialized and seeded {DEFAULT_DB_PATH}")
+                    turso_ok = sync_to_turso()
+                    print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
+                elif args.db_action == "sync":
+                    export_profile_json(conn)
+                    print("Exported active database state to profile.json")
+                    turso_ok = sync_to_turso()
+                    print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
+                elif args.db_action == "status":
+                    cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
+                    if not cur.fetchone():
+                        print("Database not initialized. Run 'worksisyphus db init' first.")
+                        return 0
+                    profile = load_profile_from_db(conn)
+                    events = get_audit_history(conn, limit=1)
+                    cur = conn.execute("SELECT count(*) FROM applications")
+                    app_count = cur.fetchone()[0]
+                    cur2 = conn.execute("SELECT count(*) FROM audit_events")
+                    event_count = cur2.fetchone()[0]
+                    print(f"Database: {DEFAULT_DB_PATH}")
+                    print(f"Contact: {profile.contact.name} ({profile.contact.email})")
+                    print(f"Education: {len(profile.education)} record(s)")
+                    print(f"Experiences: {len(profile.experiences)} with {sum(len(e.bullets) for e in profile.experiences.values())} bullets")
+                    print(f"Projects: {len(profile.projects)} with {sum(len(p.bullets) for p in profile.projects.values())} bullets")
+                    print(f"Skill Groups: {len(profile.skills)} ({sum(len(s) for s in profile.skills.values())} total skills)")
+                    print(f"Tracked Applications: {app_count}")
+                    print(f"Audit Events: {event_count}")
+                elif args.db_action == "history":
+                    cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_events'")
+                    if not cur.fetchone():
+                        print("Database not initialized. Run 'worksisyphus db init' first.")
+                        return 0
+                    events = get_audit_history(conn, limit=args.limit, entity_type=args.entity_type)
+                    if not events:
+                        print("No audit events found.")
+                    else:
+                        header = f"{'Timestamp':<30} {'Action':<15} {'Entity':<20} {'ID':<35} Details"
+                        print(header)
+                        print("-" * len(header))
+                        for ev in events:
+                            details = ""
+                            if ev["field_name"]:
+                                details = f"{ev['field_name']}: {ev['old_value']} -> {ev['new_value']}"
+                            elif ev["metadata"]:
+                                details = json.dumps(ev["metadata"])
+                            print(
+                                f"{_fit_column(ev['timestamp'], 30):<30} "
+                                f"{_fit_column(ev['action'], 15):<15} "
+                                f"{_fit_column(ev['entity_type'], 20):<20} "
+                                f"{_fit_column(ev['entity_id'], 35):<35} "
+                                f"{details}"
+                            )
+            finally:
+                conn.close()
         else:
             tailor(_read_plan(args.plan), log=print)
     except Exception as exc:

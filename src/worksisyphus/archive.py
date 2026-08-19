@@ -79,17 +79,20 @@ def archive_application(
     if DEFAULT_DB_PATH.is_file():
         try:
             conn = get_connection(DEFAULT_DB_PATH)
-            archive_application_to_db(
-                conn=conn,
-                app_id=folder.name,
-                company=company,
-                role=role,
-                date_str=when.isoformat(),
-                source_url=source_url,
-                status=STATUSES[0],
-                jd_text=jd_text.strip(),
-                plan_json=normalized_plan,
-            )
+            try:
+                archive_application_to_db(
+                    conn=conn,
+                    app_id=folder.name,
+                    company=company,
+                    role=role,
+                    date_str=when.isoformat(),
+                    source_url=source_url,
+                    status=STATUSES[0],
+                    jd_text=jd_text.strip(),
+                    plan_json=normalized_plan,
+                )
+            finally:
+                conn.close()
         except Exception:
             pass
 
@@ -163,7 +166,10 @@ def update_application_status(
     if DEFAULT_DB_PATH.is_file():
         try:
             conn = get_connection(DEFAULT_DB_PATH)
-            update_application_status_in_db(conn, target_folder.name, new_status)
+            try:
+                update_application_status_in_db(conn, target_folder.name, new_status)
+            finally:
+                conn.close()
         except Exception:
             pass
 

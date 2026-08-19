@@ -181,3 +181,28 @@ def test_export_profile_json(tmp_path: Path) -> None:
     assert export_path.is_file()
     loaded = json.loads(export_path.read_text(encoding="utf-8"))
     assert loaded["contact"]["name"] == "Jane"
+
+
+def test_schema_indexes_created() -> None:
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    cur = conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+    indexes = {row[0] for row in cur.fetchall()}
+    assert "idx_audit_events_entity" in indexes
+    assert "idx_audit_events_timestamp" in indexes
+    assert "idx_applications_date" in indexes
+
+
+def test_get_audit_history_filtered() -> None:
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    log_audit_event(conn, "project", "p1", "INSERT")
+    log_audit_event(conn, "experience", "e1", "INSERT")
+    log_audit_event(conn, "project", "p2", "UPDATE")
+
+    proj_events = get_audit_history(conn, entity_type="project")
+    assert len(proj_events) == 2
+    assert all(e["entity_type"] == "project" for e in proj_events)
+
+    all_events = get_audit_history(conn)
+    assert len(all_events) == 3

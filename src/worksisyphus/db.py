@@ -10,7 +10,6 @@ Provides:
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import sqlite3
 import subprocess
@@ -121,20 +120,11 @@ CREATE TABLE IF NOT EXISTS applications (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+CREATE INDEX IF NOT EXISTS idx_audit_events_entity ON audit_events (entity_type, id DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events (timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_applications_date ON applications (date DESC);
 """
-
-
-def load_env_file(env_path: Path = Path(".env")) -> dict[str, str]:
-    """Parse .env file if present."""
-    if not env_path.is_file():
-        return {}
-    env: dict[str, str] = {}
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if line and not line.startswith("#") and "=" in line:
-            k, v = line.split("=", 1)
-            env[k.strip()] = v.strip().strip("'\"")
-    return env
 
 
 def get_connection(
@@ -531,8 +521,9 @@ def get_audit_history(conn: sqlite3.Connection, limit: int = 50, entity_type: st
 
 def sync_to_turso(db_path: Path = DEFAULT_DB_PATH, turso_db_name: str = "worksisyphus") -> bool:
     """Push local SQLite database state to Turso cloud via Turso CLI."""
-    turso_bin = shutil.which("turso") or "/Users/adeland/.turso/turso"
-    if not Path(turso_bin).is_file() or not db_path.is_file():
+    home_turso = Path.home() / ".turso" / "turso"
+    turso_bin = shutil.which("turso") or (str(home_turso) if home_turso.is_file() else None)
+    if not turso_bin or not db_path.is_file():
         return False
     try:
         drop_all = """

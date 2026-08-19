@@ -65,13 +65,19 @@ def load_profile(source: Path | str | Any = DEFAULT_PROFILE_PATH) -> Profile:
     if path.suffix in (".db", ".sqlite", ".sqlite3") and path.is_file():
         from .db import get_connection, load_profile_from_db
         conn = get_connection(path)
-        return load_profile_from_db(conn)
+        try:
+            return load_profile_from_db(conn)
+        finally:
+            conn.close()
 
     from .db import DEFAULT_DB_PATH, get_connection, load_profile_from_db
     if path == DEFAULT_PROFILE_PATH and DEFAULT_DB_PATH.is_file():
         try:
             conn = get_connection(DEFAULT_DB_PATH)
-            return load_profile_from_db(conn)
+            try:
+                return load_profile_from_db(conn)
+            finally:
+                conn.close()
         except Exception:
             pass
 
