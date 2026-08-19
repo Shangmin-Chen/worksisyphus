@@ -1,0 +1,11 @@
+{
+  "position_title": "Software Engineer (Full-Stack / Backend)",
+  "categories": [
+    {"key": "backend_systems", "label": "Backend & Distributed Systems", "max": 40, "icon": "⚙️"},
+    {"key": "data_algorithms", "label": "Algorithms & Data Engineering", "max": 35, "icon": "🧮"},
+    {"key": "production_scale", "label": "Production Quality & Scale", "max": 25, "icon": "📊"}
+  ],
+  "bonus_max": 10,
+  "min_final_score": 0,
+  "max_final_score": 110
+}

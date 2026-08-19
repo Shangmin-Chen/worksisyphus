@@ -21,6 +21,8 @@ from worksisyphus.hiring_agent import (
 def test_list_roles() -> None:
     roles = list_roles()
     assert "software_engineering_intern" in roles
+    assert "software_engineer" in roles
+    assert "product_engineer" in roles
     assert "startup_product_engineer" in roles
     assert "ai_engineer" in roles
     assert "mle" in roles
@@ -29,12 +31,12 @@ def test_list_roles() -> None:
 
 
 def test_load_role_schema() -> None:
-    role = load_role("startup_product_engineer")
-    assert role.name == "startup_product_engineer"
+    role = load_role("software_engineer")
+    assert role.name == "software_engineer"
     assert len(role.categories) == 3
     assert role.bonus_max == 10
     assert role.max_final_score == 110
-    assert "product_velocity" in [c.key for c in role.categories]
+    assert "backend_systems" in [c.key for c in role.categories]
 
 
 def test_load_invalid_role() -> None:
@@ -67,6 +69,8 @@ def test_hackerrank_agent_evaluation_all_roles() -> None:
     """
     for role_name in (
         "software_engineering_intern",
+        "software_engineer",
+        "product_engineer",
         "startup_product_engineer",
         "ai_engineer",
         "mle",

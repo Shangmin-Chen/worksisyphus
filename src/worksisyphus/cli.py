@@ -88,8 +88,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     eval_cmd.add_argument(
         "--role",
-        default="startup_product_engineer",
-        help="Role rubric for HackerRank evaluation (e.g. startup_product_engineer, ai_engineer, mle, systems_engineer, quant_engineer, software_engineering_intern).",
+        default="software_engineer",
+        help="Role rubric for HackerRank evaluation (e.g. software_engineer, product_engineer, startup_product_engineer, ai_engineer, mle, systems_engineer, quant_engineer, software_engineering_intern).",
     )
     args = parser.parse_args(argv)
 

@@ -5,6 +5,8 @@
   "synced_date": "2026-08-19T00:00:00Z",
   "upstream_reference_role": "software_engineering_intern",
   "custom_tracks": [
+    "software_engineer",
+    "product_engineer",
     "startup_product_engineer",
     "ai_engineer",
     "mle",
