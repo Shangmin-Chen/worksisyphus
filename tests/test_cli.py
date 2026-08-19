@@ -215,3 +215,11 @@ def test_cli_evaluate_missing_app_error(capsys) -> None:
     assert ret == 1
     err = capsys.readouterr().err
     assert "error:" in err
+
+
+def test_cli_evaluate_hackerrank_mode(capsys) -> None:
+    ret = cli.main(["evaluate", "--hackerrank", "--role", "software_engineering_intern"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "HACKERRANK HIRING AGENT SCORECARD" in out
+    assert "Overall Candidate Score:" in out

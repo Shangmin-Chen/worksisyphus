@@ -74,6 +74,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     eval_cmd.add_argument("--jd", default=None, help="Job description text file or - for stdin.")
     eval_cmd.add_argument("--app", default=None, help="Archived application folder or unique stem to evaluate.")
+    eval_cmd.add_argument(
+        "--hackerrank",
+        "--llm",
+        dest="hackerrank",
+        action="store_true",
+        help="Run 1:1 HackerRank hiring agent rubric evaluation.",
+    )
+    eval_cmd.add_argument(
+        "--role",
+        default="software_engineering_intern",
+        help="Role rubric for HackerRank evaluation (e.g. software_engineering_intern, systems_engineer).",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -195,14 +207,20 @@ def main(argv: list[str] | None = None) -> int:
                 conn.close()
         elif args.command == "evaluate":
             from .archive import resolve_application_folder
+            from .ats import check_pdf_ats
             from .evaluator import (
                 evaluate_pdf_against_jd,
                 evaluate_resume_text,
                 format_evaluation_report,
                 selection_to_plain_text,
             )
+            from .hiring_agent import HackerRankHiringAgent, format_hackerrank_report
 
             profile = load_profile()
+            resume_text = ""
+            pdf_path: Path | None = None
+            role_label = "Target Role"
+
             if args.app:
                 app_path = resolve_application_folder(args.app)
                 jd_file = app_path / "jd.txt"
@@ -210,29 +228,45 @@ def main(argv: list[str] | None = None) -> int:
                     raise FileNotFoundError(f"Missing jd.txt in {app_path}")
                 jd_text = jd_file.read_text(encoding="utf-8")
                 pdf_path = app_path / "Simon_Chen_Resume.pdf"
-                role = args.app
-                report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+                role_label = args.app
+                if pdf_path.is_file():
+                    resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
             else:
-                if not args.jd:
-                    raise ValueError("Job description required: pass --jd <file|-> or --app <name>")
-                jd_text = _read_plan(args.jd)
+                if not args.jd and not args.hackerrank:
+                    raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
+                jd_text = _read_plan(args.jd) if args.jd else ""
 
                 if args.resume:
                     pdf_path = Path(args.resume)
-                    role = pdf_path.stem
-                    report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+                    role_label = pdf_path.stem
+                    if pdf_path.is_file():
+                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
                 elif args.plan:
                     plan_text = _read_plan(args.plan)
                     selection = parse_plan(plan_text, profile)
-                    plain_text = selection_to_plain_text(selection, profile)
-                    role = Path(args.plan).stem
-                    report = evaluate_resume_text(plain_text, jd_text, candidate_name=profile.contact.name)
+                    resume_text = selection_to_plain_text(selection, profile)
+                    role_label = Path(args.plan).stem
                 else:
                     pdf_path = PDF_DIR / "Simon_Chen_Resume.pdf"
-                    role = "Simon_Chen_Resume"
-                    report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+                    role_label = "Simon_Chen_Resume"
+                    if pdf_path.is_file():
+                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
 
-            print(format_evaluation_report(report, target_role=role))
+            if args.hackerrank:
+                agent = HackerRankHiringAgent(role_name=args.role)
+                result = agent.evaluate(resume_text=resume_text, candidate_name=profile.contact.name)
+                print(format_hackerrank_report(result, role_name=args.role))
+            else:
+                if pdf_path and pdf_path.is_file():
+                    report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+                else:
+                    report = evaluate_resume_text(
+                        resume_text,
+                        jd_text,
+                        candidate_name=profile.contact.name,
+                        pdf_path=pdf_path,
+                    )
+                print(format_evaluation_report(report, target_role=role_label))
         else:
             tailor(_read_plan(args.plan), log=print)
     except Exception as exc:

@@ -1,0 +1,11 @@
+{
+  "position_title": "Systems & Performance Software Engineer",
+  "categories": [
+    {"key": "systems_complexity", "label": "Systems & Concurrency", "max": 40, "icon": "⚡"},
+    {"key": "architecture_scale", "label": "Architecture & Scale", "max": 35, "icon": "🏗️"},
+    {"key": "impact_metrics", "label": "Impact & Latency Metrics", "max": 25, "icon": "📊"}
+  ],
+  "bonus_max": 10,
+  "min_final_score": 0,
+  "max_final_score": 110
+}

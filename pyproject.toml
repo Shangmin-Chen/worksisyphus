@@ -9,7 +9,10 @@ description = "Simon Chen's resume compiler: hand-written slug plans in, one-pag
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "jinja2>=3.1.0",
     "libsql-experimental>=0.0.55",
+    "pydantic>=2.5.0",
+    "requests>=2.31.0",
 ]
 
 [project.scripts]
