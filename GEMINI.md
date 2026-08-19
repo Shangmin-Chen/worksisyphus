@@ -59,6 +59,8 @@ uv run worksisyphus tailor --plan <file|->       # build the one-page PDF
 uv run worksisyphus archive --plan <file> --company <name> --jd <file|->  # freeze an application folder
 uv run worksisyphus status                       # list all archived applications and their status
 uv run worksisyphus update-status --app <name> --status <status>  # update status (applied -> phone_screen / onsite / offer / rejected)
+uv run worksisyphus evaluate --app <name>        # evaluate & score an application against its JD
+uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
 uv run worksisyphus db status                    # show database overview, metrics, and connection status
 uv run worksisyphus db history [--limit N]       # show append-only timestamped audit trail
 uv run worksisyphus db sync                      # export profile.json and sync to Turso cloud

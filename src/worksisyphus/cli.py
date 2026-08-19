@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -65,6 +66,15 @@ def main(argv: list[str] | None = None) -> int:
     history_cmd = db_sub.add_parser("history", help="Show append-only audit trail.")
     history_cmd.add_argument("--limit", type=int, default=20, help="Number of audit events to display.")
     history_cmd.add_argument("--type", dest="entity_type", default=None, help="Filter by entity type.")
+    eval_cmd = sub.add_parser("evaluate", help="Score a resume PDF or plan against a target job description.")
+    eval_cmd.add_argument("--plan", default=None, help="Plan JSON file to evaluate.")
+    eval_cmd.add_argument(
+        "--resume",
+        default=None,
+        help="Resume PDF path to evaluate (defaults to resumes/Simon_Chen_Resume.pdf).",
+    )
+    eval_cmd.add_argument("--jd", default=None, help="Job description text file or - for stdin.")
+    eval_cmd.add_argument("--app", default=None, help="Archived application folder or unique stem to evaluate.")
     args = parser.parse_args(argv)
 
     try:
@@ -184,6 +194,42 @@ def main(argv: list[str] | None = None) -> int:
                             )
             finally:
                 conn.close()
+        elif args.command == "evaluate":
+            from .evaluator import evaluate_pdf_against_jd, evaluate_resume_text, format_evaluation_report
+            from .renderer import render_resume
+
+            profile = load_profile()
+            if args.app:
+                app_path = Path("applications") / args.app if (Path("applications") / args.app).is_dir() else None
+                if not app_path and Path("applications").is_dir():
+                    matches = [
+                        d for d in Path("applications").iterdir() if d.is_dir() and d.name.endswith(f"_{args.app}")
+                    ]
+                    if matches:
+                        app_path = matches[0]
+                if not app_path or not (app_path / "jd.txt").is_file():
+                    raise FileNotFoundError(f"Application archive or jd.txt not found for {args.app}")
+                jd_text = (app_path / "jd.txt").read_text(encoding="utf-8")
+                pdf_path = app_path / "Simon_Chen_Resume.pdf"
+                role = args.app
+                report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+            else:
+                if not args.jd:
+                    raise ValueError("Job description required: pass --jd <file|-> or --app <name>")
+                jd_text = _read_plan(args.jd)
+                pdf_path = Path(args.resume) if args.resume else (PDF_DIR / "Simon_Chen_Resume.pdf")
+                role = Path(args.plan).stem if args.plan else "Target Role"
+
+                if args.plan and not pdf_path.is_file():
+                    plan_text = _read_plan(args.plan)
+                    selection = parse_plan(plan_text, profile)
+                    rendered_tex = render_resume(profile, selection)
+                    plain_text = re.sub(r"\\[a-zA-Z]+\*?(?:\[[^\]]*\])?(?:\{[^\}]*\})*", " ", rendered_tex)
+                    report = evaluate_resume_text(plain_text, jd_text, candidate_name=profile.contact.name)
+                else:
+                    report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+
+            print(format_evaluation_report(report, target_role=role))
         else:
             tailor(_read_plan(args.plan), log=print)
     except Exception as exc:

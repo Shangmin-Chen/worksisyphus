@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 
 import pytest
@@ -153,3 +154,15 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     sync_out = capsys.readouterr().out
     assert "Exported active database state to profile.json" in sync_out
     assert "Turso cloud sync: synced" in sync_out
+
+
+def test_cli_evaluate_with_stdin_and_resume(capsys, monkeypatch) -> None:
+    jd_content = "Looking for a C++ software engineer with Python and low-latency systems experience."
+    monkeypatch.setattr("sys.stdin", io.StringIO(jd_content))
+
+    ret = cli.main(["evaluate", "--resume", "resumes/Simon_Chen_Resume.pdf", "--jd", "-"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "RESUME EVALUATION REPORT" in out
+    assert "Overall Match Score:" in out
+    assert "SCORE BREAKDOWN:" in out
