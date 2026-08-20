@@ -56,7 +56,8 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 uv run worksisyphus compile                      # canonical 3-page database view (never for employers)
 uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
-uv run worksisyphus tailor --plan <file|->       # build the one-page PDF
+uv run worksisyphus tailor --plan <file|->       # build the one-page PDF (-f for force)
+uv run worksisyphus archive --plan <file> --company <name> --jd <file|->  # freeze an application folder
 uv run worksisyphus status                       # list all archived applications and their status
 uv run worksisyphus update-status --app <name> --status <status>  # update status (applied -> phone_screen / onsite / offer / rejected)
 uv run worksisyphus evaluate --app <name>        # evaluate & score an application against its JD
