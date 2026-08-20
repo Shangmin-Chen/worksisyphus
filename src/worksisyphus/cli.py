@@ -75,6 +75,11 @@ def main(argv: list[str] | None = None) -> int:
     eval_cmd.add_argument("--jd", default=None, help="Job description text file or - for stdin.")
     eval_cmd.add_argument("--app", default=None, help="Archived application folder or unique stem to evaluate.")
     eval_cmd.add_argument(
+        "--profile",
+        action="store_true",
+        help="Evaluate the full profile.json canonical database directly without a PDF or plan.",
+    )
+    eval_cmd.add_argument(
         "--hackerrank",
         action="store_true",
         help="Run 1:1 HackerRank hiring agent rubric evaluation.",
@@ -266,7 +271,13 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
                 jd_text = _read_plan(args.jd) if args.jd else ""
 
-                if args.resume:
+                if args.profile:
+                    from .selection import full_selection
+
+                    selection = full_selection(profile)
+                    resume_text = selection_to_plain_text(selection, profile)
+                    role_label = "profile_json"
+                elif args.resume:
                     pdf_path = Path(args.resume)
                     role_label = pdf_path.stem
                     if pdf_path.is_file():
