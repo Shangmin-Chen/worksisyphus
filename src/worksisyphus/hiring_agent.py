@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -86,7 +87,10 @@ def synthesize_role_rubric(
     position_title: str | None = None,
 ) -> Role:
     """Dynamically generate a HackerRank-compliant 3-category role rubric from a job description."""
-    role_dir = ROLES_DIR / role_name
+    safe_slug = re.sub(r"[^a-zA-Z0-9_]+", "_", role_name.lower()).strip("_")
+    if not safe_slug:
+        safe_slug = "custom_role"
+    role_dir = ROLES_DIR / safe_slug
     role_dir.mkdir(parents=True, exist_ok=True)
 
     title = position_title or role_name.replace("_", " ").title()
@@ -132,7 +136,7 @@ Provide strict, objective scores with cited evidence in valid JSON format.
     (role_dir / "criteria.jinja").write_text(criteria_content, encoding="utf-8")
     (role_dir / "system_message.jinja").write_text(system_content, encoding="utf-8")
 
-    return load_role(role_name)
+    return load_role(safe_slug)
 
 
 def check_upstream_status() -> dict[str, Any]:

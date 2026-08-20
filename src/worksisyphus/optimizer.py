@@ -147,6 +147,22 @@ def generate_candidate_plans(
                 }
             )
 
+    # Permutation Strategy 5: Tight 1-page balanced budget (2-3 bullets per exp, 2-3 bullets per proj)
+    exp_picks_balanced: dict[str, list[str]] = {}
+    for exp_id in valid_experiences:
+        exp = profile.experiences[exp_id]
+        eb_slugs = list(exp.bullets.keys())
+        exp_picks_balanced[exp_id] = eb_slugs[:3] if len(eb_slugs) >= 3 else eb_slugs
+
+    if len(valid_projects) >= 2:
+        candidates.append(
+            {
+                "experiences": exp_picks_balanced,
+                "projects": proj_picks_selective,
+                "skills": "all",
+            }
+        )
+
     return candidates
 
 
