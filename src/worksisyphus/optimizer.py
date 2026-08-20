@@ -1,4 +1,4 @@
-"""Plan optimizer powered by HackerRank role rubrics and candidate evaluation engine."""
+"""Marginal Knapsack & Line-Budgeted Plan Optimizer powered by HackerRank role rubrics."""
 
 from __future__ import annotations
 
@@ -11,47 +11,150 @@ from .hiring_agent import HackerRankHiringAgent
 from .plan import parse_plan
 from .profile import Profile
 
+# Physical vertical line budgeting for Jake's 1-page LaTeX template:
+# Total Page Budget ≈ 46 lines.
+# Fixed overhead: Header (4 lines), Education (3 lines), Skills (4 lines), Section Headers (3 lines) = ~14 lines.
+# Available budget for Experience + Projects = 32 to 36 lines.
+MAX_EXPERIENCE_PROJECT_LINES = 35.0
+HEADER_LINE_COST = 1.5  # Header cost per experience / project entry
+
 
 @dataclass(frozen=True)
-class CandidatePlanResult:
-    plan_dict: dict[str, Any]
+class ScoredBullet:
+    slug: str
+    text: str
+    score: float
+    lines: float
+    density: float
+
+
+@dataclass(frozen=True)
+class ScoredEntry:
+    slug: str
+    title: str
+    is_project: bool
+    bullets: list[ScoredBullet]
+    header_score: float
     total_score: float
-    max_possible: int
-    scores: dict[str, Any]
-    bonus_points: float
-    summary: str
 
 
-def rank_projects_by_hackerrank_rubric(
+def estimate_bullet_lines(text: str) -> float:
+    """Estimate rendered LaTeX line height for a resume bullet."""
+    length = len(text.strip())
+    if length <= 100:
+        return 1.0
+    elif length <= 200:
+        return 2.0
+    else:
+        return 3.0
+
+
+def score_bullet(
+    slug: str,
+    text: str,
     profile: Profile,
     agent: HackerRankHiringAgent,
-) -> list[tuple[str, float]]:
-    """Score and rank every project in profile.json using the HackerRank evaluation engine."""
-    scored_projects: list[tuple[str, float]] = []
-    for slug, proj in profile.projects.items():
-        proj_text = f"{proj.name} {proj.tech}\n" + "\n".join(f"- {b}" for b in proj.bullets.values())
-        eval_result = agent.evaluate(proj_text, candidate_name=profile.contact.name)
-        score = float(eval_result.get("total_score", 0.0))
-        scored_projects.append((slug, score))
-
-    scored_projects.sort(key=lambda item: item[1], reverse=True)
-    return scored_projects
+) -> ScoredBullet:
+    """Compute HackerRank rubric value and line-density for an individual bullet."""
+    eval_result = agent.evaluate(text, candidate_name=profile.contact.name)
+    score = float(eval_result.get("total_score", 0.0))
+    lines = estimate_bullet_lines(text)
+    density = score / lines if lines > 0 else 0.0
+    return ScoredBullet(slug=slug, text=text, score=score, lines=lines, density=density)
 
 
-def rank_bullets_by_hackerrank_rubric(
-    bullets: dict[str, str],
+def score_and_rank_entries(
     profile: Profile,
     agent: HackerRankHiringAgent,
-) -> list[str]:
-    """Score and sort bullet slugs within an entry in descending order of HackerRank rubric value."""
-    scored_bullets: list[tuple[str, float]] = []
-    for b_slug, b_text in bullets.items():
-        eval_result = agent.evaluate(b_text, candidate_name=profile.contact.name)
-        score = float(eval_result.get("total_score", 0.0))
-        scored_bullets.append((b_slug, score))
+) -> tuple[list[ScoredEntry], list[ScoredEntry]]:
+    """Score all experiences and projects, sorting bullets internally by descending HackerRank score."""
+    scored_experiences: list[ScoredEntry] = []
+    for exp_slug, exp in profile.experiences.items():
+        bullets = [score_bullet(b_slug, b_text, profile, agent) for b_slug, b_text in exp.bullets.items()]
+        bullets.sort(key=lambda b: b.score, reverse=True)
+        exp_text = f"{exp.role} {exp.org}"
+        header_eval = agent.evaluate(exp_text, candidate_name=profile.contact.name)
+        header_score = float(header_eval.get("total_score", 0.0))
+        total_score = header_score + sum(b.score for b in bullets)
+        scored_experiences.append(
+            ScoredEntry(
+                slug=exp_slug,
+                title=f"{exp.role} at {exp.org}",
+                is_project=False,
+                bullets=bullets,
+                header_score=header_score,
+                total_score=total_score,
+            )
+        )
 
-    scored_bullets.sort(key=lambda item: item[1], reverse=True)
-    return [b[0] for b in scored_bullets]
+    scored_projects: list[ScoredEntry] = []
+    for proj_slug, proj in profile.projects.items():
+        bullets = [score_bullet(b_slug, b_text, profile, agent) for b_slug, b_text in proj.bullets.items()]
+        bullets.sort(key=lambda b: b.score, reverse=True)
+        proj_text = f"{proj.name} {proj.tech}"
+        header_eval = agent.evaluate(proj_text, candidate_name=profile.contact.name)
+        header_score = float(header_eval.get("total_score", 0.0))
+        total_score = header_score + sum(b.score for b in bullets)
+        scored_projects.append(
+            ScoredEntry(
+                slug=proj_slug,
+                title=f"{proj.name} ({proj.tech})",
+                is_project=True,
+                bullets=bullets,
+                header_score=header_score,
+                total_score=total_score,
+            )
+        )
+
+    # Sort projects descending by aggregate HackerRank value
+    scored_projects.sort(key=lambda p: p.total_score, reverse=True)
+    return scored_experiences, scored_projects
+
+
+def solve_line_budget_knapsack(
+    experiences: list[ScoredEntry],
+    selected_projects: list[ScoredEntry],
+    max_lines: float = MAX_EXPERIENCE_PROJECT_LINES,
+) -> tuple[dict[str, list[str]], dict[str, list[str]], float]:
+    """Greedily pack highest-density bullets within line capacity, ensuring min 2 bullets per chosen entry."""
+    total_lines = 0.0
+    exp_picks: dict[str, list[str]] = {}
+    proj_picks: dict[str, list[str]] = {}
+
+    # 1. Base cost: allocate headers and top 2 mandatory bullets for each chosen entry
+    active_entries = experiences + selected_projects
+    for entry in active_entries:
+        total_lines += HEADER_LINE_COST
+        min_bullets = entry.bullets[:2] if len(entry.bullets) >= 2 else entry.bullets
+        chosen_slugs = [b.slug for b in min_bullets]
+        total_lines += sum(b.lines for b in min_bullets)
+
+        if entry.is_project:
+            proj_picks[entry.slug] = chosen_slugs
+        else:
+            exp_picks[entry.slug] = chosen_slugs
+
+    # 2. Pool of remaining optional bullets across all active entries
+    remaining_pool: list[tuple[ScoredBullet, ScoredEntry]] = []
+    for entry in active_entries:
+        chosen_set = set(proj_picks.get(entry.slug, []) if entry.is_project else exp_picks.get(entry.slug, []))
+        for b in entry.bullets:
+            if b.slug not in chosen_set:
+                remaining_pool.append((b, entry))
+
+    # Sort remaining pool by density (Value per line)
+    remaining_pool.sort(key=lambda item: item[0].density, reverse=True)
+
+    # 3. Pack highest-density bullets until capacity is reached
+    for bullet, entry in remaining_pool:
+        if total_lines + bullet.lines <= max_lines:
+            total_lines += bullet.lines
+            if entry.is_project:
+                proj_picks[entry.slug].append(bullet.slug)
+            else:
+                exp_picks[entry.slug].append(bullet.slug)
+
+    return exp_picks, proj_picks, total_lines
 
 
 def generate_candidate_plans(
@@ -59,76 +162,35 @@ def generate_candidate_plans(
     jd_text: str,
     role_name: str = "software_engineer",
 ) -> list[dict[str, Any]]:
-    """Dynamically generate candidate plan variations sorted by HackerRank rubric score."""
+    """Generate line-budgeted candidate plans using the knapsack solver."""
     agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
-
-    # 1. Rank all projects dynamically by HackerRank rubric value
-    ranked_projects = [p[0] for p in rank_projects_by_hackerrank_rubric(profile, agent)]
-
-    # 2. Sort bullets in each experience by HackerRank rubric score
-    sorted_exp_bullets: dict[str, list[str]] = {}
-    for exp_slug, exp in profile.experiences.items():
-        sorted_exp_bullets[exp_slug] = rank_bullets_by_hackerrank_rubric(exp.bullets, profile, agent)
-
-    # 3. Sort bullets in each project by HackerRank rubric score
-    sorted_proj_bullets: dict[str, list[str]] = {}
-    for proj_slug, proj in profile.projects.items():
-        sorted_proj_bullets[proj_slug] = rank_bullets_by_hackerrank_rubric(proj.bullets, profile, agent)
+    experiences, projects = score_and_rank_entries(profile, agent)
 
     candidates: list[dict[str, Any]] = []
 
-    # Variation A: Top 2 HackerRank-ranked projects with sorted bullets
-    if len(ranked_projects) >= 2:
-        top_2 = ranked_projects[:2]
-        candidates.append(
-            {
-                "experiences": {exp_slug: sorted_exp_bullets[exp_slug] for exp_slug in profile.experiences},
-                "projects": {p_slug: sorted_proj_bullets[p_slug] for p_slug in top_2},
-                "skills": "all",
-            }
-        )
+    # Strategy 1: Top 2 Projects + Knapsack packed to 35 lines
+    if len(projects) >= 2:
+        exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects[:2], max_lines=35.0)
+        candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
-    # Variation B: Top 3 HackerRank-ranked projects with sorted bullets
-    if len(ranked_projects) >= 3:
-        top_3 = ranked_projects[:3]
-        candidates.append(
-            {
-                "experiences": {exp_slug: sorted_exp_bullets[exp_slug] for exp_slug in profile.experiences},
-                "projects": {p_slug: sorted_proj_bullets[p_slug] for p_slug in top_3},
-                "skills": "all",
-            }
-        )
+    # Strategy 2: Top 3 Projects + Knapsack packed to 35 lines
+    if len(projects) >= 3:
+        exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects[:3], max_lines=35.0)
+        candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
-    # Variation C: Lean high-signal variation (Top 2-3 bullets per experience, top 2-3 bullets per project)
-    if len(ranked_projects) >= 2:
-        top_2 = ranked_projects[:2]
-        lean_exp = {exp_slug: sorted_exp_bullets[exp_slug][:3] for exp_slug in profile.experiences}
-        lean_proj = {p_slug: sorted_proj_bullets[p_slug][:2] for p_slug in top_2}
-        candidates.append(
-            {
-                "experiences": lean_exp,
-                "projects": lean_proj,
-                "skills": "all",
-            }
-        )
+    # Strategy 3: Tight Compact Knapsack (32 lines) for guaranteed zero-trim safety
+    if len(projects) >= 2:
+        exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects[:2], max_lines=32.0)
+        candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
-    # Variation D: Full depth with top-ranked project prominence
-    if len(ranked_projects) >= 1:
-        candidates.append(
-            {
-                "experiences": {exp_slug: "all" for exp_slug in profile.experiences},
-                "projects": {p_slug: "all" for p_slug in ranked_projects[:2]},
-                "skills": "all",
-            }
-        )
-
-    # Fallback Variation: All experiences, all projects, all skills
+    # Fallback if profile has < 2 projects
     if not candidates:
         candidates.append(
             {
                 "experiences": {exp_slug: "all" for exp_slug in profile.experiences},
                 "projects": {p_slug: "all" for p_slug in profile.projects},
                 "skills": "all",
+                "_lines": 35.0,
             }
         )
 
@@ -139,11 +201,11 @@ def optimize_plan(
     profile: Profile,
     jd_text: str,
     role_name: str = "software_engineer",
-) -> tuple[dict[str, Any], dict[str, Any], list[CandidatePlanResult]]:
-    """Test all candidate variations against HackerRank rubric and return the winning plan."""
+) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    """Knapsack optimization search finding the highest-scoring plan within 1-page line budget."""
     agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
     candidates = generate_candidate_plans(profile, jd_text, role_name=role_name)
-    results: list[CandidatePlanResult] = []
+    results: list[dict[str, Any]] = []
 
     best_plan = candidates[0]
     best_eval: dict[str, Any] = {
@@ -154,67 +216,72 @@ def optimize_plan(
     }
     best_score = -1.0
 
-    for i, cand in enumerate(candidates, start=1):
+    for cand in candidates:
         try:
-            selection = parse_plan(json.dumps(cand), profile)
+            cand_clean = {k: v for k, v in cand.items() if not k.startswith("_")}
+            selection = parse_plan(json.dumps(cand_clean), profile)
             plain_text = selection_to_plain_text(selection, profile)
 
-            # Pure HackerRank rubric evaluation
             hr_eval = agent.evaluate(plain_text, candidate_name=profile.contact.name)
             total_score = float(hr_eval.get("total_score", 0.0))
             max_possible = int(hr_eval.get("max_possible", 100))
             bonus = float(hr_eval.get("bonus_points", {}).get("total", 0.0))
 
-            projs = list(cand.get("projects", {}).keys())
-            summary = f"Variation #{i}: Projects [{', '.join(projs)}]"
+            projs = list(cand_clean.get("projects", {}).keys())
+            lines_used = cand.get("_lines", 35.0)
+            summary = f"Knapsack Plan: Projects [{', '.join(projs)}] ({lines_used:.1f} lines budgeted)"
 
-            cand_res = CandidatePlanResult(
-                plan_dict=cand,
-                total_score=total_score,
-                max_possible=max_possible,
-                scores=hr_eval.get("scores", {}),
-                bonus_points=bonus,
-                summary=summary,
-            )
+            cand_res = {
+                "plan_dict": cand_clean,
+                "total_score": total_score,
+                "max_possible": max_possible,
+                "scores": hr_eval.get("scores", {}),
+                "bonus_points": bonus,
+                "lines_used": lines_used,
+                "summary": summary,
+            }
             results.append(cand_res)
 
             if total_score > best_score:
                 best_score = total_score
-                best_plan = cand
+                best_plan = cand_clean
                 best_eval = hr_eval
+                best_eval["lines_used"] = lines_used
         except Exception:
             continue
 
-    results.sort(key=lambda r: r.total_score, reverse=True)
+    results.sort(key=lambda r: r["total_score"], reverse=True)
     return best_plan, best_eval, results
 
 
 def format_optimization_report(
     best_plan: dict[str, Any],
     best_eval: dict[str, Any],
-    results: list[CandidatePlanResult],
+    results: list[dict[str, Any]],
 ) -> str:
-    """Format the HackerRank-powered optimization report and optimal plan."""
+    """Format the line-budgeted HackerRank optimization report and optimal plan."""
     role_title = best_eval.get("role_title", "Software Engineer")
     total_score = best_eval.get("total_score", 0.0)
     max_possible = best_eval.get("max_possible", 110)
+    lines_used = best_eval.get("lines_used", 35.0)
 
     lines = [
         "=" * 68,
-        f"HACKERRANK PLAN OPTIMIZER REPORT: {role_title.upper()}",
+        f"HACKERRANK KNAPSACK OPTIMIZER REPORT: {role_title.upper()}",
         "=" * 68,
-        f"Evaluated {len(results)} candidate plan variations using HackerRank role rubric",
+        "Solved 1-page line knapsack across candidate configurations",
         f"Winning Plan Score: {total_score:.1f} / {max_possible} points",
+        f"1-Page Line Budget:  {lines_used:.1f} / {MAX_EXPERIENCE_PROJECT_LINES:.0f} lines ({lines_used / MAX_EXPERIENCE_PROJECT_LINES * 100:.0f}% capacity)",
         "-" * 68,
-        "CANDIDATE VARIATIONS TESTED:",
+        "CANDIDATE CONFIGURATIONS TESTED:",
     ]
 
     for rank, res in enumerate(results, start=1):
         marker = "🏆 [WINNER]" if rank == 1 else f"  #{rank}       "
         lines.append(
-            f"{marker} Score: {res.total_score:>5.1f} / {res.max_possible} pts | Bonus: +{res.bonus_points:.1f} pts"
+            f"{marker} Score: {res['total_score']:>5.1f} / {res['max_possible']} pts | Lines: {res['lines_used']:.1f}/{MAX_EXPERIENCE_PROJECT_LINES:.0f}"
         )
-        lines.append(f"          {res.summary}")
+        lines.append(f"          {res['summary']}")
 
     lines.append("-" * 68)
     lines.append("WINNING PLAN CATEGORY BREAKDOWN:")
@@ -227,7 +294,7 @@ def format_optimization_report(
             lines.append(f"    Evidence: {evidence}")
 
     lines.append("-" * 68)
-    lines.append("OPTIMAL PLAN JSON SELECTION:")
+    lines.append("OPTIMAL PLAN JSON SELECTION (SORTED RELEVANCE ORDER):")
     lines.append(json.dumps(best_plan, indent=2))
     lines.append("=" * 68)
     return "\n".join(lines)

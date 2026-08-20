@@ -29,9 +29,9 @@ def test_optimize_plan_selects_winner(small_profile: Profile) -> None:
     assert "experiences" in best_plan
 
     report = format_optimization_report(best_plan, best_eval, results)
-    assert "HACKERRANK PLAN OPTIMIZER REPORT" in report
+    assert "HACKERRANK KNAPSACK OPTIMIZER REPORT" in report
     assert "WINNING PLAN CATEGORY BREAKDOWN:" in report
-    assert "OPTIMAL PLAN JSON SELECTION:" in report
+    assert "OPTIMAL PLAN JSON SELECTION" in report
 
 
 def test_optimize_plan_with_real_profile(real_profile: Profile) -> None:
