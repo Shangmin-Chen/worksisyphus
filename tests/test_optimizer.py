@@ -32,3 +32,14 @@ def test_optimize_plan_selects_winner(small_profile: Profile) -> None:
     assert "HACKERRANK PLAN OPTIMIZER REPORT" in report
     assert "WINNING PLAN CATEGORY BREAKDOWN:" in report
     assert "OPTIMAL PLAN JSON SELECTION:" in report
+
+
+def test_optimize_plan_with_real_profile(real_profile: Profile) -> None:
+    jd_text = "Looking for a Distributed Systems Engineer with C++, Python, and low-latency concurrency."
+    candidates = generate_candidate_plans(real_profile, jd_text, role_name="systems_engineer")
+    assert len(candidates) >= 3
+
+    best_plan, best_eval, results = optimize_plan(real_profile, jd_text, role_name="systems_engineer")
+    assert len(results) >= 3
+    assert best_eval["total_score"] >= 80
+    assert "persephone" in best_plan["projects"]

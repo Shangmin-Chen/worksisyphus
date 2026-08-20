@@ -122,6 +122,16 @@ def generate_candidate_plans(
             }
         )
 
+    # Fallback Variation: All experiences, all projects, all skills
+    if not candidates:
+        candidates.append(
+            {
+                "experiences": {exp_slug: "all" for exp_slug in profile.experiences},
+                "projects": {p_slug: "all" for p_slug in profile.projects},
+                "skills": "all",
+            }
+        )
+
     return candidates
 
 
@@ -136,7 +146,12 @@ def optimize_plan(
     results: list[CandidatePlanResult] = []
 
     best_plan = candidates[0]
-    best_eval: dict[str, Any] = {}
+    best_eval: dict[str, Any] = {
+        "role_title": agent.role.position_title,
+        "total_score": 0.0,
+        "max_possible": agent.role.max_final_score,
+        "scores": {},
+    }
     best_score = -1.0
 
     for i, cand in enumerate(candidates, start=1):
