@@ -225,6 +225,24 @@ def test_cli_evaluate_hackerrank_mode(capsys) -> None:
     assert "Overall Candidate Score:" in out
 
 
+def test_cli_evaluate_profile_mode(capsys) -> None:
+    ret = cli.main(["evaluate", "--profile", "--hackerrank", "--role", "software_engineer"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "HACKERRANK HIRING AGENT SCORECARD" in out
+    assert "Overall Candidate Score:" in out
+
+
+def test_cli_evaluate_profile_with_jd(tmp_path, capsys) -> None:
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Backend engineer with Python, C++, and Distributed Systems.", encoding="utf-8")
+    ret = cli.main(["evaluate", "--profile", "--jd", str(jd_file)])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "RESUME EVALUATION REPORT: PROFILE_JSON" in out
+    assert "Overall Match Score:" in out
+
+
 def test_cli_evaluate_check_upstream(capsys) -> None:
     ret = cli.main(["evaluate", "--check-upstream"])
     assert ret == 0
