@@ -106,14 +106,158 @@ def test_hackerrank_report_with_deductions() -> None:
     assert "Add more tests" in report
 
 
-def test_check_upstream_status() -> None:
+def test_check_upstream_status_304_not_modified(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
     from worksisyphus.hiring_agent import check_upstream_status
 
+    mock_resp = MagicMock()
+    mock_resp.status_code = 304
+
+    recorded_headers: dict[str, str] = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        recorded_headers.update(headers or {})
+        return mock_resp
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
     status = check_upstream_status()
-    assert "status" in status
-    assert "local_commit" in status
-    assert "custom_tracks" in status
-    assert len(status["custom_tracks"]) >= 3
+    assert status["status"] == "synced"
+    assert "If-None-Match" in recorded_headers
+    assert "304 Not Modified" in status["message"]
+    assert status["local_commit"] == "70fd3ea"
+    assert status["remote_commit"] == "70fd3ea"
+
+
+def test_check_upstream_status_200_ok_synced(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"sha": "70fd3ea9aa74d8f76519ec643a99f9871003e70d"}
+    mock_resp.headers = {"ETag": 'W/"newetag123"'}
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "synced"
+    assert status["local_commit"] == "70fd3ea"
+    assert status["remote_commit"] == "70fd3ea"
+    assert status["etag"] == 'W/"newetag123"'
+
+
+def test_check_upstream_status_200_ok_outdated(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {"sha": "abcdef1234567890abcdef1234567890abcdef12"}
+    mock_resp.headers = {"ETag": 'W/"outdatedetag"'}
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "outdated"
+    assert status["local_commit"] == "70fd3ea"
+    assert status["remote_commit"] == "abcdef1"
+    assert "Upstream update available" in status["message"]
+
+
+def test_check_upstream_status_403_rate_limited(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 403
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "rate_limited"
+    assert status["remote_commit"] == "rate_limited"
+    assert "rate limit reached" in status["message"]
+
+
+def test_check_upstream_status_offline_timeout(monkeypatch) -> None:
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    def fake_get(*args, **kwargs):
+        raise requests.exceptions.Timeout("Connection timed out")
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    status = check_upstream_status()
+    assert status["status"] == "cached"
+    assert status["remote_commit"] == "offline"
+    assert "offline verification passed" in status["message"]
+
+
+def test_check_upstream_status_token_ingestion(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 304
+
+    recorded_headers: dict[str, str] = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        recorded_headers.update(headers or {})
+        return mock_resp
+
+    monkeypatch.setenv("GITHUB_TOKEN", "ghp_mock_token_12345")
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    status = check_upstream_status()
+    assert status["status"] == "synced"
+    assert recorded_headers.get("Authorization") == "Bearer ghp_mock_token_12345"
+
+
+def test_check_upstream_status_env_file_token(monkeypatch, tmp_path) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("GH_TOKEN=ghp_from_dotenv_file\n", encoding="utf-8")
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 304
+
+    recorded_headers: dict[str, str] = {}
+
+    def fake_get(url, headers=None, timeout=None):
+        recorded_headers.update(headers or {})
+        return mock_resp
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    status = check_upstream_status()
+    assert status["status"] == "synced"
+    assert recorded_headers.get("Authorization") == "Bearer ghp_from_dotenv_file"
 
 
 def test_synthesize_role_rubric_and_cleanup(tmp_path, monkeypatch) -> None:

@@ -139,8 +139,33 @@ Provide strict, objective scores with cited evidence in valid JSON format.
     return load_role(safe_slug)
 
 
+def _get_github_token() -> str | None:
+    """Retrieve GitHub token from environment or local .env file."""
+    import os
+
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token and token.strip():
+        return token.strip()
+    env_file = Path(".env")
+    if env_file.is_file():
+        try:
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    if k.strip() in ("GITHUB_TOKEN", "GH_TOKEN"):
+                        val = v.strip().strip("'\"")
+                        if val:
+                            return val
+        except Exception:
+            pass
+    return None
+
+
 def check_upstream_status() -> dict[str, Any]:
-    """Check local rubric manifest against upstream HackerRank repository."""
+    """Check local rubric manifest against upstream HackerRank repository with ETag caching and rate-limit resilience."""
     if not UPSTREAM_MANIFEST_PATH.is_file():
         return {
             "status": "untracked",
@@ -150,32 +175,72 @@ def check_upstream_status() -> dict[str, Any]:
     manifest = json.loads(UPSTREAM_MANIFEST_PATH.read_text(encoding="utf-8"))
     synced_commit = manifest.get("synced_commit", "unknown")
     upstream_repo = manifest.get("upstream_repo", "interviewstreet/hiring-agent")
+    cached_etag = manifest.get("etag")
 
-    remote_commit = None
+    headers: dict[str, str] = {
+        "Accept": "application/vnd.github.v3+json",
+        "User-Agent": "worksisyphus-hiring-agent",
+    }
+    token = _get_github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if cached_etag:
+        headers["If-None-Match"] = cached_etag
+
     try:
         import requests
 
         url = f"https://api.github.com/repos/{upstream_repo}/commits/main"
-        resp = requests.get(url, timeout=3)
+        resp = requests.get(url, headers=headers, timeout=2)
+
+        if resp.status_code == 304:
+            return {
+                "status": "synced",
+                "upstream_repo": upstream_repo,
+                "local_commit": synced_commit[:7],
+                "remote_commit": synced_commit[:7],
+                "synced_date": manifest.get("synced_date"),
+                "reference_role": manifest.get("upstream_reference_role"),
+                "custom_tracks": manifest.get("custom_tracks", []),
+                "etag": cached_etag,
+                "message": "Local rubrics are up to date with HackerRank upstream (ETag verified 304 Not Modified).",
+            }
+
         if resp.status_code == 200:
-            remote_commit = resp.json().get("sha")
+            data = resp.json()
+            remote_commit = data.get("sha", "")
+            remote_etag = resp.headers.get("ETag") or cached_etag
+            is_synced = bool(
+                remote_commit and (remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit))
+            )
+            return {
+                "status": "synced" if is_synced else "outdated",
+                "upstream_repo": upstream_repo,
+                "local_commit": synced_commit[:7],
+                "remote_commit": remote_commit[:7] if remote_commit else "unknown",
+                "synced_date": manifest.get("synced_date"),
+                "reference_role": manifest.get("upstream_reference_role"),
+                "custom_tracks": manifest.get("custom_tracks", []),
+                "etag": remote_etag,
+                "message": "Local rubrics are up to date with HackerRank upstream."
+                if is_synced
+                else f"Upstream update available ({synced_commit[:7]} -> {remote_commit[:7]}).",
+            }
+
+        if resp.status_code == 403:
+            return {
+                "status": "rate_limited",
+                "upstream_repo": upstream_repo,
+                "local_commit": synced_commit[:7],
+                "remote_commit": "rate_limited",
+                "synced_date": manifest.get("synced_date"),
+                "reference_role": manifest.get("upstream_reference_role"),
+                "custom_tracks": manifest.get("custom_tracks", []),
+                "etag": cached_etag,
+                "message": f"GitHub API rate limit reached. Tracked upstream commit: {synced_commit[:7]} (falling back to cache).",
+            }
     except Exception:
         pass
-
-    if remote_commit:
-        is_synced = remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit)
-        return {
-            "status": "synced" if is_synced else "outdated",
-            "upstream_repo": upstream_repo,
-            "local_commit": synced_commit[:7],
-            "remote_commit": remote_commit[:7],
-            "synced_date": manifest.get("synced_date"),
-            "reference_role": manifest.get("upstream_reference_role"),
-            "custom_tracks": manifest.get("custom_tracks", []),
-            "message": "Local rubrics are up to date with HackerRank upstream."
-            if is_synced
-            else f"Upstream update available ({synced_commit[:7]} -> {remote_commit[:7]}).",
-        }
 
     return {
         "status": "cached",
@@ -185,6 +250,7 @@ def check_upstream_status() -> dict[str, Any]:
         "synced_date": manifest.get("synced_date"),
         "reference_role": manifest.get("upstream_reference_role"),
         "custom_tracks": manifest.get("custom_tracks", []),
+        "etag": cached_etag,
         "message": f"Tracked upstream commit: {synced_commit[:7]} (offline verification passed).",
     }
 

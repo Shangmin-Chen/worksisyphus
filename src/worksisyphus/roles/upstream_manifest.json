@@ -2,6 +2,7 @@
   "upstream_repo": "interviewstreet/hiring-agent",
   "upstream_branch": "main",
   "synced_commit": "70fd3ea9aa74d8f76519ec643a99f9871003e70d",
+  "etag": "W/\"f1496fd336eecc78d4d76ea92aecd4b14c6c26754343636e9b8d8ae49fcaafd0\"",
   "synced_date": "2026-08-19T00:00:00Z",
   "upstream_reference_role": "software_engineering_intern",
   "custom_tracks": [
