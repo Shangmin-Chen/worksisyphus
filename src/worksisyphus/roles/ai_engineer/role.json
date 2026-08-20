@@ -1,0 +1,11 @@
+{
+  "position_title": "AI & Agent Systems Engineer",
+  "categories": [
+    {"key": "agentic_systems", "label": "Agentic Systems & Loops", "max": 40, "icon": "🤖"},
+    {"key": "evals_latency", "label": "Evals & Latency Optimization", "max": 35, "icon": "⚡"},
+    {"key": "production_pipelines", "label": "Production LLM Pipelines", "max": 25, "icon": "🛠️"}
+  ],
+  "bonus_max": 10,
+  "min_final_score": 0,
+  "max_final_score": 110
+}

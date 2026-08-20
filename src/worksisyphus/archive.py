@@ -120,17 +120,13 @@ def list_applications(applications_dir: Path = APPLICATIONS_DIR) -> list[dict[st
     return apps
 
 
-def update_application_status(
+def resolve_application_folder(
     app_identifier: str,
-    new_status: str,
-    applications_dir: Path = APPLICATIONS_DIR,
-) -> tuple[Path, str, str]:
-    """Update status in meta.json for a matching application folder.
-
-    Returns (folder_path, old_status, new_status).
-    """
-    if new_status not in STATUSES:
-        raise ValueError(f"Invalid status {new_status!r}. Must be one of: {', '.join(STATUSES)}")
+    applications_dir: Path | None = None,
+) -> Path:
+    """Find a unique matching application folder by full folder name or plan stem."""
+    if applications_dir is None:
+        applications_dir = APPLICATIONS_DIR
     if not app_identifier.strip():
         raise ValueError("Application identifier must not be empty.")
 
@@ -146,7 +142,22 @@ def update_application_status(
     if len(matches) > 1:
         names = ", ".join(folder.name for folder in matches)
         raise ValueError(f"Application identifier {app_identifier!r} is ambiguous; use one of: {names}")
-    target_folder = matches[0]
+    return matches[0]
+
+
+def update_application_status(
+    app_identifier: str,
+    new_status: str,
+    applications_dir: Path = APPLICATIONS_DIR,
+) -> tuple[Path, str, str]:
+    """Atomically update status in an archived application's meta.json.
+
+    Returns (folder_path, old_status, new_status).
+    """
+    if new_status not in STATUSES:
+        raise ValueError(f"Invalid status {new_status!r}. Must be one of: {', '.join(STATUSES)}")
+
+    target_folder = resolve_application_folder(app_identifier, applications_dir=applications_dir)
 
     meta_file = target_folder / "meta.json"
     if not meta_file.is_file():

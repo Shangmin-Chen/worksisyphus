@@ -1,0 +1,11 @@
+{
+  "position_title": "Machine Learning Engineer (MLE)",
+  "categories": [
+    {"key": "model_pipelines", "label": "Model & Feature Pipelines", "max": 40, "icon": "🧠"},
+    {"key": "inference_compute", "label": "Inference Latency & Compute", "max": 35, "icon": "⚙️"},
+    {"key": "scale_metrics", "label": "Scale & Offline/Online Metrics", "max": 25, "icon": "📊"}
+  ],
+  "bonus_max": 10,
+  "min_final_score": 0,
+  "max_final_score": 110
+}

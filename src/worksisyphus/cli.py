@@ -65,6 +65,30 @@ def main(argv: list[str] | None = None) -> int:
     history_cmd = db_sub.add_parser("history", help="Show append-only audit trail.")
     history_cmd.add_argument("--limit", type=int, default=20, help="Number of audit events to display.")
     history_cmd.add_argument("--type", dest="entity_type", default=None, help="Filter by entity type.")
+    eval_cmd = sub.add_parser("evaluate", help="Score a resume PDF or plan against a target job description.")
+    eval_cmd.add_argument("--plan", default=None, help="Plan JSON file to evaluate.")
+    eval_cmd.add_argument(
+        "--resume",
+        default=None,
+        help="Resume PDF path to evaluate (defaults to resumes/Simon_Chen_Resume.pdf).",
+    )
+    eval_cmd.add_argument("--jd", default=None, help="Job description text file or - for stdin.")
+    eval_cmd.add_argument("--app", default=None, help="Archived application folder or unique stem to evaluate.")
+    eval_cmd.add_argument(
+        "--hackerrank",
+        action="store_true",
+        help="Run 1:1 HackerRank hiring agent rubric evaluation.",
+    )
+    eval_cmd.add_argument(
+        "--check-upstream",
+        action="store_true",
+        help="Check HackerRank upstream repository commit status and rubric sync.",
+    )
+    eval_cmd.add_argument(
+        "--role",
+        default="software_engineer",
+        help="Role rubric for HackerRank evaluation (e.g. software_engineer, product_engineer, startup_product_engineer, ai_engineer, mle, systems_engineer, quant_engineer, software_engineering_intern).",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -184,6 +208,87 @@ def main(argv: list[str] | None = None) -> int:
                             )
             finally:
                 conn.close()
+        elif args.command == "evaluate":
+            from .archive import resolve_application_folder
+            from .ats import check_pdf_ats
+            from .evaluator import (
+                evaluate_pdf_against_jd,
+                evaluate_resume_text,
+                format_evaluation_report,
+                selection_to_plain_text,
+            )
+            from .hiring_agent import (
+                HackerRankHiringAgent,
+                check_upstream_status,
+                format_hackerrank_report,
+            )
+
+            if getattr(args, "check_upstream", False):
+                status = check_upstream_status()
+                print("=" * 68)
+                print(f"HACKERRANK UPSTREAM SYNC STATUS: {status.get('upstream_repo', '')}")
+                print("=" * 68)
+                print(f"Status:          {status.get('status', '').upper()}")
+                print(f"Local Commit:    {status.get('local_commit')}")
+                print(f"Remote Commit:   {status.get('remote_commit')}")
+                print(f"Synced Date:     {status.get('synced_date')}")
+                print(f"Reference Role:  {status.get('reference_role')}")
+                print(f"Custom Tracks:   {', '.join(status.get('custom_tracks', []))}")
+                print(f"Message:         {status.get('message')}")
+                print("=" * 68)
+                return 0
+
+            profile = load_profile()
+            resume_text = ""
+            pdf_path: Path | None = None
+            role_label = "Target Role"
+
+            if args.app:
+                app_path = resolve_application_folder(args.app)
+                jd_file = app_path / "jd.txt"
+                if not jd_file.is_file():
+                    raise FileNotFoundError(f"Missing jd.txt in {app_path}")
+                jd_text = jd_file.read_text(encoding="utf-8")
+                pdf_path = app_path / "Simon_Chen_Resume.pdf"
+                role_label = args.app
+                if pdf_path.is_file():
+                    resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+            else:
+                if not args.jd and not args.hackerrank:
+                    raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
+                jd_text = _read_plan(args.jd) if args.jd else ""
+
+                if args.resume:
+                    pdf_path = Path(args.resume)
+                    role_label = pdf_path.stem
+                    if pdf_path.is_file():
+                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+                elif args.plan:
+                    plan_text = _read_plan(args.plan)
+                    selection = parse_plan(plan_text, profile)
+                    resume_text = selection_to_plain_text(selection, profile)
+                    role_label = Path(args.plan).stem
+                else:
+                    pdf_path = PDF_DIR / "Simon_Chen_Resume.pdf"
+                    role_label = "Simon_Chen_Resume"
+                    if pdf_path.is_file():
+                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+
+            if args.hackerrank:
+                agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)
+                result = agent.evaluate(resume_text=resume_text, candidate_name=profile.contact.name)
+                print(format_hackerrank_report(result, role_name=args.role))
+            else:
+                if pdf_path and pdf_path.is_file():
+                    report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+                else:
+                    report = evaluate_resume_text(
+                        resume_text,
+                        jd_text,
+                        candidate_name=profile.contact.name,
+                        pdf_path=pdf_path,
+                    )
+                print(format_evaluation_report(report, target_role=role_label))
         else:
             tailor(_read_plan(args.plan), log=print)
     except Exception as exc:

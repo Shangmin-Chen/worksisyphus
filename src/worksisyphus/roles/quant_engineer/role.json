@@ -1,0 +1,11 @@
+{
+  "position_title": "Quantitative Software Engineer",
+  "categories": [
+    {"key": "quant_systems", "label": "Low-Latency & Order Book Systems", "max": 40, "icon": "📈"},
+    {"key": "modeling_compute", "label": "Numerical & Data Modeling", "max": 35, "icon": "🧮"},
+    {"key": "impact_metrics", "label": "Quantified PnL & Performance", "max": 25, "icon": "⚡"}
+  ],
+  "bonus_max": 10,
+  "min_final_score": 0,
+  "max_final_score": 110
+}

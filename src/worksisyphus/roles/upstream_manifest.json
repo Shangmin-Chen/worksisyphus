@@ -1,0 +1,16 @@
+{
+  "upstream_repo": "interviewstreet/hiring-agent",
+  "upstream_branch": "main",
+  "synced_commit": "70fd3ea9aa74d8f76519ec643a99f9871003e70d",
+  "synced_date": "2026-08-19T00:00:00Z",
+  "upstream_reference_role": "software_engineering_intern",
+  "custom_tracks": [
+    "software_engineer",
+    "product_engineer",
+    "startup_product_engineer",
+    "ai_engineer",
+    "mle",
+    "systems_engineer",
+    "quant_engineer"
+  ]
+}

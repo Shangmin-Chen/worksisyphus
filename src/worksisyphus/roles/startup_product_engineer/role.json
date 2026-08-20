@@ -1,0 +1,11 @@
+{
+  "position_title": "Founding / Senior Startup Product Engineer",
+  "categories": [
+    {"key": "product_velocity", "label": "Product Velocity & 0-to-1", "max": 40, "icon": "🚀"},
+    {"key": "fullstack_arch", "label": "Full-Stack Architecture & Scale", "max": 35, "icon": "🏗️"},
+    {"key": "traction_metrics", "label": "Business Impact & Traction", "max": 25, "icon": "📊"}
+  ],
+  "bonus_max": 10,
+  "min_final_score": 0,
+  "max_final_score": 110
+}
