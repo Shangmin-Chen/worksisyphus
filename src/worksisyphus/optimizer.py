@@ -1,4 +1,4 @@
-"""Combinatorial plan optimizer: tests multiple content permutations to maximize evaluation score."""
+"""Plan optimizer powered by HackerRank role rubrics and candidate evaluation engine."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from .evaluator import evaluate_resume_text, selection_to_plain_text
+from .evaluator import selection_to_plain_text
 from .hiring_agent import HackerRankHiringAgent
 from .plan import parse_plan
 from .profile import Profile
@@ -16,149 +16,108 @@ from .profile import Profile
 class CandidatePlanResult:
     plan_dict: dict[str, Any]
     total_score: float
-    alignment_score: float
-    depth_score: float
-    impact_score: float
+    max_possible: int
+    scores: dict[str, Any]
+    bonus_points: float
     summary: str
+
+
+def rank_projects_by_hackerrank_rubric(
+    profile: Profile,
+    agent: HackerRankHiringAgent,
+) -> list[tuple[str, float]]:
+    """Score and rank every project in profile.json using the HackerRank evaluation engine."""
+    scored_projects: list[tuple[str, float]] = []
+    for slug, proj in profile.projects.items():
+        proj_text = f"{proj.name} {proj.tech}\n" + "\n".join(f"- {b}" for b in proj.bullets.values())
+        eval_result = agent.evaluate(proj_text, candidate_name=profile.contact.name)
+        score = float(eval_result.get("total_score", 0.0))
+        scored_projects.append((slug, score))
+
+    scored_projects.sort(key=lambda item: item[1], reverse=True)
+    return scored_projects
+
+
+def rank_bullets_by_hackerrank_rubric(
+    bullets: dict[str, str],
+    profile: Profile,
+    agent: HackerRankHiringAgent,
+) -> list[str]:
+    """Score and sort bullet slugs within an entry in descending order of HackerRank rubric value."""
+    scored_bullets: list[tuple[str, float]] = []
+    for b_slug, b_text in bullets.items():
+        eval_result = agent.evaluate(b_text, candidate_name=profile.contact.name)
+        score = float(eval_result.get("total_score", 0.0))
+        scored_bullets.append((b_slug, score))
+
+    scored_bullets.sort(key=lambda item: item[1], reverse=True)
+    return [b[0] for b in scored_bullets]
 
 
 def generate_candidate_plans(
     profile: Profile,
     jd_text: str,
-    role_name: str | None = None,
+    role_name: str = "software_engineer",
 ) -> list[dict[str, Any]]:
-    """Generate viable plan permutations adhering to selection guardrails."""
-    jd_lower = jd_text.lower()
+    """Dynamically generate candidate plan variations sorted by HackerRank rubric score."""
+    agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
+
+    # 1. Rank all projects dynamically by HackerRank rubric value
+    ranked_projects = [p[0] for p in rank_projects_by_hackerrank_rubric(profile, agent)]
+
+    # 2. Sort bullets in each experience by HackerRank rubric score
+    sorted_exp_bullets: dict[str, list[str]] = {}
+    for exp_slug, exp in profile.experiences.items():
+        sorted_exp_bullets[exp_slug] = rank_bullets_by_hackerrank_rubric(exp.bullets, profile, agent)
+
+    # 3. Sort bullets in each project by HackerRank rubric score
+    sorted_proj_bullets: dict[str, list[str]] = {}
+    for proj_slug, proj in profile.projects.items():
+        sorted_proj_bullets[proj_slug] = rank_bullets_by_hackerrank_rubric(proj.bullets, profile, agent)
+
     candidates: list[dict[str, Any]] = []
 
-    # Detect JD archetype
-    is_systems_quant = any(
-        k in jd_lower for k in ("c++", "rust", "low-latency", "latency", "quant", "concurrency", "systems", "trading")
-    )
-    is_frontend_web = any(
-        k in jd_lower for k in ("frontend", "react", "next.js", "ui", "css", "web", "full stack", "fullstack")
-    )
-    is_mobile = "mobile" in jd_lower or "ios" in jd_lower or "android" in jd_lower
-    is_civic = "civic" in jd_lower or "food" in jd_lower or "sustainability" in jd_lower
-    is_blockchain = "blockchain" in jd_lower or "web3" in jd_lower or "crypto" in jd_lower
-    is_it = "it" in jd_lower or "helpdesk" in jd_lower or "support" in jd_lower or "sysadmin" in jd_lower
-
-    # Candidate projects selection based on guardrails
-    available_projects = list(profile.projects.keys())
-
-    # Filter guarded projects
-    valid_projects = []
-    for p in available_projects:
-        if p == "personal-website" and not is_frontend_web:
-            continue
-        if p == "fitness-tracker" and not is_mobile:
-            continue
-        if p == "spark-food-waste" and not is_civic:
-            continue
-        if p == "ml-marketplace" and not is_blockchain:
-            continue
-        valid_projects.append(p)
-
-    # Prioritize Persephone for engineering / systems / quant
-    if "persephone" in valid_projects and is_systems_quant:
-        valid_projects.remove("persephone")
-        valid_projects.insert(0, "persephone")
-
-    # Experience list (respect BU IT gate)
-    valid_experiences = []
-    for exp_id in profile.experiences.keys():
-        if exp_id == "bu-engineering-it" and not is_it:
-            continue
-        valid_experiences.append(exp_id)
-
-    # Permutation Strategy 1: Top 2 projects, full bullets
-    if len(valid_projects) >= 2:
+    # Variation A: Top 2 HackerRank-ranked projects with sorted bullets
+    if len(ranked_projects) >= 2:
+        top_2 = ranked_projects[:2]
         candidates.append(
             {
-                "experiences": {exp_id: "all" for exp_id in valid_experiences},
-                "projects": {p: "all" for p in valid_projects[:2]},
+                "experiences": {exp_slug: sorted_exp_bullets[exp_slug] for exp_slug in profile.experiences},
+                "projects": {p_slug: sorted_proj_bullets[p_slug] for p_slug in top_2},
                 "skills": "all",
             }
         )
 
-    # Permutation Strategy 2: Top 3 projects, full bullets
-    if len(valid_projects) >= 3:
+    # Variation B: Top 3 HackerRank-ranked projects with sorted bullets
+    if len(ranked_projects) >= 3:
+        top_3 = ranked_projects[:3]
         candidates.append(
             {
-                "experiences": {exp_id: "all" for exp_id in valid_experiences},
-                "projects": {p: "all" for p in valid_projects[:3]},
+                "experiences": {exp_slug: sorted_exp_bullets[exp_slug] for exp_slug in profile.experiences},
+                "projects": {p_slug: sorted_proj_bullets[p_slug] for p_slug in top_3},
                 "skills": "all",
             }
         )
 
-    # Permutation Strategy 3: Selected high-impact bullets per project
-    proj_picks_selective: dict[str, list[str]] = {}
-    for p in valid_projects[:3]:
-        proj = profile.projects[p]
-        b_slugs = list(proj.bullets.keys())
-        # Pick top 2 most metric-heavy or systems-heavy bullets
-        proj_picks_selective[p] = b_slugs[:2] if len(b_slugs) >= 2 else b_slugs
-
-    candidates.append(
-        {
-            "experiences": {exp_id: "all" for exp_id in valid_experiences},
-            "projects": proj_picks_selective,
-            "skills": "all",
-        }
-    )
-
-    # Permutation Strategy 4: Re-ranked project orders matching JD keywords
-    def project_relevance(p_slug: str) -> int:
-        proj = profile.projects[p_slug]
-        p_text = f"{proj.name} {proj.tech} " + " ".join(proj.bullets.values())
-        p_lower = p_text.lower()
-        score = 0
-        for word in (
-            "c++",
-            "rust",
-            "python",
-            "typescript",
-            "react",
-            "distributed",
-            "concurrency",
-            "performance",
-            "api",
-            "database",
-        ):
-            if word in jd_lower and word in p_lower:
-                score += 5
-        return score
-
-    sorted_projects = sorted(valid_projects, key=project_relevance, reverse=True)
-    if sorted_projects != valid_projects and len(sorted_projects) >= 2:
+    # Variation C: Lean high-signal variation (Top 2-3 bullets per experience, top 2-3 bullets per project)
+    if len(ranked_projects) >= 2:
+        top_2 = ranked_projects[:2]
+        lean_exp = {exp_slug: sorted_exp_bullets[exp_slug][:3] for exp_slug in profile.experiences}
+        lean_proj = {p_slug: sorted_proj_bullets[p_slug][:2] for p_slug in top_2}
         candidates.append(
             {
-                "experiences": {exp_id: "all" for exp_id in valid_experiences},
-                "projects": {p: "all" for p in sorted_projects[:2]},
+                "experiences": lean_exp,
+                "projects": lean_proj,
                 "skills": "all",
             }
         )
-        if len(sorted_projects) >= 3:
-            candidates.append(
-                {
-                    "experiences": {exp_id: "all" for exp_id in valid_experiences},
-                    "projects": {p: "all" for p in sorted_projects[:3]},
-                    "skills": "all",
-                }
-            )
 
-    # Permutation Strategy 5: Tight 1-page balanced budget (2-3 bullets per exp, 2-3 bullets per proj)
-    exp_picks_balanced: dict[str, list[str]] = {}
-    for exp_id in valid_experiences:
-        exp = profile.experiences[exp_id]
-        eb_slugs = list(exp.bullets.keys())
-        exp_picks_balanced[exp_id] = eb_slugs[:3] if len(eb_slugs) >= 3 else eb_slugs
-
-    if len(valid_projects) >= 2:
+    # Variation D: Full depth with top-ranked project prominence
+    if len(ranked_projects) >= 1:
         candidates.append(
             {
-                "experiences": exp_picks_balanced,
-                "projects": proj_picks_selective,
+                "experiences": {exp_slug: "all" for exp_slug in profile.experiences},
+                "projects": {p_slug: "all" for p_slug in ranked_projects[:2]},
                 "skills": "all",
             }
         )
@@ -171,7 +130,8 @@ def optimize_plan(
     jd_text: str,
     role_name: str = "software_engineer",
 ) -> tuple[dict[str, Any], dict[str, Any], list[CandidatePlanResult]]:
-    """Test all candidate plan variations and return the highest-scoring plan."""
+    """Test all candidate variations against HackerRank rubric and return the winning plan."""
+    agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
     candidates = generate_candidate_plans(profile, jd_text, role_name=role_name)
     results: list[CandidatePlanResult] = []
 
@@ -179,49 +139,37 @@ def optimize_plan(
     best_eval: dict[str, Any] = {}
     best_score = -1.0
 
-    agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
-
     for i, cand in enumerate(candidates, start=1):
         try:
             selection = parse_plan(json.dumps(cand), profile)
             plain_text = selection_to_plain_text(selection, profile)
 
-            # Evaluate with JD token matching engine
-            jd_eval = evaluate_resume_text(plain_text, jd_text, candidate_name=profile.contact.name)
-            # Evaluate with HackerRank rubric
+            # Pure HackerRank rubric evaluation
             hr_eval = agent.evaluate(plain_text, candidate_name=profile.contact.name)
-
-            # Combined weighted score (JD Match 50% + HackerRank Rubric 50%)
-            combined_score = round(
-                (jd_eval.overall_score * 0.5) + ((hr_eval["total_score"] / hr_eval["max_possible"] * 100) * 0.5),
-                1,
-            )
+            total_score = float(hr_eval.get("total_score", 0.0))
+            max_possible = int(hr_eval.get("max_possible", 100))
+            bonus = float(hr_eval.get("bonus_points", {}).get("total", 0.0))
 
             projs = list(cand.get("projects", {}).keys())
             summary = f"Variation #{i}: Projects [{', '.join(projs)}]"
 
             cand_res = CandidatePlanResult(
                 plan_dict=cand,
-                total_score=combined_score,
-                alignment_score=float(jd_eval.role_alignment_score),
-                depth_score=float(jd_eval.technical_depth_score),
-                impact_score=float(jd_eval.impact_metrics_score),
+                total_score=total_score,
+                max_possible=max_possible,
+                scores=hr_eval.get("scores", {}),
+                bonus_points=bonus,
                 summary=summary,
             )
             results.append(cand_res)
 
-            if combined_score > best_score:
-                best_score = combined_score
+            if total_score > best_score:
+                best_score = total_score
                 best_plan = cand
-                best_eval = {
-                    "jd_evaluation": jd_eval,
-                    "hackerrank_evaluation": hr_eval,
-                    "combined_score": combined_score,
-                }
+                best_eval = hr_eval
         except Exception:
             continue
 
-    # Sort results by score descending
     results.sort(key=lambda r: r.total_score, reverse=True)
     return best_plan, best_eval, results
 
@@ -231,13 +179,17 @@ def format_optimization_report(
     best_eval: dict[str, Any],
     results: list[CandidatePlanResult],
 ) -> str:
-    """Format the combinatorial search report with all tested versions and the winning plan."""
+    """Format the HackerRank-powered optimization report and optimal plan."""
+    role_title = best_eval.get("role_title", "Software Engineer")
+    total_score = best_eval.get("total_score", 0.0)
+    max_possible = best_eval.get("max_possible", 110)
+
     lines = [
         "=" * 68,
-        "AUTO-TAILOR PLAN OPTIMIZER REPORT",
+        f"HACKERRANK PLAN OPTIMIZER REPORT: {role_title.upper()}",
         "=" * 68,
-        f"Tested {len(results)} distinct candidate plan combinations from profile.json",
-        f"Winning Plan Score: {best_eval.get('combined_score', 0):.1f} / 100 pts",
+        f"Evaluated {len(results)} candidate plan variations using HackerRank role rubric",
+        f"Winning Plan Score: {total_score:.1f} / {max_possible} points",
         "-" * 68,
         "CANDIDATE VARIATIONS TESTED:",
     ]
@@ -245,9 +197,19 @@ def format_optimization_report(
     for rank, res in enumerate(results, start=1):
         marker = "🏆 [WINNER]" if rank == 1 else f"  #{rank}       "
         lines.append(
-            f"{marker} Score: {res.total_score:>5.1f}/100 | Alignment: {res.alignment_score:.0f} | Depth: {res.depth_score:.0f} | Impact: {res.impact_score:.0f}"
+            f"{marker} Score: {res.total_score:>5.1f} / {res.max_possible} pts | Bonus: +{res.bonus_points:.1f} pts"
         )
         lines.append(f"          {res.summary}")
+
+    lines.append("-" * 68)
+    lines.append("WINNING PLAN CATEGORY BREAKDOWN:")
+    for key, cat_data in best_eval.get("scores", {}).items():
+        score = cat_data.get("score", 0)
+        max_score = cat_data.get("max", 0)
+        evidence = cat_data.get("evidence", "")
+        lines.append(f"  • {key.replace('_', ' ').title():<30} {score:>4.1f} / {max_score} pts")
+        if evidence:
+            lines.append(f"    Evidence: {evidence}")
 
     lines.append("-" * 68)
     lines.append("OPTIMAL PLAN JSON SELECTION:")
