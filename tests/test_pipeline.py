@@ -130,3 +130,39 @@ def test_tailor_normalizes_crlf_for_plan_hash(small_profile, monkeypatch, tmp_pa
     provenance = json.loads((tmp_path / ".provenance.json").read_text(encoding="utf-8"))
     normalized_plan = plan_text.replace("\r\n", "\n")
     assert provenance["plan_hash"] == hashlib.sha256(normalized_plan.encode("utf-8")).hexdigest()
+
+
+def test_tailor_writes_lockfile_and_blocks_conflict(small_profile, monkeypatch, tmp_path) -> None:
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
+
+    plan_a = json.dumps({"projects": ["proj1"]})
+    plan_b = json.dumps({"projects": ["proj2"]})
+
+    # 1. Tailor Plan A creates lockfile
+    tailor(plan_a, plan_name="bloomberg", tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
+    lock_file = tmp_path / ".tailor.lock"
+    assert lock_file.is_file()
+    lock_data = json.loads(lock_file.read_text(encoding="utf-8"))
+    assert lock_data["plan_name"] == "bloomberg"
+    assert lock_data["plan_hash"] == hashlib.sha256(plan_a.encode("utf-8")).hexdigest()
+
+    # 2. Re-tailoring same plan succeeds without error
+    tailor(plan_a, plan_name="bloomberg", tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
+
+    # 3. Tailoring Plan B without force raises RuntimeError
+    with pytest.raises(RuntimeError, match=r"Unarchived tailored resume exists for plan 'bloomberg'"):
+        tailor(plan_b, plan_name="citadel", tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
+
+    # 4. Tailoring Plan B with force=True succeeds and updates lockfile
+    logs: list[str] = []
+    tailor(plan_b, plan_name="citadel", force=True, log=logs.append, tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
+    assert any("Overwriting unarchived tailored resume" in log for log in logs)
+    updated_lock = json.loads(lock_file.read_text(encoding="utf-8"))
+    assert updated_lock["plan_name"] == "citadel"
+    assert updated_lock["plan_hash"] == hashlib.sha256(plan_b.encode("utf-8")).hexdigest()

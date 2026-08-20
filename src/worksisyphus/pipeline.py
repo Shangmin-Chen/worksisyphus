@@ -43,6 +43,8 @@ def build_canonical(profile_path: Path = DEFAULT_PROFILE_PATH, log: Log = _silen
 def tailor(
     plan_text: str,
     profile_path: Path = DEFAULT_PROFILE_PATH,
+    plan_name: str = "custom",
+    force: bool = False,
     log: Log = _silent,
     tex_dir: Path = TEX_DIR,
     pdf_dir: Path = PDF_DIR,
@@ -55,8 +57,30 @@ def tailor(
     log(f"Plan parsed; output name: {initial_selection.name}")
     normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
     plan_hash = hashlib.sha256(normalized_plan.encode("utf-8")).hexdigest()
+
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = pdf_dir / ".tailor.lock"
+    if lock_path.is_file():
+        try:
+            lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
+        except Exception:
+            lock_data = {}
+
+        if isinstance(lock_data, dict):
+            locked_plan_name = lock_data.get("plan_name", "previous_plan")
+            locked_plan_hash = lock_data.get("plan_hash", "")
+            locked_at = lock_data.get("tailored_at", "")
+
+            if locked_plan_hash and locked_plan_hash != plan_hash:
+                if not force:
+                    msg = f"Unarchived tailored resume exists for plan '{locked_plan_name}'"
+                    if locked_at:
+                        msg += f" (tailored at {locked_at})"
+                    msg += ". Run `worksisyphus archive` first, or pass `--force` to overwrite."
+                    raise RuntimeError(msg)
+                log(f"Warning: Overwriting unarchived tailored resume for '{locked_plan_name}' (--force enabled).")
+
     provenance_path = pdf_dir / ".provenance.json"
-    provenance_path.parent.mkdir(parents=True, exist_ok=True)
     _write_provenance(provenance_path, {"plan_hash": plan_hash})
 
     selection: Selection | None = initial_selection
@@ -73,6 +97,17 @@ def tailor(
             log(f"Exported {result.pdf_path} ({result.pages} page).")
             pdf_hash = hashlib.sha256(result.pdf_path.read_bytes()).hexdigest()
             _write_provenance(provenance_path, {"plan_hash": plan_hash, "pdf_hash": pdf_hash})
+
+            from datetime import UTC, datetime
+
+            now_iso = datetime.now(UTC).isoformat()
+            lock_info = {
+                "plan_name": plan_name,
+                "plan_hash": plan_hash,
+                "pdf_hash": pdf_hash,
+                "tailored_at": now_iso,
+            }
+            _write_provenance(lock_path, lock_info)
             return result
         log(f"{result.pages} pages; trimming and recompiling...")
         selection = trim_step(selection)
@@ -81,7 +116,7 @@ def tailor(
 
 
 def _write_provenance(path: Path, data: dict[str, str]) -> None:
-    """Atomically replace the build marker, avoiding a partially-written valid record."""
+    """Atomically replace the build marker or lock file, avoiding a partially-written valid record."""
     temporary_path = path.with_name(f"{path.name}.tmp")
-    temporary_path.write_text(json.dumps(data) + "\n", encoding="utf-8")
+    temporary_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     temporary_path.replace(path)

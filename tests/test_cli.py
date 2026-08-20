@@ -261,3 +261,32 @@ def test_cli_optimize_command(tmp_path, capsys) -> None:
     out = capsys.readouterr().out
     assert "HACKERRANK KNAPSACK OPTIMIZER REPORT" in out
     assert out_file.is_file()
+
+
+def test_cli_tailor_invokes_pipeline_with_force(monkeypatch, tmp_path) -> None:
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+    recorded = {}
+
+    def fake_tailor(plan_text, plan_name="custom", force=False, log=None):
+        recorded["plan_text"] = plan_text
+        recorded["plan_name"] = plan_name
+        recorded["force"] = force
+
+    monkeypatch.setattr(cli, "tailor", fake_tailor)
+
+    assert cli.main(["tailor", "--plan", plan, "--force"]) == 0
+    assert recorded["plan_name"] == "acme_swe"
+    assert recorded["force"] is True
+
+
+def test_cli_tailor_handles_unarchived_error(monkeypatch, tmp_path, capsys) -> None:
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+
+    def fake_tailor(plan_text, plan_name="custom", force=False, log=None):
+        raise RuntimeError("Unarchived tailored resume exists for plan 'other_company'")
+
+    monkeypatch.setattr(cli, "tailor", fake_tailor)
+
+    assert cli.main(["tailor", "--plan", plan]) == 1
+    err = capsys.readouterr().err
+    assert "error: Unarchived tailored resume exists for plan 'other_company'" in err

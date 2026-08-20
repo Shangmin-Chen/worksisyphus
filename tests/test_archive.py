@@ -178,3 +178,13 @@ def test_list_applications_reports_invalid_metadata(tmp_path) -> None:
 
     with pytest.raises(ValueError, match=r"2026-07-11_acme_swe.*JSON object"):
         list_applications(tmp_path / "applications")
+
+
+def test_archive_releases_tailor_lock(built) -> None:
+    plan, pdf, apps = built
+    lock_path = pdf.parent / ".tailor.lock"
+    lock_path.write_text('{"plan_name": "acme_swe"}', encoding="utf-8")
+    assert lock_path.is_file()
+
+    archive_application(plan, pdf, "the JD text", company="Acme", applications_dir=apps)
+    assert not lock_path.exists()
