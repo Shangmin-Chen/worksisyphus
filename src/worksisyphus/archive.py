@@ -95,6 +95,13 @@ def archive_application(
         except Exception:
             pass
 
+    lock_path = pdf_path.parent / ".tailor.lock"
+    if lock_path.is_file():
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
+
     return folder
 
 

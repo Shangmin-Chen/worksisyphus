@@ -41,6 +41,12 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("index", help="Print every slug a plan file can reference.")
     tailor_cmd = sub.add_parser("tailor", help="Compile a one-page resume from a plan file of slugs.")
     tailor_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
+    tailor_cmd.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Overwrite unarchived tailored resume without warning.",
+    )
     validate_cmd = sub.add_parser("validate", help="Parse a plan and print the resolved selection; no LaTeX involved.")
     validate_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
     archive_cmd = sub.add_parser("archive", help="Freeze a compiled application into applications/<date>_<name>/.")
@@ -321,7 +327,13 @@ def main(argv: list[str] | None = None) -> int:
                 out_path.write_text(json.dumps(best_plan, indent=2) + "\n", encoding="utf-8")
                 print(f"\nOptimal plan written to: {out_path}")
         else:
-            tailor(_read_plan(args.plan), log=print)
+            plan_name = Path(args.plan).stem if args.plan != "-" else "stdin"
+            tailor(
+                _read_plan(args.plan),
+                plan_name=plan_name,
+                force=args.force,
+                log=print,
+            )
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
