@@ -259,5 +259,5 @@ def test_cli_optimize_command(tmp_path, capsys) -> None:
     ret = cli.main(["optimize", "--jd", str(jd_file), "--role", "systems_engineer", "--output", str(out_file)])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "AUTO-TAILOR PLAN OPTIMIZER REPORT" in out
+    assert "HACKERRANK PLAN OPTIMIZER REPORT" in out
     assert out_file.is_file()
