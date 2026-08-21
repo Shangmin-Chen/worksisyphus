@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import NamedTuple
 
-from .ats import check_pdf_ats
+from .ats import CANONICAL_STEM, ATSCheckResult, check_pdf_ats
 
 BANNED_TOOLS = (
     "sonarr",
@@ -112,14 +112,18 @@ def check_density_gate(text: str, is_tailored: bool = True) -> GateResult:
     )
 
 
-def check_resume_gates(
+def run_resume_gates(
     pdf_path: Path,
     candidate_name: str = "",
     candidate_email: str = "",
     candidate_phone: str = "",
     expected_pages: int | None = None,
-) -> tuple[GateResult, ...]:
-    """Run the complete battery of foolproof quality gates against a compiled resume."""
+) -> tuple[tuple[GateResult, ...], ATSCheckResult]:
+    """Run every quality gate and return both the results and the ATS extraction they were derived from.
+
+    Callers that need the extraction (word counts, warnings) should use this rather than
+    re-running check_pdf_ats, which would parse the PDF a second time.
+    """
     ats_res = check_pdf_ats(
         pdf_path=pdf_path,
         name=candidate_name,
@@ -135,12 +139,31 @@ def check_resume_gates(
     )
 
     text = ats_res.text
-    is_tailored = (expected_pages == 1) or (pdf_path.stem != "Simon_Chen_Resume_Compiled")
+    is_tailored = (expected_pages == 1) or (pdf_path.stem != CANONICAL_STEM)
 
-    return (
+    gates = (
         ats_gate,
         check_gpa_gate(text),
         check_banned_content_gate(text),
         check_latex_leak_gate(text),
         check_density_gate(text, is_tailored=is_tailored),
     )
+    return gates, ats_res
+
+
+def check_resume_gates(
+    pdf_path: Path,
+    candidate_name: str = "",
+    candidate_email: str = "",
+    candidate_phone: str = "",
+    expected_pages: int | None = None,
+) -> tuple[GateResult, ...]:
+    """Run the complete battery of foolproof quality gates against a compiled resume."""
+    gates, _ = run_resume_gates(
+        pdf_path,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
+        candidate_phone=candidate_phone,
+        expected_pages=expected_pages,
+    )
+    return gates

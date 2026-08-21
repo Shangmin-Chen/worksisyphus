@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from worksisyphus.db import (
     export_profile_json,
@@ -226,3 +227,131 @@ def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
     assert exported_data["experiences"] == real_data["experiences"]
     assert exported_data["projects"] == real_data["projects"]
     assert exported_data["skills"] == real_data["skills"]
+
+
+def test_build_sync_sql_places_drops_inside_the_transaction() -> None:
+    """A failed restore must roll the drops back, so they cannot precede BEGIN TRANSACTION."""
+    from worksisyphus.db import build_sync_sql
+
+    dump = "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER);\nCOMMIT;\n"
+    sql = build_sync_sql(dump)
+    assert sql is not None
+
+    begin_at = sql.index("BEGIN TRANSACTION;")
+    first_drop_at = sql.index("DROP TABLE IF EXISTS")
+    commit_at = sql.index("COMMIT;")
+    assert begin_at < first_drop_at < commit_at
+    assert sql.index("CREATE TABLE") > first_drop_at
+
+
+def test_build_sync_sql_rejects_unusable_dumps() -> None:
+    from worksisyphus.db import build_sync_sql
+
+    assert build_sync_sql("") is None
+    assert build_sync_sql("   \n  ") is None
+    # A dump with no schema means sqlite3 produced nothing worth pushing.
+    assert build_sync_sql("BEGIN TRANSACTION;\nCOMMIT;\n") is None
+    # A dump with no transaction wrapper cannot be spliced safely.
+    assert build_sync_sql("CREATE TABLE contact (id INTEGER);\n") is None
+
+
+def _seed_fixture(tmp_path: Path) -> tuple[Any, Path]:
+    """Return an in-memory connection plus a writable profile file seeded from the test fixture."""
+    from worksisyphus.db import get_connection
+
+    profile_file = tmp_path / "profile.json"
+    fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
+    profile_file.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    return get_connection(":memory:"), profile_file
+
+
+def test_reseeding_unchanged_data_appends_no_audit_events(tmp_path: Path) -> None:
+    """`db sync` reseeds everything; unchanged rows must not bury real edits in no-op events."""
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps_dir = tmp_path / "applications"
+
+    def events() -> int:
+        return conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+    after_first = events()
+    assert after_first > 0, "the initial seed must record the profile it inserted"
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+    assert events() == after_first
+    conn.close()
+
+
+def test_reseeding_records_a_real_edit_as_an_update(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps_dir = tmp_path / "applications"
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+    baseline = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+
+    data = json.loads(profile_file.read_text(encoding="utf-8"))
+    exp_slug = next(iter(data["experiences"]))
+    bullet_slug = next(iter(data["experiences"][exp_slug]["bullets"]))
+    data["experiences"][exp_slug]["bullets"][bullet_slug] = "Rewritten bullet text."
+    profile_file.write_text(json.dumps(data), encoding="utf-8")
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+
+    rows = conn.execute(
+        "SELECT entity_type, entity_id, action FROM audit_events ORDER BY id DESC LIMIT ?",
+        (conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] - baseline,),
+    ).fetchall()
+    assert rows == [("experience_bullet", f"{exp_slug}.{bullet_slug}", "UPDATE")]
+    conn.close()
+
+
+def test_reseeding_records_removed_slugs_as_deletions(tmp_path: Path) -> None:
+    """A bullet taken out of profile.json must leave a trace, not vanish from history."""
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps_dir = tmp_path / "applications"
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+    baseline = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+
+    data = json.loads(profile_file.read_text(encoding="utf-8"))
+    proj_slug = next(iter(data["projects"]))
+    dropped_bullet = next(iter(data["projects"][proj_slug]["bullets"]))
+    del data["projects"][proj_slug]["bullets"][dropped_bullet]
+    dropped_project = list(data["projects"])[-1]
+    del data["projects"][dropped_project]
+    profile_file.write_text(json.dumps(data), encoding="utf-8")
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+
+    deletions = conn.execute(
+        "SELECT entity_type, entity_id FROM audit_events WHERE action = 'DELETE' AND id > ?",
+        (baseline,),
+    ).fetchall()
+    assert ("project_bullet", f"{proj_slug}.{dropped_bullet}") in deletions
+    assert ("project", dropped_project) in deletions
+    conn.close()
+
+
+def test_reseeding_after_a_deletion_is_stable(tmp_path: Path) -> None:
+    """Deletions must be reported once, not re-reported on every later sync."""
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps_dir = tmp_path / "applications"
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+
+    data = json.loads(profile_file.read_text(encoding="utf-8"))
+    del data["projects"][list(data["projects"])[-1]]
+    profile_file.write_text(json.dumps(data), encoding="utf-8")
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+
+    settled = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
+    assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == settled
+    conn.close()

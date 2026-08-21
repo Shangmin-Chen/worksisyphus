@@ -64,3 +64,22 @@ def test_optimizer_enforces_selection_guardrails(real_profile: Profile) -> None:
     mobile_candidates = generate_candidate_plans(real_profile, mobile_jd, role_name="software_engineer")
     all_mobile_projs = {p for c in mobile_candidates for p in c.get("projects", {})}
     assert "fitness-tracker" in all_mobile_projs
+
+
+def test_guardrail_keywords_match_whole_tokens_only(real_profile: Profile) -> None:
+    """Substring matching would fire 'ui' inside 'building' and open the personal-website gate."""
+    generic_jd = "You will be building products end to end, gathering requirements from customers."
+    candidates = generate_candidate_plans(real_profile, generic_jd, role_name="software_engineer")
+    all_projects = {p for c in candidates for p in c.get("projects", {})}
+    assert "personal-website" not in all_projects
+
+
+def test_persephone_outranks_weak_project_on_engineering_jd(real_profile: Profile) -> None:
+    """A backend JD that merely mentions mobile must not surface fitness-tracker as filler."""
+    jd = "Backend distributed systems engineer serving mobile clients at scale."
+    candidates = generate_candidate_plans(real_profile, jd, role_name="software_engineer")
+    for cand in candidates:
+        projects = list(cand.get("projects", {}).keys())
+        assert "fitness-tracker" not in projects
+        if projects:
+            assert projects[0] == "persephone"

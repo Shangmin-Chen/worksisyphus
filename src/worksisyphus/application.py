@@ -3,21 +3,24 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import tempfile
 from collections.abc import Callable
+from dataclasses import replace as dataclass_replace
 from datetime import date
 from pathlib import Path
 
-from .ats import ATSCheckResult, check_pdf_ats
+from .ats import ATSCheckResult
 from .compiler import CompileResult
-from .gates import check_resume_gates
+from .gates import run_resume_gates
 from .pipeline import PDF_DIR, tailor
 from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
 
 APPLICATIONS_DIR = Path("applications")
 STATUSES = ("applied", "phone_screen", "onsite", "offer", "rejected")
+STAGING_PREFIX = ".staging-"
 
 Log = Callable[[str], None]
 
@@ -39,7 +42,6 @@ def apply(
     company: str,
     role: str = "",
     source_url: str = "",
-    plan_name: str = "",
     when: date | None = None,
     profile: Profile | None = None,
     profile_path: Path = DEFAULT_PROFILE_PATH,
@@ -71,23 +73,24 @@ def apply(
     active_profile = profile if profile is not None else load_profile(profile_path)
     normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
 
-    # Atomic publication via temporary directory isolation (#28, #27)
-    with tempfile.TemporaryDirectory(prefix="worksisyphus-app-") as temp_dir_str:
-        temp_dir = Path(temp_dir_str)
-
-        # 1. Compile directly into the isolated temp dir
+    # Atomic publication: stage inside applications_dir so the final publish is a same-filesystem
+    # os.replace rather than a file-by-file copy that can fail halfway and leave a partial folder.
+    applications_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix=STAGING_PREFIX, dir=applications_dir))
+    try:
+        # 1. Compile directly into the isolated staging dir
         compile_result = tailor(
             plan_text,
             profile=active_profile,
             profile_path=profile_path,
             plan_name=app_stem,
-            pdf_dir=temp_dir,
+            pdf_dir=staging_dir,
             log=log,
         )
 
-        # 2. Write metadata, plan, and JD into temp dir
-        (temp_dir / "plan.json").write_text(normalized_plan.strip() + "\n", encoding="utf-8")
-        (temp_dir / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
+        # 2. Write metadata, plan, and JD into staging dir
+        (staging_dir / "plan.json").write_text(normalized_plan.strip() + "\n", encoding="utf-8")
+        (staging_dir / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
         meta = {
             "company": company,
             "role": role,
@@ -95,12 +98,11 @@ def apply(
             "source_url": source_url,
             "status": STATUSES[0],
         }
-        (temp_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        (staging_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
-        # 3. Foolproof Quality Gates & ATS Validation
-        built_pdf = temp_dir / "Simon_Chen_Resume.pdf"
-        gate_results = check_resume_gates(
-            built_pdf,
+        # 3. Quality gates and ATS validation, reusing a single PDF extraction
+        gate_results, ats_result = run_resume_gates(
+            staging_dir / "Simon_Chen_Resume.pdf",
             candidate_name=active_profile.contact.name,
             candidate_email=active_profile.contact.email,
             candidate_phone=active_profile.contact.phone,
@@ -111,18 +113,28 @@ def apply(
             reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
             raise RuntimeError(f"Quality gate check failed for {target_folder.name}:\n{reasons}")
 
-        ats_result = check_pdf_ats(built_pdf)
+        # 4. Atomic publish. Re-check the target: compilation is slow enough that a concurrent
+        #    apply could have claimed the slot since the check above, and os.replace would
+        #    silently consume an empty directory.
+        if target_folder.exists():
+            raise FileExistsError(
+                f"{target_folder} already exists; applications are immutable, use a new date or role."
+            )
+        # mkdtemp is 0700; widen to match a normally-created directory.
+        os.chmod(staging_dir, 0o755)
+        os.replace(staging_dir, target_folder)
+    except BaseException:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
 
-        # 4. Atomic directory creation on success
-        applications_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(temp_dir, target_folder)
+    compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
-        # 5. Mirror PDF to resumes/ as final side effect (#27)
-        pdf_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(target_folder / "Simon_Chen_Resume.pdf", pdf_dir / "Simon_Chen_Resume.pdf")
+    # 5. Mirror PDF to resumes/ as the final filesystem side effect, only once every gate has passed
+    pdf_dir.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(target_folder / "Simon_Chen_Resume.pdf", pdf_dir / "Simon_Chen_Resume.pdf")
 
-    # 6. Database persistence & Cloud Sync (#29: split fatal local from non-fatal cloud)
-    from .db import DEFAULT_DB_PATH, get_connection, save_application_to_db, sync_to_turso
+    # 6. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
+    from .db import DEFAULT_DB_PATH, get_connection, save_application_to_db
 
     if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
         conn = get_connection(DEFAULT_DB_PATH)
@@ -135,19 +147,36 @@ def apply(
                 date_str=when.isoformat(),
                 source_url=source_url,
                 status=STATUSES[0],
+                # Store the same canonical (stripped) form seed_database derives from the files on
+                # disk, so a reseed does not see a phantom change on every application row.
                 jd_text=jd_text.strip(),
-                plan_json=normalized_plan,
+                plan_json=normalized_plan.strip(),
             )
         finally:
             conn.close()
 
         if sync_cloud:
-            try:
-                sync_to_turso()
-            except Exception as sync_exc:
-                log(f"Warning: Turso cloud sync failed: {sync_exc}")
+            _sync_cloud(log)
 
     return target_folder, compile_result, ats_result
+
+
+def _sync_cloud(log: Log) -> bool:
+    """Push local database state to Turso, reporting failure rather than swallowing it.
+
+    sync_to_turso signals failure by returning False rather than raising, so the return
+    value must be checked; the try/except only guards against unexpected import or call errors.
+    """
+    from .db import sync_to_turso
+
+    try:
+        synced = sync_to_turso()
+    except Exception as exc:
+        log(f"Warning: Turso cloud sync failed: {exc}")
+        return False
+    if not synced:
+        log("Warning: Turso cloud sync did not complete (CLI missing, auth expired, or push rejected).")
+    return synced
 
 
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
@@ -157,11 +186,11 @@ def list_applications(applications_dir: Path | None = None) -> list[dict[str, st
     if not applications_dir.is_dir():
         return apps
     for folder in sorted(applications_dir.iterdir(), reverse=True):
-        if not folder.is_dir():
+        if not folder.is_dir() or folder.name.startswith("."):
             continue
         meta_file = folder / "meta.json"
         if not meta_file.is_file():
-            continue
+            raise ValueError(f"Missing meta.json in {folder}; the application folder is incomplete.")
         try:
             data = json.loads(meta_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
@@ -185,7 +214,9 @@ def resolve_application_folder(
     if not applications_dir.is_dir():
         raise FileNotFoundError(f"No application folder found matching {app_identifier!r} in {applications_dir}.")
 
-    folders = [folder for folder in sorted(applications_dir.iterdir()) if folder.is_dir()]
+    folders = [
+        folder for folder in sorted(applications_dir.iterdir()) if folder.is_dir() and not folder.name.startswith(".")
+    ]
     exact_matches = [folder for folder in folders if folder.name == app_identifier]
     stem_matches = [folder for folder in folders if folder.name.endswith(f"_{app_identifier}")]
     matches = exact_matches or stem_matches
@@ -202,6 +233,7 @@ def update_application_status(
     new_status: str,
     applications_dir: Path | None = None,
     sync_cloud: bool = True,
+    log: Log = _silent,
 ) -> tuple[Path, str, str]:
     """Atomically update status in an application's meta.json.
 
@@ -226,7 +258,7 @@ def update_application_status(
     temporary_meta.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     temporary_meta.replace(meta_file)
 
-    from .db import DEFAULT_DB_PATH, get_connection, sync_to_turso, update_application_status_in_db
+    from .db import DEFAULT_DB_PATH, get_connection, update_application_status_in_db
 
     if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
         conn = get_connection(DEFAULT_DB_PATH)
@@ -236,9 +268,6 @@ def update_application_status(
             conn.close()
 
         if sync_cloud:
-            try:
-                sync_to_turso()
-            except Exception:
-                pass
+            _sync_cloud(log)
 
     return target_folder, old_status, new_status

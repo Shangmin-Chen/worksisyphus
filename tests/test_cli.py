@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from worksisyphus import cli
+from worksisyphus.pipeline import PREVIEW_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -87,7 +88,7 @@ def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
     plan = _write_plan(tmp_path, {"projects": ["proj1"]})
     recorded = {}
 
-    def fake_apply(plan_text, jd_text, company, role="", source_url="", plan_name="", **kwargs):
+    def fake_apply(plan_text, jd_text, company, role="", source_url="", **kwargs):
         recorded["plan_text"] = plan_text
         recorded["jd_text"] = jd_text
         recorded["company"] = company
@@ -266,7 +267,8 @@ def test_cli_tailor_invokes_pipeline(monkeypatch, tmp_path) -> None:
     plan = _write_plan(tmp_path, {"projects": ["proj1"]})
     recorded = {}
 
-    def fake_tailor(plan_text, plan_name="custom", log=None):
+    def fake_tailor(plan_text, plan_name="custom", pdf_dir=None, log=None):
+        recorded["pdf_dir"] = pdf_dir
         recorded["plan_text"] = plan_text
         recorded["plan_name"] = plan_name
 
@@ -274,6 +276,8 @@ def test_cli_tailor_invokes_pipeline(monkeypatch, tmp_path) -> None:
 
     assert cli.main(["tailor", "--plan", plan]) == 0
     assert recorded["plan_name"] == "acme_swe"
+    # tailor is a preview command: it must never default into the employer-facing resumes/ dir.
+    assert recorded["pdf_dir"] == PREVIEW_DIR
 
 
 def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
@@ -284,7 +288,7 @@ def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
 
     recorded = {}
 
-    def fake_apply(plan_text, jd_text, company, role="", source_url="", plan_name="", **kwargs):
+    def fake_apply(plan_text, jd_text, company, role="", source_url="", **kwargs):
         recorded["plan_text"] = plan_text
         recorded["jd_text"] = jd_text
         recorded["company"] = company

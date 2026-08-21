@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .application import STATUSES, list_applications, update_application_status
 from .application import apply as apply_app
-from .pipeline import PDF_DIR, build_canonical, tailor
+from .pipeline import PDF_DIR, PREVIEW_DIR, build_canonical, tailor
 from .plan import parse_plan
 from .profile import load_profile, profile_index
 from .selection import Selection
@@ -40,8 +40,16 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("compile", help="Rebuild the canonical full resume.")
     sub.add_parser("index", help="Print every slug a plan file can reference.")
-    tailor_cmd = sub.add_parser("tailor", help="Compile a one-page resume from a plan file of slugs.")
+    tailor_cmd = sub.add_parser(
+        "tailor",
+        help="Preview-compile a one-page resume from a plan file of slugs (use apply to deliver one).",
+    )
     tailor_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
+    tailor_cmd.add_argument(
+        "--output",
+        default=None,
+        help=f"Directory to write the preview PDF into (default: {PREVIEW_DIR}/).",
+    )
     apply_cmd = sub.add_parser(
         "apply",
         help="Tailor, validate, compile directly into applications/<app>, run ATS check, and sync to Turso.",
@@ -70,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
     db_cmd = sub.add_parser("db", help="Manage SQLite and Turso database layer.")
     db_sub = db_cmd.add_subparsers(dest="db_action", required=True)
     db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
-    db_sub.add_parser("sync", help="Sync database: export profile.json and push to Turso cloud.")
+    db_sub.add_parser("sync", help="Sync database: load profile.json into SQLite and push to Turso cloud.")
     db_sub.add_parser("status", help="Show database metrics and connection status.")
     history_cmd = db_sub.add_parser("history", help="Show append-only audit trail.")
     history_cmd.add_argument("--limit", type=int, default=20, help="Number of audit events to display.")
@@ -83,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Resume PDF path to evaluate (defaults to resumes/Simon_Chen_Resume.pdf).",
     )
     eval_cmd.add_argument("--jd", default=None, help="Job description text file or - for stdin.")
-    eval_cmd.add_argument("--app", default=None, help="Archived application folder or unique stem to evaluate.")
+    eval_cmd.add_argument("--app", default=None, help="Application folder name or unique stem to evaluate.")
     eval_cmd.add_argument(
         "--profile",
         action="store_true",
@@ -128,11 +136,9 @@ def main(argv: list[str] | None = None) -> int:
             jd_text = _read_plan(args.jd)
             if args.plan:
                 plan_text = _read_plan(args.plan)
-                plan_name = Path(args.plan).stem if args.plan != "-" else ""
             else:
                 best_plan, _, _ = optimize_plan(profile, jd_text, role_name=args.role or "software_engineer")
                 plan_text = json.dumps(best_plan, indent=2)
-                plan_name = ""
 
             folder, _compile_res, ats_res = apply_app(
                 plan_text=plan_text,
@@ -140,15 +146,12 @@ def main(argv: list[str] | None = None) -> int:
                 company=args.company,
                 role=args.role,
                 source_url=args.url,
-                plan_name=plan_name,
                 sync_cloud=not args.no_sync,
                 log=print,
             )
             print(f"Exported {folder / 'Simon_Chen_Resume.pdf'} (1 page).")
-            print(
-                f"ATS check: {'passed' if ats_res.passed else 'failed'} ({len(ats_res.text.split())} words extracted)"
-            )
-            for warning in getattr(ats_res, "warnings", ()):
+            print(f"ATS check: {'passed' if ats_res.passed else 'failed'} ({ats_res.word_count} words extracted)")
+            for warning in ats_res.warnings:
                 print(f"WARN: {warning}")
             print(f"Application created: {folder}")
         elif args.command == "status":
@@ -168,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
                     )
         elif args.command == "update-status":
             folder, old_status, new_status = update_application_status(
-                args.app, args.status, sync_cloud=not args.no_sync
+                args.app, args.status, sync_cloud=not args.no_sync, log=print
             )
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
         elif args.command == "db":
@@ -290,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
                 pdf_path = app_path / "Simon_Chen_Resume.pdf"
                 role_label = args.app
                 if pdf_path.is_file():
-                    resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+                    resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
             else:
                 if not args.jd and not args.hackerrank:
                     raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
@@ -306,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
                     pdf_path = Path(args.resume)
                     role_label = pdf_path.stem
                     if pdf_path.is_file():
-                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
                 elif args.plan:
                     plan_text = _read_plan(args.plan)
                     selection = parse_plan(plan_text, profile)
@@ -316,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
                     pdf_path = PDF_DIR / "Simon_Chen_Resume.pdf"
                     role_label = "Simon_Chen_Resume"
                     if pdf_path.is_file():
-                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
 
             if args.hackerrank:
                 agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)
@@ -350,8 +353,10 @@ def main(argv: list[str] | None = None) -> int:
             tailor(
                 _read_plan(args.plan),
                 plan_name=plan_name,
+                pdf_dir=Path(args.output) if args.output else PREVIEW_DIR,
                 log=print,
             )
+            print("Preview build only - run `worksisyphus apply` to produce a delivered resume.")
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

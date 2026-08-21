@@ -14,6 +14,10 @@ from .selection import Selection, full_selection, trim_step
 
 TEX_DIR = Path("tex_files")
 PDF_DIR = Path("resumes")
+# tailor() is a preview/debug command: apply() is the path that produces a delivered resume.
+# Its output must not default into PDF_DIR, where a run would overwrite the resume mirrored
+# from the most recent application. tex_files/*.pdf is already gitignored.
+PREVIEW_DIR = TEX_DIR
 PAGE_LIMIT = 1
 OVERFULL_TOLERANCE_PT = 2.0
 
@@ -45,9 +49,13 @@ def tailor(
     plan_name: str = "custom",
     log: Log = _silent,
     tex_dir: Path = TEX_DIR,
-    pdf_dir: Path = PDF_DIR,
+    pdf_dir: Path = PREVIEW_DIR,
 ) -> CompileResult:
-    """Render the plan and trim deterministically until it fits one page."""
+    """Render the plan and trim deterministically until it fits one page.
+
+    Writes to PREVIEW_DIR unless the caller names a destination; apply() passes its own
+    staging directory so a delivered resume is only ever published through that path.
+    """
     if not plan_text.strip():
         raise ValueError("Plan is empty.")
     active_profile = profile if profile is not None else load_profile(profile_path)

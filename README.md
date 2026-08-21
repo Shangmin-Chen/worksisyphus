@@ -34,10 +34,11 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 ## Manual usage (no agent)
 
 ```bash
-uv run worksisyphus apply --company Acme --jd <file|-> [--role <role>] [--plan plans/x.json] # 1-step compile, validate, freeze & Turso sync
+uv run worksisyphus apply --company Acme --jd <file|-> [--role <role>] [--plan plans/x.json] [--no-sync] # 1-step compile, validate, freeze & Turso sync
+#   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan plans/x.json  # check a plan and print the resolved selection
-uv run worksisyphus tailor --plan plans/x.json    # standalone one-page resume from a plan (- for stdin)
+uv run worksisyphus tailor --plan plans/x.json    # preview build into tex_files/ (never delivers; use apply)
 uv run worksisyphus status                        # list applications and identifiers
 uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD
@@ -48,7 +49,7 @@ uv run worksisyphus evaluate --check-upstream     # check sync status against up
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find optimal plan
 uv run worksisyphus db status                     # show database stats and metrics
 uv run worksisyphus db history [--limit N]        # show timestamped append-only audit trail
-uv run worksisyphus db sync                       # export profile.json and sync to Turso cloud
+uv run worksisyphus db sync                       # load profile.json into SQLite and push to Turso cloud
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
 uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume.pdf   # ATS extraction check
 ```
@@ -61,7 +62,7 @@ Every tailored resume compiles to `resumes/Simon_Chen_Resume.pdf` — a clean, h
 ├── compile.sh              # rebuild the canonical full resume
 ├── profile.json            # master database; slug-keyed, values are TeX-formatted
 ├── profile.example.json    # template schema for profile.json
-├── plans/                  # plan files (see plans/example.json)
+├── plans/                  # plan files (see plans/example.json); drafts/ is exempt from the orphan check
 ├── applications/           # one immutable folder per application: jd, plan, pdf, meta
 ├── CLAUDE.md               # rules for AI agents operating this repo
 ├── GEMINI.md               # rules for Antigravity / Gemini agents
@@ -73,7 +74,7 @@ Every tailored resume compiles to `resumes/Simon_Chen_Resume.pdf` — a clean, h
 │   ├── selection.py        # Selection model + deterministic one-page trim order
 │   ├── renderer.py         # Jake's-template TeX renderer (verbatim values)
 │   ├── compiler.py         # pdflatex wrapper with page count
-│   ├── pipeline.py          # tailor() and build_canonical()
+│   ├── pipeline.py          # tailor() preview build and build_canonical()
 │   ├── application.py       # 1-step apply, lifecycle tracking, and cloud sync
 │   ├── ats.py              # ATS text extraction and formatting check
 │   ├── gates.py            # quality gates (GPA, banned content, density)

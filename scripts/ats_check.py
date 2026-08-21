@@ -25,19 +25,18 @@ def main() -> int:
         return 1
     pdf = Path(sys.argv[1])
     profile_path = ROOT / "profile.json"
-    if not profile_path.is_file():
-        profile_path = ROOT / "tests" / "fixtures" / "profile.json"
 
-    profile = load_profile(profile_path)
-    contact = profile.contact
+    # Contact-field assertions are only meaningful against the profile the PDF was built from.
+    # Without profile.json there is nothing authoritative to compare against, so skip those
+    # checks loudly rather than silently passing empty strings and reporting a full pass.
+    if profile_path.is_file():
+        contact = load_profile(profile_path).contact
+        name, email, phone = contact.name, contact.email, contact.phone
+    else:
+        print("NOTE: profile.json not found; skipping contact-field verification.")
+        name = email = phone = ""
 
-    has_real_profile = (ROOT / "profile.json").is_file()
-    result = check_pdf_ats(
-        pdf_path=pdf,
-        name=contact.name,
-        email=contact.email if has_real_profile else "",
-        phone=contact.phone if has_real_profile else "",
-    )
+    result = check_pdf_ats(pdf_path=pdf, name=name, email=email, phone=phone)
 
     for warning in result.warnings:
         print(f"WARN: {warning}")

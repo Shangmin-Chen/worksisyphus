@@ -24,6 +24,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
 1. `uv run worksisyphus index` — see every selectable slug with full bullet text.
 2. Write `plans/<company>_<role>.json` (see `plans/example.json` for the format; order = rank).
+   Every plan directly in `plans/` must end up with a matching application — `tests/test_consistency.py` enforces this so a plan cannot drift out of the record. Put work in progress in `plans/drafts/`, which is exempt, and move it up when you apply with it.
 3. `uv run worksisyphus validate --plan plans/<name>.json` — catches unknown slugs and shows the resolved selection without compiling.
 4. **Apply (1-step compile, ATS check, freeze & Turso sync):**
 
@@ -32,6 +33,11 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
    <Pasted JD text>
    EOF
    ```
+
+   `--plan` is optional. When omitted, `apply` runs the knapsack optimizer to choose the plan for
+   you; the optimizer enforces the selection guardrails above (weak-project, personal-website,
+   BU IT, persephone-first) in code. Prefer writing the plan yourself when the JD needs judgment
+   the rubric cannot express. Add `--no-sync` to skip the Turso push.
 
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
 
@@ -51,11 +57,11 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 ## Commands & Execution Details
 
 ```bash
-uv run worksisyphus apply --company <name> --jd <file|-> [--role <role>] [--plan <plan>]  # 1-step compile, validate, freeze & Turso sync
+uv run worksisyphus apply --company <name> --jd <file|-> [--role <role>] [--url <url>] [--plan <plan>] [--no-sync]  # 1-step compile, validate, freeze & Turso sync
 uv run worksisyphus compile                      # canonical 3-page database view (never for employers)
 uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
-uv run worksisyphus tailor --plan <file|->       # build standalone one-page PDF
+uv run worksisyphus tailor --plan <file|-> [--output <dir>]  # PREVIEW build into tex_files/ (never delivers; use apply)
 uv run worksisyphus status                       # list all applications and their status
 uv run worksisyphus update-status --app <name> --status <status>  # update status & auto-sync to Turso
 uv run worksisyphus evaluate --app <name>        # evaluate & score an application against its JD
@@ -66,7 +72,7 @@ uv run worksisyphus evaluate --check-upstream        # check sync status against
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find highest-scoring plan for a JD
 uv run worksisyphus db status                    # show database overview, metrics, and connection status
 uv run worksisyphus db history [--limit N]       # show append-only timestamped audit trail
-uv run worksisyphus db sync                      # export profile.json and sync to Turso cloud
+uv run worksisyphus db sync                      # load profile.json into SQLite and push to Turso cloud
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
 ```
@@ -83,4 +89,4 @@ When changing a schema or data format, migrate **all** existing data files — n
 
 ## Architecture (for code changes)
 
-`db.py` (SQLite/Turso database & append-only audit trail) → `profile.py` (slug-keyed database loader) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `application.py` (1-step apply, lifecycle tracking) → `cli.py`. Tests use a small fixture profile, in-memory SQLite, and an injectable fake compiler; they must keep passing without network or pdflatex.
+`profile.json` → `profile.py` (slug-keyed loader; the single source of truth for rendering) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `application.py` (1-step apply, lifecycle tracking) → `cli.py`. Off to the side, `db.py` (SQLite/Turso + append-only audit trail) is a *store*, not a source: it imports its types from `profile.py`, is seeded from `profile.json` by `db sync`, and receives application records from `application.py`. Nothing in the render path reads from it. Tests use a small fixture profile, in-memory SQLite, and an injectable fake compiler; they must keep passing without network or pdflatex.
