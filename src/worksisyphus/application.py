@@ -46,11 +46,6 @@ def apply(
     log: Log = _silent,
 ) -> tuple[Path, CompileResult, ATSCheckResult]:
     """Tailor, validate, compile directly into applications/<app>, run ATS check, and sync."""
-    if applications_dir is None:
-        from . import archive
-
-        applications_dir = getattr(archive, "APPLICATIONS_DIR", APPLICATIONS_DIR)
-
     if not jd_text.strip():
         raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
     if not company.strip():
@@ -58,6 +53,7 @@ def apply(
     if not plan_text.strip():
         raise ValueError("Plan is empty.")
 
+    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     when = when or date.today()
     if plan_name.strip():
         app_stem = slugify(plan_name)
@@ -101,13 +97,13 @@ def apply(
     ats_result = check_pdf_ats(folder / "Simon_Chen_Resume.pdf")
 
     # 5. Database insertion & Cloud Sync
-    from .db import DEFAULT_DB_PATH, archive_application_to_db, get_connection, sync_to_turso
+    from .db import DEFAULT_DB_PATH, get_connection, save_application_to_db, sync_to_turso
 
     if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
         try:
             conn = get_connection(DEFAULT_DB_PATH)
             try:
-                archive_application_to_db(
+                save_application_to_db(
                     conn=conn,
                     app_id=folder.name,
                     company=company,
@@ -129,84 +125,9 @@ def apply(
     return folder, compile_result, ats_result
 
 
-def archive_application(
-    plan_path: Path,
-    pdf_path: Path,
-    jd_text: str,
-    company: str,
-    role: str = "",
-    source_url: str = "",
-    when: date | None = None,
-    applications_dir: Path | None = None,
-    sync_cloud: bool = False,
-) -> Path:
-    """Freeze an application into applications/<date>_<plan-stem>/ and return the folder."""
-    if applications_dir is None:
-        from . import archive
-
-        applications_dir = getattr(archive, "APPLICATIONS_DIR", APPLICATIONS_DIR)
-
-    if not pdf_path.is_file():
-        raise FileNotFoundError(f"{pdf_path} does not exist; compile or tailor before archiving.")
-    if not jd_text.strip():
-        raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
-
-    when = when or date.today()
-    folder = applications_dir / f"{when.isoformat()}_{plan_path.stem}"
-    if folder.exists():
-        raise FileExistsError(f"{folder} already exists; applications are immutable, use a new plan name.")
-    folder.mkdir(parents=True)
-
-    plan_bytes = plan_path.read_bytes()
-    pdf_bytes = pdf_path.read_bytes()
-    (folder / "plan.json").write_bytes(plan_bytes)
-    (folder / "Simon_Chen_Resume.pdf").write_bytes(pdf_bytes)
-    (folder / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
-    meta = {
-        "company": company,
-        "role": role,
-        "date": when.isoformat(),
-        "source_url": source_url,
-        "status": STATUSES[0],
-    }
-    (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-
-    from .db import DEFAULT_DB_PATH, archive_application_to_db, get_connection, sync_to_turso
-
-    if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
-        try:
-            conn = get_connection(DEFAULT_DB_PATH)
-            try:
-                normalized_plan = plan_bytes.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-                archive_application_to_db(
-                    conn=conn,
-                    app_id=folder.name,
-                    company=company,
-                    role=role,
-                    date_str=when.isoformat(),
-                    source_url=source_url,
-                    status=STATUSES[0],
-                    jd_text=jd_text.strip(),
-                    plan_json=normalized_plan,
-                )
-            finally:
-                conn.close()
-
-            if sync_cloud:
-                sync_to_turso()
-        except Exception:
-            pass
-
-    return folder
-
-
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
     """List all applications with metadata, sorted by date descending."""
-    if applications_dir is None:
-        from . import archive
-
-        applications_dir = getattr(archive, "APPLICATIONS_DIR", APPLICATIONS_DIR)
-
+    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     apps: list[dict[str, str]] = []
     if not applications_dir.is_dir():
         return apps
@@ -232,14 +153,10 @@ def resolve_application_folder(
     applications_dir: Path | None = None,
 ) -> Path:
     """Find a unique matching application folder by full folder name or plan stem."""
-    if applications_dir is None:
-        from . import archive
-
-        applications_dir = getattr(archive, "APPLICATIONS_DIR", APPLICATIONS_DIR)
-
     if not app_identifier.strip():
         raise ValueError("Application identifier must not be empty.")
 
+    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     if not applications_dir.is_dir():
         raise FileNotFoundError(f"No application folder found matching {app_identifier!r} in {applications_dir}.")
 
@@ -265,14 +182,10 @@ def update_application_status(
 
     Returns (folder_path, old_status, new_status).
     """
-    if applications_dir is None:
-        from . import archive
-
-        applications_dir = getattr(archive, "APPLICATIONS_DIR", APPLICATIONS_DIR)
-
     if new_status not in STATUSES:
         raise ValueError(f"Invalid status {new_status!r}. Must be one of: {', '.join(STATUSES)}")
 
+    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     target_folder = resolve_application_folder(app_identifier, applications_dir=applications_dir)
 
     meta_file = target_folder / "meta.json"

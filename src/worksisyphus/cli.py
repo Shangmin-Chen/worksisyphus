@@ -1,13 +1,10 @@
-"""Tiny CLI for compiling, tailoring, archiving, and tracking applications."""
-
-from __future__ import annotations
-
 import argparse
 import json
 import sys
 from pathlib import Path
 
-from .archive import STATUSES, archive_application, list_applications, update_application_status
+from .application import STATUSES, list_applications, update_application_status
+from .application import apply as apply_app
 from .pipeline import PDF_DIR, build_canonical, tailor
 from .plan import parse_plan
 from .profile import load_profile, profile_index
@@ -63,15 +60,8 @@ def main(argv: list[str] | None = None) -> int:
     apply_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     validate_cmd = sub.add_parser("validate", help="Parse a plan and print the resolved selection; no LaTeX involved.")
     validate_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
-    archive_cmd = sub.add_parser("archive", help="Freeze a compiled application into applications/<date>_<name>/.")
-    archive_cmd.add_argument("--plan", required=True, help="Path to the plan JSON file that built the resume.")
-    archive_cmd.add_argument("--company", required=True, help="Company applied to.")
-    archive_cmd.add_argument("--jd", required=True, help="Path to the job description text file, or - for stdin.")
-    archive_cmd.add_argument("--role", default="", help="Role title, if known.")
-    archive_cmd.add_argument("--url", default="", help="Posting URL, if any.")
-    archive_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
-    sub.add_parser("status", help="List all archived applications and their current statuses.")
-    update_cmd = sub.add_parser("update-status", help="Update the status of an archived application.")
+    sub.add_parser("status", help="List all applications and their current statuses.")
+    update_cmd = sub.add_parser("update-status", help="Update the status of an application.")
     update_cmd.add_argument(
         "--app",
         required=True,
@@ -134,7 +124,6 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "validate":
             print(_describe(parse_plan(_read_plan(args.plan), load_profile())))
         elif args.command == "apply":
-            from .application import apply as apply_app
             from .optimizer import optimize_plan
 
             profile = load_profile()
@@ -162,28 +151,10 @@ def main(argv: list[str] | None = None) -> int:
                 f"ATS check: {'passed' if ats_res.passed else 'failed'} ({len(ats_res.text.split())} words extracted)"
             )
             print(f"Application created: {folder}")
-        elif args.command == "archive":
-            if args.plan == "-":
-                raise ValueError("archive requires a plan file path, not stdin (use --plan <path>).")
-            plan_path = Path(args.plan)
-            if not plan_path.is_file():
-                raise FileNotFoundError(f"Plan file not found: {plan_path}")
-            selection = parse_plan(plan_path.read_text(encoding="utf-8"), load_profile())
-            jd_text = _read_plan(args.jd)
-            folder = archive_application(
-                plan_path,
-                PDF_DIR / f"{selection.name}.pdf",
-                jd_text,
-                company=args.company,
-                role=args.role,
-                source_url=args.url,
-                sync_cloud=not args.no_sync,
-            )
-            print(f"Archived {folder}")
         elif args.command == "status":
             apps = list_applications()
             if not apps:
-                print("No archived applications found.")
+                print("No applications found.")
             else:
                 header = f"{'Date':<12} {'Company':<20} {'Role':<32} {'Status':<15} Application"
                 print(header)
@@ -276,7 +247,7 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 conn.close()
         elif args.command == "evaluate":
-            from .archive import resolve_application_folder
+            from .application import resolve_application_folder
             from .ats import check_pdf_ats
             from .evaluator import (
                 evaluate_pdf_against_jd,

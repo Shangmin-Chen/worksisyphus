@@ -97,9 +97,7 @@ def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
         pdf.write_bytes(b"%PDF-fake")
         return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
 
-    import worksisyphus.application as app_module
-
-    monkeypatch.setattr(app_module, "apply", fake_apply)
+    monkeypatch.setattr(cli, "apply_app", fake_apply)
     monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
 
     ret = cli.main(["apply", "--company", "Primitive", "--role", "Product Engineer", "--jd", "-", "--plan", plan])
@@ -110,38 +108,6 @@ def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
     assert "Application created:" in out
     assert recorded["company"] == "Primitive"
     assert recorded["jd_text"] == "JD text content"
-
-
-def test_archive_reads_jd_from_stdin(monkeypatch, tmp_path, capsys) -> None:
-    import io
-    from pathlib import Path
-
-    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
-    recorded_args = {}
-
-    def fake_archive(plan_path, pdf_path, jd_text, company, role="", source_url="", **kwargs):
-        recorded_args["plan_path"] = plan_path
-        recorded_args["jd_text"] = jd_text
-        recorded_args["company"] = company
-        return Path("applications/2026-08-14_acme_swe")
-
-    monkeypatch.setattr(cli, "archive_application", fake_archive)
-    monkeypatch.setattr("sys.stdin", io.StringIO("Frontend engineer job description"))
-
-    assert cli.main(["archive", "--plan", plan, "--company", "Acme", "--jd", "-"]) == 0
-    assert "Archived applications/2026-08-14_acme_swe" in capsys.readouterr().out
-    assert recorded_args["jd_text"] == "Frontend engineer job description"
-    assert recorded_args["company"] == "Acme"
-
-
-def test_archive_rejects_plan_from_stdin(capsys) -> None:
-    assert cli.main(["archive", "--plan", "-", "--company", "Acme", "--jd", "-"]) == 1
-    assert "error: archive requires a plan file path, not stdin" in capsys.readouterr().err
-
-
-def test_archive_rejects_missing_plan_file(capsys) -> None:
-    assert cli.main(["archive", "--plan", "nonexistent_plan.json", "--company", "Acme", "--jd", "-"]) == 1
-    assert "error: Plan file not found" in capsys.readouterr().err
 
 
 def test_cli_index(capsys) -> None:
@@ -227,9 +193,9 @@ def test_cli_evaluate_with_app(tmp_path, capsys, monkeypatch) -> None:
     else:
         pytest.skip("resumes/Simon_Chen_Resume.pdf not present")
 
-    from worksisyphus import archive
+    from worksisyphus import application
 
-    monkeypatch.setattr(archive, "APPLICATIONS_DIR", tmp_path / "applications")
+    monkeypatch.setattr(application, "APPLICATIONS_DIR", tmp_path / "applications")
 
     ret = cli.main(["evaluate", "--app", "testco_swe"])
     assert ret == 0
@@ -331,9 +297,7 @@ def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
         pdf.write_bytes(b"%PDF-fake")
         return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
 
-    import worksisyphus.application as app_module
-
-    monkeypatch.setattr(app_module, "apply", fake_apply)
+    monkeypatch.setattr(cli, "apply_app", fake_apply)
     monkeypatch.setattr("sys.stdin", io.StringIO("Full-stack engineer building with Python and TypeScript."))
 
     ret = cli.main(["apply", "--company", "Primitive", "--role", "product_engineer", "--jd", "-", "--no-sync"])

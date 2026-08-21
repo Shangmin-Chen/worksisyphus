@@ -1,4 +1,4 @@
-"""Lint-style tests that verify plan/archive consistency across the repo."""
+"""Lint-style tests that verify plan/application consistency across the repo."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from worksisyphus.archive import STATUSES
+from worksisyphus.application import STATUSES
 
 ROOT = Path(__file__).resolve().parents[1]
 PLANS_DIR = ROOT / "plans"
@@ -18,7 +18,7 @@ def _plan_slugs() -> set[str]:
     return {p.stem for p in PLANS_DIR.glob("*.json") if p.stem != "example"}
 
 
-def _archive_slugs() -> set[str]:
+def _application_slugs() -> set[str]:
     slugs = set()
     if APPLICATIONS_DIR.is_dir():
         slugs |= {"_".join(d.name.split("_")[1:]) for d in APPLICATIONS_DIR.iterdir() if d.is_dir()}
@@ -37,15 +37,15 @@ def _archive_slugs() -> set[str]:
     return slugs
 
 
-def test_every_plan_has_a_matching_archive() -> None:
-    archive_slugs = _archive_slugs()
-    if not archive_slugs:
+def test_every_plan_has_a_matching_application() -> None:
+    application_slugs = _application_slugs()
+    if not application_slugs:
         pytest.skip("Applications not present in filesystem or database")
-    orphaned = _plan_slugs() - archive_slugs
-    assert orphaned == set(), f"Plans without matching archives: {sorted(orphaned)}"
+    orphaned = _plan_slugs() - application_slugs
+    assert orphaned == set(), f"Plans without matching applications: {sorted(orphaned)}"
 
 
-def test_every_archive_has_required_files() -> None:
+def test_every_application_has_required_files() -> None:
     if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
         pytest.skip("Applications directory not present or empty")
     missing: list[str] = []
@@ -55,10 +55,10 @@ def test_every_archive_has_required_files() -> None:
         for name in ("jd.txt", "meta.json", "Simon_Chen_Resume.pdf"):
             if not (d / name).is_file():
                 missing.append(f"{d.name}/{name}")
-    assert missing == [], f"Missing archive files: {missing}"
+    assert missing == [], f"Missing application files: {missing}"
 
 
-def test_every_archive_meta_json_is_valid() -> None:
+def test_every_application_meta_json_is_valid() -> None:
     if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
         pytest.skip("Applications directory not present or empty")
     invalid: list[str] = []

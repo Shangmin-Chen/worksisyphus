@@ -424,7 +424,7 @@ def export_profile_json(conn: sqlite3.Connection, output_path: Path = Path("prof
     return data
 
 
-def archive_application_to_db(
+def save_application_to_db(
     conn: sqlite3.Connection,
     app_id: str,
     company: str,
@@ -435,7 +435,7 @@ def archive_application_to_db(
     jd_text: str,
     plan_json: str,
 ) -> None:
-    """Store archived application in the applications table with audit logging."""
+    """Store application in the applications table with audit logging."""
     conn.execute(
         """
         INSERT OR REPLACE INTO applications (id, company, role, date, source_url, status, jd_text, plan_json)
@@ -447,10 +447,13 @@ def archive_application_to_db(
         conn,
         "application",
         app_id,
-        "ARCHIVE",
+        "APPLY",
         metadata={"company": company, "role": role, "date": date_str, "status": status},
         commit=True,
     )
+
+
+archive_application_to_db = save_application_to_db
 
 
 def list_applications_from_db(conn: sqlite3.Connection) -> list[dict[str, str]]:

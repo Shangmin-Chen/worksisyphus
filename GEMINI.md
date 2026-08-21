@@ -39,7 +39,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
 5. **Deliver.** The resume is done when `apply` succeeds (compiles to exactly 1 page AND has no horizontal overflow AND passes ATS extraction check) — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
 
-   Archived folders are immutable history: never modify an archived `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json` or `uv run worksisyphus status`.
+   Application folders are immutable history: never modify an application's `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json` or `uv run worksisyphus status`.
 
 ## Editing profile.json (only with approval)
 
@@ -56,7 +56,7 @@ uv run worksisyphus compile                      # canonical 3-page database vie
 uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
 uv run worksisyphus tailor --plan <file|->       # build standalone one-page PDF
-uv run worksisyphus status                       # list all archived applications and their status
+uv run worksisyphus status                       # list all applications and their status
 uv run worksisyphus update-status --app <name> --status <status>  # update status & auto-sync to Turso
 uv run worksisyphus evaluate --app <name>        # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
@@ -83,4 +83,4 @@ When changing a schema or data format, migrate **all** existing data files — n
 
 ## Architecture (for code changes)
 
-`db.py` (SQLite/Turso database & append-only audit trail) → `profile.py` (slug-keyed database loader) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `cli.py`; `archive.py` freezes applications. Tests use a small fixture profile, in-memory SQLite, and an injectable fake compiler; they must keep passing without network or pdflatex.
+`db.py` (SQLite/Turso database & append-only audit trail) → `profile.py` (slug-keyed database loader) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `application.py` (1-step apply, lifecycle tracking) → `cli.py`. Tests use a small fixture profile, in-memory SQLite, and an injectable fake compiler; they must keep passing without network or pdflatex.

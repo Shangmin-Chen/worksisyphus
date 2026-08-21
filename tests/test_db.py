@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 from worksisyphus.db import (
-    archive_application_to_db,
     export_profile_json,
     get_audit_history,
     get_connection,
@@ -14,6 +13,7 @@ from worksisyphus.db import (
     list_applications_from_db,
     load_profile_from_db,
     log_audit_event,
+    save_application_to_db,
     seed_database,
     update_application_status_in_db,
 )
@@ -133,7 +133,7 @@ def test_application_tracking_in_db() -> None:
     conn = get_connection(":memory:")
     init_schema(conn)
 
-    archive_application_to_db(
+    save_application_to_db(
         conn=conn,
         app_id="2026-08-18_test_corp",
         company="Test Corp",

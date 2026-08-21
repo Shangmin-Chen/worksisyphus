@@ -38,7 +38,7 @@ uv run worksisyphus apply --company Acme --jd <file|-> [--role <role>] [--plan p
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan plans/x.json  # check a plan and print the resolved selection
 uv run worksisyphus tailor --plan plans/x.json    # standalone one-page resume from a plan (- for stdin)
-uv run worksisyphus status                        # list archived applications and identifiers
+uv run worksisyphus status                        # list applications and identifiers
 uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
@@ -73,15 +73,15 @@ Every tailored resume compiles to `resumes/Simon_Chen_Resume.pdf` — a clean, h
 │   ├── selection.py        # Selection model + deterministic one-page trim order
 │   ├── renderer.py         # Jake's-template TeX renderer (verbatim values)
 │   ├── compiler.py         # pdflatex wrapper with page count
-│   ├── pipeline.py         # tailor() with provenance lock and build_canonical()
-│   ├── archive.py          # freeze sent applications into applications/
+│   ├── pipeline.py          # tailor() and build_canonical()
+│   ├── application.py       # 1-step apply, lifecycle tracking, and cloud sync
 │   ├── ats.py              # ATS text extraction and formatting check
-│   ├── gates.py            # foolproof quality gates (GPA, banned content, density)
+│   ├── gates.py            # quality gates (GPA, banned content, density)
 │   ├── evaluator.py        # resume evaluation and scoring engine
 │   ├── hiring_agent.py     # 1:1 HackerRank hiring agent evaluation pipeline
 │   ├── optimizer.py        # marginal knapsack combinatorial plan optimizer
 │   ├── roles/              # role rubrics and criteria templates
-│   └── cli.py              # compile, tailor, validate, archive, evaluate, optimize, and db CLI
+│   └── cli.py              # compile, tailor, apply, validate, evaluate, optimize, and db CLI
 ├── tex_files/              # rendered TeX (only the canonical one is tracked)
 └── resumes/                # compiled PDFs (all tracked)
 ```
