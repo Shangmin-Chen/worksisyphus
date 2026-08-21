@@ -21,8 +21,8 @@ def test_tailored_resume_ats_extraction(real_profile) -> None:
     res = check_pdf_ats(
         TAILORED_PDF,
         name=real_profile.contact.name,
-        email=real_profile.contact.email if has_real_profile else None,
-        phone=real_profile.contact.phone if has_real_profile else None,
+        email=real_profile.contact.email if has_real_profile else "",
+        phone=real_profile.contact.phone if has_real_profile else "",
         expected_pages=1,
     )
     assert res.passed, f"ATS check failed: {res.problems}"
@@ -38,8 +38,8 @@ def test_compiled_resume_ats_extraction(real_profile) -> None:
     res = check_pdf_ats(
         COMPILED_PDF,
         name=real_profile.contact.name,
-        email=real_profile.contact.email if has_real_profile else None,
-        phone=real_profile.contact.phone if has_real_profile else None,
+        email=real_profile.contact.email if has_real_profile else "",
+        phone=real_profile.contact.phone if has_real_profile else "",
         expected_pages=3,
     )
     assert res.passed, f"ATS check failed for compiled: {res.problems}"

@@ -28,8 +28,8 @@ def test_tailored_resume_passes_all_gates(real_profile) -> None:
     gates = check_resume_gates(
         pdf_path=TAILORED_PDF,
         candidate_name=real_profile.contact.name,
-        candidate_email=real_profile.contact.email if has_real_profile else None,
-        candidate_phone=real_profile.contact.phone if has_real_profile else None,
+        candidate_email=real_profile.contact.email if has_real_profile else "",
+        candidate_phone=real_profile.contact.phone if has_real_profile else "",
         expected_pages=1,
     )
 
@@ -45,8 +45,8 @@ def test_compiled_resume_passes_all_gates(real_profile) -> None:
     gates = check_resume_gates(
         pdf_path=COMPILED_PDF,
         candidate_name=real_profile.contact.name,
-        candidate_email=real_profile.contact.email if has_real_profile else None,
-        candidate_phone=real_profile.contact.phone if has_real_profile else None,
+        candidate_email=real_profile.contact.email if has_real_profile else "",
+        candidate_phone=real_profile.contact.phone if has_real_profile else "",
         expected_pages=3,
     )
 

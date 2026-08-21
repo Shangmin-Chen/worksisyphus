@@ -35,8 +35,8 @@ def main() -> int:
     result = check_pdf_ats(
         pdf_path=pdf,
         name=contact.name,
-        email=contact.email if has_real_profile else None,
-        phone=contact.phone if has_real_profile else None,
+        email=contact.email if has_real_profile else "",
+        phone=contact.phone if has_real_profile else "",
     )
 
     for warning in result.warnings:
