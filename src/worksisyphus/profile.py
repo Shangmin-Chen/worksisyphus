@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 DEFAULT_PROFILE_PATH = Path("profile.json")
 
@@ -57,35 +56,9 @@ class Profile:
     skills: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
 
-def load_profile(source: Path | str | Any = DEFAULT_PROFILE_PATH) -> Profile:
-    """Load profile from SQLite DB if available/given, or from profile.json."""
-    if hasattr(source, "execute"):
-        from .db import load_profile_from_db
-
-        return load_profile_from_db(source)  # type: ignore[arg-type]
-
+def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
+    """Load profile directly from a profile.json file."""
     path = Path(source)
-    if path.suffix in (".db", ".sqlite", ".sqlite3") and path.is_file():
-        from .db import get_connection, load_profile_from_db
-
-        conn = get_connection(path)
-        try:
-            return load_profile_from_db(conn)
-        finally:
-            conn.close()
-
-    from .db import DEFAULT_DB_PATH, get_connection, load_profile_from_db
-
-    if path == DEFAULT_PROFILE_PATH and DEFAULT_DB_PATH.is_file():
-        try:
-            conn = get_connection(DEFAULT_DB_PATH)
-            try:
-                return load_profile_from_db(conn)
-            finally:
-                conn.close()
-        except Exception:
-            pass
-
     if path.is_file():
         data = json.loads(path.read_text(encoding="utf-8"))
         return Profile(

@@ -263,20 +263,18 @@ def test_cli_optimize_command(tmp_path, capsys) -> None:
     assert out_file.is_file()
 
 
-def test_cli_tailor_invokes_pipeline_with_force(monkeypatch, tmp_path) -> None:
+def test_cli_tailor_invokes_pipeline(monkeypatch, tmp_path) -> None:
     plan = _write_plan(tmp_path, {"projects": ["proj1"]})
     recorded = {}
 
-    def fake_tailor(plan_text, plan_name="custom", force=False, log=None):
+    def fake_tailor(plan_text, plan_name="custom", log=None):
         recorded["plan_text"] = plan_text
         recorded["plan_name"] = plan_name
-        recorded["force"] = force
 
     monkeypatch.setattr(cli, "tailor", fake_tailor)
 
-    assert cli.main(["tailor", "--plan", plan, "--force"]) == 0
+    assert cli.main(["tailor", "--plan", plan]) == 0
     assert recorded["plan_name"] == "acme_swe"
-    assert recorded["force"] is True
 
 
 def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:

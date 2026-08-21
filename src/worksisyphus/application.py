@@ -93,7 +93,23 @@ def apply(
     }
     (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
-    # 4. ATS extraction check
+    # 4. Quality gates validation (ATS, No-GPA, Banned Content, LaTeX Leaks, Density)
+    from .gates import check_resume_gates
+    from .profile import load_profile
+
+    profile = load_profile(profile_path)
+    gate_results = check_resume_gates(
+        folder / "Simon_Chen_Resume.pdf",
+        candidate_name=profile.contact.name,
+        candidate_email=profile.contact.email,
+        candidate_phone=profile.contact.phone,
+        expected_pages=1,
+    )
+    failed_gates = [g for g in gate_results if not g.passed]
+    if failed_gates:
+        reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
+        raise RuntimeError(f"Quality gate check failed for {folder.name}:\n{reasons}")
+
     ats_result = check_pdf_ats(folder / "Simon_Chen_Resume.pdf")
 
     # 5. Database insertion & Cloud Sync

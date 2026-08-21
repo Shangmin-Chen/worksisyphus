@@ -9,7 +9,6 @@ Exit 0 = pass, 1 = fail with one line per problem.
 
 from __future__ import annotations
 
-import re
 import sys
 from pathlib import Path
 
@@ -41,12 +40,8 @@ def main() -> int:
         phone=contact.phone,
     )
 
-    merges = re.findall(
-        r"[A-Za-z]{3,}(?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d",
-        result.text,
-    )
-    for merge in merges:
-        print(f"WARN: {merge!r} extracted with no whitespace before the date; that keyword will not match")
+    for warning in result.warnings:
+        print(f"WARN: {warning}")
 
     if not result.passed:
         for problem in result.problems:

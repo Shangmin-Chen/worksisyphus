@@ -8,6 +8,7 @@ import pytest
 from worksisyphus import CompileResult, apply
 from worksisyphus.application import list_applications, resolve_application_folder, slugify, update_application_status
 from worksisyphus.ats import ATSCheckResult
+from worksisyphus.gates import GateResult
 
 
 def test_slugify() -> None:
@@ -22,14 +23,19 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
         pdf_path.write_bytes(b"%PDF-fake")
         return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
 
+    def fake_gates(pdf_path, **kwargs):
+        return (GateResult("ATS Extraction & Page Count Gate", True, ()),)
+
     def fake_ats(pdf_path, **kwargs) -> ATSCheckResult:
         return ATSCheckResult(passed=True, problems=(), pages=1, word_count=450, text="Simon Chen")
 
     import worksisyphus.application as app_module
+    import worksisyphus.gates as gates_module
     import worksisyphus.pipeline as pipe_module
 
     monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
     monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
+    monkeypatch.setattr(gates_module, "check_resume_gates", fake_gates)
     monkeypatch.setattr(app_module, "check_pdf_ats", fake_ats)
 
     plan_text = json.dumps({"experiences": {"org-a": ["a1"]}, "projects": {"proj1": ["p1"]}})
@@ -58,6 +64,36 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
     assert meta["company"] == "Acme Corp"
     assert meta["role"] == "Product Engineer"
     assert meta["status"] == "applied"
+
+
+def test_apply_rejects_when_quality_gate_fails(small_profile, monkeypatch, tmp_path) -> None:
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    def fake_failing_gates(pdf_path, **kwargs):
+        return (GateResult("No-GPA Gate", False, ("Found GPA reference: ['3.9/4.0']",)),)
+
+    import worksisyphus.gates as gates_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
+    monkeypatch.setattr(gates_module, "check_resume_gates", fake_failing_gates)
+
+    apps_dir = tmp_path / "applications"
+    with pytest.raises(RuntimeError, match="Quality gate check failed"):
+        apply(
+            plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+            jd_text="Backend engineer role",
+            company="Acme Corp",
+            role="Product Engineer",
+            when=date(2026, 8, 20),
+            applications_dir=apps_dir,
+            pdf_dir=tmp_path / "resumes",
+            sync_cloud=False,
+        )
 
 
 def test_apply_rejects_empty_jd(tmp_path) -> None:
@@ -97,10 +133,12 @@ def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
         return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
 
     import worksisyphus.application as app_module
+    import worksisyphus.gates as gates_module
     import worksisyphus.pipeline as pipe_module
 
     monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
     monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
+    monkeypatch.setattr(gates_module, "check_resume_gates", lambda *a, **kw: (GateResult("ATS", True, ()),))
     monkeypatch.setattr(app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 100, "text"))
 
     plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
@@ -137,10 +175,12 @@ def test_list_and_update_application_status(small_profile, monkeypatch, tmp_path
         return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
 
     import worksisyphus.application as app_module
+    import worksisyphus.gates as gates_module
     import worksisyphus.pipeline as pipe_module
 
     monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
     monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
+    monkeypatch.setattr(gates_module, "check_resume_gates", lambda *a, **kw: (GateResult("ATS", True, ()),))
     monkeypatch.setattr(app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 100, "text"))
 
     apps_dir = tmp_path / "applications"
@@ -177,10 +217,12 @@ def test_update_status_rejects_ambiguous_stem_and_partial_match(small_profile, m
         return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
 
     import worksisyphus.application as app_module
+    import worksisyphus.gates as gates_module
     import worksisyphus.pipeline as pipe_module
 
     monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
     monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
+    monkeypatch.setattr(gates_module, "check_resume_gates", lambda *a, **kw: (GateResult("ATS", True, ()),))
     monkeypatch.setattr(app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 100, "text"))
 
     apps_dir = tmp_path / "applications"

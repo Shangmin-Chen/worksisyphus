@@ -42,7 +42,6 @@ def tailor(
     plan_text: str,
     profile_path: Path = DEFAULT_PROFILE_PATH,
     plan_name: str = "custom",
-    force: bool = False,
     log: Log = _silent,
     tex_dir: Path = TEX_DIR,
     pdf_dir: Path = PDF_DIR,

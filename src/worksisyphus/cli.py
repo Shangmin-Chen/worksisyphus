@@ -38,12 +38,6 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("index", help="Print every slug a plan file can reference.")
     tailor_cmd = sub.add_parser("tailor", help="Compile a one-page resume from a plan file of slugs.")
     tailor_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
-    tailor_cmd.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Overwrite unarchived tailored resume without warning.",
-    )
     apply_cmd = sub.add_parser(
         "apply",
         help="Tailor, validate, compile directly into applications/<app>, run ATS check, and sync to Turso.",
@@ -350,7 +344,6 @@ def main(argv: list[str] | None = None) -> int:
             tailor(
                 _read_plan(args.plan),
                 plan_name=plan_name,
-                force=args.force,
                 log=print,
             )
     except Exception as exc:

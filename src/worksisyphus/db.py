@@ -453,9 +453,6 @@ def save_application_to_db(
     )
 
 
-archive_application_to_db = save_application_to_db
-
-
 def list_applications_from_db(conn: sqlite3.Connection) -> list[dict[str, str]]:
     """Return all applications from DB ordered by date descending."""
     cur = conn.execute(

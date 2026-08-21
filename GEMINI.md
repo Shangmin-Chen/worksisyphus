@@ -37,7 +37,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
    This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json` and `Simon_Chen_Resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`), mirrors the PDF to `resumes/Simon_Chen_Resume.pdf`, runs ATS extraction check, inserts into `worksisyphus.db`, and automatically syncs to Turso cloud.
 
-5. **Deliver.** The resume is done when `apply` succeeds (compiles to exactly 1 page AND has no horizontal overflow AND passes ATS extraction check) — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
+5. **Deliver.** The resume is done when `apply` succeeds (compiles to exactly 1 page AND has no horizontal overflow AND passes all quality gates: ATS, No-GPA, Banned Content, LaTeX Leaks, Content Density) — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
 
    Application folders are immutable history: never modify an application's `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json` or `uv run worksisyphus status`.
 
