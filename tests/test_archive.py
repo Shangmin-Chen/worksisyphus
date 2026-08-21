@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from datetime import date
-from pathlib import Path
 
 import pytest
 
@@ -46,7 +45,7 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
     apps_dir = tmp_path / "applications"
     res_dir = tmp_path / "resumes"
 
-    folder, comp_res, ats_res = apply(
+    folder, _comp_res, ats_res = apply(
         plan_text=plan_text,
         jd_text="Backend engineer role",
         company="Acme Corp",
@@ -91,9 +90,7 @@ def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
     monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
-    monkeypatch.setattr(
-        app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 100, "text")
-    )
+    monkeypatch.setattr(app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 100, "text"))
 
     plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
     apps_dir = tmp_path / "applications"

@@ -80,6 +80,7 @@ def test_update_status_reports_transition(monkeypatch, capsys, tmp_path) -> None
 
 def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
     import io
+
     from worksisyphus.ats import ATSCheckResult
     from worksisyphus.compiler import CompileResult
 
@@ -314,6 +315,7 @@ def test_cli_tailor_invokes_pipeline_with_force(monkeypatch, tmp_path) -> None:
 
 def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
     import io
+
     from worksisyphus.ats import ATSCheckResult
     from worksisyphus.compiler import CompileResult
 
@@ -341,4 +343,3 @@ def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
     assert "ATS check: passed" in out
     assert recorded["company"] == "Primitive"
     assert "projects" in recorded["plan_text"]
-

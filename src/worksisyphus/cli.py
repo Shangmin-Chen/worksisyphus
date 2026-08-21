@@ -147,7 +147,7 @@ def main(argv: list[str] | None = None) -> int:
                 plan_text = json.dumps(best_plan, indent=2)
                 plan_name = ""
 
-            folder, compile_res, ats_res = apply_app(
+            folder, _compile_res, ats_res = apply_app(
                 plan_text=plan_text,
                 jd_text=jd_text,
                 company=args.company,
@@ -158,7 +158,9 @@ def main(argv: list[str] | None = None) -> int:
                 log=print,
             )
             print(f"Exported {folder / 'Simon_Chen_Resume.pdf'} (1 page).")
-            print(f"ATS check: {'passed' if ats_res.passed else 'failed'} ({len(ats_res.text.split())} words extracted)")
+            print(
+                f"ATS check: {'passed' if ats_res.passed else 'failed'} ({len(ats_res.text.split())} words extracted)"
+            )
             print(f"Application created: {folder}")
         elif args.command == "archive":
             if args.plan == "-":
