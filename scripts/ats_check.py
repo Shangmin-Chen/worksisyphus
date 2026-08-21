@@ -26,8 +26,6 @@ def main() -> int:
     pdf = Path(sys.argv[1])
     profile_path = ROOT / "profile.json"
     if not profile_path.is_file():
-        profile_path = ROOT / "profile.example.json"
-    if not profile_path.is_file():
         profile_path = ROOT / "tests" / "fixtures" / "profile.json"
 
     profile = load_profile(profile_path)

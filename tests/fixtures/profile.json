@@ -1,11 +1,11 @@
 {
   "contact": {
     "name": "Simon Chen",
-    "email": "shangminch@gmail.com",
-    "phone": "347-322-4133",
-    "website": "https://simon-chen.com",
-    "github": "https://github.com/shangmin-chen",
-    "linkedin": "https://linkedin.com/in/shangmin-chen"
+    "email": "simon@example.com",
+    "phone": "555-555-5555",
+    "website": "https://example.com",
+    "github": "https://github.com/example",
+    "linkedin": "https://linkedin.com/in/example"
   },
   "education": [
     {

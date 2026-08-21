@@ -1,3 +1,7 @@
+"""Command-line interface for worksisyphus resume compiler and application manager."""
+
+from __future__ import annotations
+
 import argparse
 import json
 import sys
@@ -144,6 +148,8 @@ def main(argv: list[str] | None = None) -> int:
             print(
                 f"ATS check: {'passed' if ats_res.passed else 'failed'} ({len(ats_res.text.split())} words extracted)"
             )
+            for warning in getattr(ats_res, "warnings", ()):
+                print(f"WARN: {warning}")
             print(f"Application created: {folder}")
         elif args.command == "status":
             apps = list_applications()
@@ -168,7 +174,6 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "db":
             from .db import (
                 DEFAULT_DB_PATH,
-                export_profile_json,
                 get_audit_history,
                 get_connection,
                 load_profile_from_db,
@@ -184,10 +189,11 @@ def main(argv: list[str] | None = None) -> int:
                     turso_ok = sync_to_turso()
                     print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
                 elif args.db_action == "sync":
-                    export_profile_json(conn)
-                    print("Exported active database state to profile.json")
+                    seed_database(conn)
                     turso_ok = sync_to_turso()
-                    print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
+                    print(
+                        f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
+                    )
                 elif args.db_action == "status":
                     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
                     if not cur.fetchone():

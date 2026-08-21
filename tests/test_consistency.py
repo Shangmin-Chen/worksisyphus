@@ -1,4 +1,4 @@
-"""Lint-style tests that verify application consistency across the repo."""
+"""Lint-style tests that verify application and DB consistency across the repo."""
 
 from __future__ import annotations
 
@@ -47,3 +47,20 @@ def test_every_application_meta_json_is_valid() -> None:
         except json.JSONDecodeError as exc:
             invalid.append(f"{d.name}/meta.json JSON error: {exc}")
     assert invalid == [], f"Invalid meta.json files: {invalid}"
+
+
+def test_applications_db_and_filesystem_consistency() -> None:
+    from worksisyphus.db import DEFAULT_DB_PATH, get_connection, list_applications_from_db
+
+    if not DEFAULT_DB_PATH.is_file() or not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
+        pytest.skip("Database or applications directory not present")
+
+    conn = get_connection(DEFAULT_DB_PATH)
+    try:
+        db_apps = {app["folder"] for app in list_applications_from_db(conn)}
+    finally:
+        conn.close()
+
+    fs_apps = {d.name for d in APPLICATIONS_DIR.iterdir() if d.is_dir()}
+    diff = fs_apps.symmetric_difference(db_apps)
+    assert diff == set(), f"Inconsistency between applications/ and DB: {diff}"

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .compiler import CompileResult, compile_tex
 from .plan import parse_plan
-from .profile import DEFAULT_PROFILE_PATH, load_profile
+from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
 from .renderer import render_resume
 from .selection import Selection, full_selection, trim_step
 
@@ -40,6 +40,7 @@ def build_canonical(profile_path: Path = DEFAULT_PROFILE_PATH, log: Log = _silen
 
 def tailor(
     plan_text: str,
+    profile: Profile | None = None,
     profile_path: Path = DEFAULT_PROFILE_PATH,
     plan_name: str = "custom",
     log: Log = _silent,
@@ -49,14 +50,14 @@ def tailor(
     """Render the plan and trim deterministically until it fits one page."""
     if not plan_text.strip():
         raise ValueError("Plan is empty.")
-    profile = load_profile(profile_path)
-    initial_selection = parse_plan(plan_text, profile)
+    active_profile = profile if profile is not None else load_profile(profile_path)
+    initial_selection = parse_plan(plan_text, active_profile)
     log(f"Plan parsed; output name: {initial_selection.name}")
     pdf_dir.mkdir(parents=True, exist_ok=True)
 
     selection: Selection | None = initial_selection
     while selection is not None:
-        result = compile_tex(render_resume(profile, selection), selection.name, tex_dir, pdf_dir)
+        result = compile_tex(render_resume(active_profile, selection), selection.name, tex_dir, pdf_dir)
         if result.pages <= PAGE_LIMIT:
             excessive_overfull = tuple(
                 entry

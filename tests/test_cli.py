@@ -153,8 +153,7 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     # 6. Sync
     assert cli.main(["db", "sync"]) == 0
     sync_out = capsys.readouterr().out
-    assert "Exported active database state to profile.json" in sync_out
-    assert "Turso cloud sync: synced" in sync_out
+    assert "Synced profile.json to SQLite and Turso cloud" in sync_out
 
 
 def test_cli_evaluate_with_stdin_and_resume(capsys, monkeypatch) -> None:

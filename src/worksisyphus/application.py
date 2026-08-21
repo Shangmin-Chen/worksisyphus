@@ -1,18 +1,20 @@
-"""Application lifecycle: 1-step apply, compiling, tracking, and cloud sync."""
+"""Application lifecycle: 1-step apply, atomic compilation, tracking, and cloud sync."""
 
 from __future__ import annotations
 
 import json
 import re
 import shutil
+import tempfile
 from collections.abc import Callable
 from datetime import date
 from pathlib import Path
 
 from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
+from .gates import check_resume_gates
 from .pipeline import PDF_DIR, tailor
-from .profile import DEFAULT_PROFILE_PATH
+from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
 
 APPLICATIONS_DIR = Path("applications")
 STATUSES = ("applied", "phone_screen", "onsite", "offer", "rejected")
@@ -39,13 +41,14 @@ def apply(
     source_url: str = "",
     plan_name: str = "",
     when: date | None = None,
+    profile: Profile | None = None,
     profile_path: Path = DEFAULT_PROFILE_PATH,
     applications_dir: Path | None = None,
     pdf_dir: Path = PDF_DIR,
     sync_cloud: bool = True,
     log: Log = _silent,
 ) -> tuple[Path, CompileResult, ATSCheckResult]:
-    """Tailor, validate, compile directly into applications/<app>, run ATS check, and sync."""
+    """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync."""
     if not jd_text.strip():
         raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
     if not company.strip():
@@ -55,90 +58,96 @@ def apply(
 
     applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     when = when or date.today()
-    if plan_name.strip():
-        app_stem = slugify(plan_name)
-    else:
-        comp_slug = slugify(company)
-        role_slug = slugify(role) if role.strip() else "swe"
-        app_stem = f"{comp_slug}_{role_slug}"
 
-    folder = applications_dir / f"{when.isoformat()}_{app_stem}"
-    if folder.exists():
-        raise FileExistsError(f"{folder} already exists; applications are immutable, use a new date or plan name.")
-    folder.mkdir(parents=True)
+    # Deterministic naming strictly derived from company and role (#34)
+    comp_slug = slugify(company)
+    role_slug = slugify(role) if role.strip() else "swe"
+    app_stem = f"{comp_slug}_{role_slug}"
 
-    # 1. Compile directly into the application folder
-    compile_result = tailor(
-        plan_text,
-        profile_path=profile_path,
-        plan_name=app_stem,
-        pdf_dir=folder,
-        log=log,
-    )
+    target_folder = applications_dir / f"{when.isoformat()}_{app_stem}"
+    if target_folder.exists():
+        raise FileExistsError(f"{target_folder} already exists; applications are immutable, use a new date or role.")
 
-    # 2. Mirror latest PDF to resumes/Simon_Chen_Resume.pdf for convenience
-    pdf_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(folder / "Simon_Chen_Resume.pdf", pdf_dir / "Simon_Chen_Resume.pdf")
-
-    # 3. Write plan, JD, and metadata into application directory
+    active_profile = profile if profile is not None else load_profile(profile_path)
     normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
-    (folder / "plan.json").write_text(normalized_plan.strip() + "\n", encoding="utf-8")
-    (folder / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
-    meta = {
-        "company": company,
-        "role": role,
-        "date": when.isoformat(),
-        "source_url": source_url,
-        "status": STATUSES[0],
-    }
-    (folder / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
-    # 4. Quality gates validation (ATS, No-GPA, Banned Content, LaTeX Leaks, Density)
-    from .gates import check_resume_gates
-    from .profile import load_profile
+    # Atomic publication via temporary directory isolation (#28, #27)
+    with tempfile.TemporaryDirectory(prefix="worksisyphus-app-") as temp_dir_str:
+        temp_dir = Path(temp_dir_str)
 
-    profile = load_profile(profile_path)
-    gate_results = check_resume_gates(
-        folder / "Simon_Chen_Resume.pdf",
-        candidate_name=profile.contact.name,
-        candidate_email=profile.contact.email,
-        candidate_phone=profile.contact.phone,
-        expected_pages=1,
-    )
-    failed_gates = [g for g in gate_results if not g.passed]
-    if failed_gates:
-        reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
-        raise RuntimeError(f"Quality gate check failed for {folder.name}:\n{reasons}")
+        # 1. Compile directly into the isolated temp dir
+        compile_result = tailor(
+            plan_text,
+            profile=active_profile,
+            profile_path=profile_path,
+            plan_name=app_stem,
+            pdf_dir=temp_dir,
+            log=log,
+        )
 
-    ats_result = check_pdf_ats(folder / "Simon_Chen_Resume.pdf")
+        # 2. Write metadata, plan, and JD into temp dir
+        (temp_dir / "plan.json").write_text(normalized_plan.strip() + "\n", encoding="utf-8")
+        (temp_dir / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
+        meta = {
+            "company": company,
+            "role": role,
+            "date": when.isoformat(),
+            "source_url": source_url,
+            "status": STATUSES[0],
+        }
+        (temp_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
-    # 5. Database insertion & Cloud Sync
+        # 3. Foolproof Quality Gates & ATS Validation
+        built_pdf = temp_dir / "Simon_Chen_Resume.pdf"
+        gate_results = check_resume_gates(
+            built_pdf,
+            candidate_name=active_profile.contact.name,
+            candidate_email=active_profile.contact.email,
+            candidate_phone=active_profile.contact.phone,
+            expected_pages=1,
+        )
+        failed_gates = [g for g in gate_results if not g.passed]
+        if failed_gates:
+            reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
+            raise RuntimeError(f"Quality gate check failed for {target_folder.name}:\n{reasons}")
+
+        ats_result = check_pdf_ats(built_pdf)
+
+        # 4. Atomic directory creation on success
+        applications_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(temp_dir, target_folder)
+
+        # 5. Mirror PDF to resumes/ as final side effect (#27)
+        pdf_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(target_folder / "Simon_Chen_Resume.pdf", pdf_dir / "Simon_Chen_Resume.pdf")
+
+    # 6. Database persistence & Cloud Sync (#29: split fatal local from non-fatal cloud)
     from .db import DEFAULT_DB_PATH, get_connection, save_application_to_db, sync_to_turso
 
     if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
+        conn = get_connection(DEFAULT_DB_PATH)
         try:
-            conn = get_connection(DEFAULT_DB_PATH)
+            save_application_to_db(
+                conn=conn,
+                app_id=target_folder.name,
+                company=company,
+                role=role,
+                date_str=when.isoformat(),
+                source_url=source_url,
+                status=STATUSES[0],
+                jd_text=jd_text.strip(),
+                plan_json=normalized_plan,
+            )
+        finally:
+            conn.close()
+
+        if sync_cloud:
             try:
-                save_application_to_db(
-                    conn=conn,
-                    app_id=folder.name,
-                    company=company,
-                    role=role,
-                    date_str=when.isoformat(),
-                    source_url=source_url,
-                    status=STATUSES[0],
-                    jd_text=jd_text.strip(),
-                    plan_json=normalized_plan,
-                )
-            finally:
-                conn.close()
-
-            if sync_cloud:
                 sync_to_turso()
-        except Exception:
-            pass
+            except Exception as sync_exc:
+                log(f"Warning: Turso cloud sync failed: {sync_exc}")
 
-    return folder, compile_result, ats_result
+    return target_folder, compile_result, ats_result
 
 
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
@@ -152,7 +161,7 @@ def list_applications(applications_dir: Path | None = None) -> list[dict[str, st
             continue
         meta_file = folder / "meta.json"
         if not meta_file.is_file():
-            raise ValueError(f"Missing meta.json in {folder}.")
+            continue
         try:
             data = json.loads(meta_file.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as exc:
@@ -220,16 +229,16 @@ def update_application_status(
     from .db import DEFAULT_DB_PATH, get_connection, sync_to_turso, update_application_status_in_db
 
     if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
+        conn = get_connection(DEFAULT_DB_PATH)
         try:
-            conn = get_connection(DEFAULT_DB_PATH)
-            try:
-                update_application_status_in_db(conn, target_folder.name, new_status)
-            finally:
-                conn.close()
+            update_application_status_in_db(conn, target_folder.name, new_status)
+        finally:
+            conn.close()
 
-            if sync_cloud:
+        if sync_cloud:
+            try:
                 sync_to_turso()
-        except Exception:
-            pass
+            except Exception:
+                pass
 
     return target_folder, old_status, new_status

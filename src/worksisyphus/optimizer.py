@@ -157,6 +157,80 @@ def solve_line_budget_knapsack(
     return exp_picks, proj_picks, total_lines
 
 
+def apply_selection_guardrails(
+    experiences: list[ScoredEntry],
+    projects: list[ScoredEntry],
+    jd_text: str,
+    role_name: str,
+) -> tuple[list[ScoredEntry], list[ScoredEntry]]:
+    """Enforce Simon's selection guardrails deterministically."""
+    jd_lower = jd_text.lower()
+    role_lower = role_name.lower()
+
+    # 1. BU IT gate: only selected for IT/support/security roles
+    is_it_role = any(
+        kw in jd_lower or kw in role_lower
+        for kw in ("it support", "desktop support", "it technician", "help desk", "it specialist", "sysadmin")
+    )
+    filtered_exp = [e for e in experiences if e.slug != "bu-engineering-it" or is_it_role]
+
+    # 2. Weak-project gate: only appear when JD directly matches their domain
+    has_mobile = any(
+        kw in jd_lower for kw in ("mobile", "ios", "android", "swift", "swiftui", "react native", "flutter")
+    )
+    has_civic = any(
+        kw in jd_lower for kw in ("civic", "food waste", "sustainability", "climate", "non-profit", "social impact")
+    )
+    has_crypto = any(
+        kw in jd_lower for kw in ("blockchain", "web3", "crypto", "smart contract", "ethereum", "solana", "defi")
+    )
+
+    # 3. Personal-website gate: only for frontend/fullstack/web-infra/edge; never quant/systems/infra
+    is_frontend_web = any(
+        kw in jd_lower
+        for kw in ("frontend", "front-end", "ui", "ux", "react", "next.js", "full stack", "fullstack", "web")
+    )
+    is_systems_quant = any(
+        kw in jd_lower or kw in role_lower
+        for kw in ("quant", "systems", "infra", "low-latency", "c++", "kernel", "trading", "embedded", "networking")
+    )
+    allow_personal_website = is_frontend_web and not is_systems_quant
+
+    filtered_proj = [
+        p
+        for p in projects
+        if (p.slug != "fitness-tracker" or has_mobile)
+        and (p.slug != "spark-food-waste" or has_civic)
+        and (p.slug != "ml-marketplace" or has_crypto)
+        and (p.slug != "personal-website" or allow_personal_website)
+    ]
+
+    # 4. Domain-specific prioritization
+    is_engineering = is_systems_quant or any(
+        kw in jd_lower
+        for kw in ("backend", "distributed", "performance", "systems", "infra", "concurrency", "low-latency")
+    )
+
+    if has_mobile and any(p.slug == "fitness-tracker" for p in filtered_proj):
+        fitness = [p for p in filtered_proj if p.slug == "fitness-tracker"]
+        others = [p for p in filtered_proj if p.slug != "fitness-tracker"]
+        filtered_proj = fitness + others
+    elif has_civic and any(p.slug == "spark-food-waste" for p in filtered_proj):
+        spark = [p for p in filtered_proj if p.slug == "spark-food-waste"]
+        others = [p for p in filtered_proj if p.slug != "spark-food-waste"]
+        filtered_proj = spark + others
+    elif has_crypto and any(p.slug == "ml-marketplace" for p in filtered_proj):
+        ml_m = [p for p in filtered_proj if p.slug == "ml-marketplace"]
+        others = [p for p in filtered_proj if p.slug != "ml-marketplace"]
+        filtered_proj = ml_m + others
+    elif is_engineering and any(p.slug == "persephone" for p in filtered_proj):
+        persephone = [p for p in filtered_proj if p.slug == "persephone"]
+        others = [p for p in filtered_proj if p.slug != "persephone"]
+        filtered_proj = persephone + others
+
+    return filtered_exp, filtered_proj
+
+
 def generate_candidate_plans(
     profile: Profile,
     jd_text: str,
@@ -165,6 +239,7 @@ def generate_candidate_plans(
     """Generate line-budgeted candidate plans using the knapsack solver."""
     agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
     experiences, projects = score_and_rank_entries(profile, agent)
+    experiences, projects = apply_selection_guardrails(experiences, projects, jd_text, role_name)
 
     candidates: list[dict[str, Any]] = []
 

@@ -47,10 +47,11 @@ class Deductions(BaseModel):
 
 def load_role(role_name: str = "startup_product_engineer", jd_text: str | None = None) -> Role:
     """Load a role specification from the roles/ directory, or synthesize from JD if missing."""
-    role_dir = ROLES_DIR / role_name
-    if not role_dir.is_dir():
+    slug = re.sub(r"[^a-zA-Z0-9_]+", "_", role_name.lower()).strip("_")
+    role_dir = ROLES_DIR / slug
+    if not role_dir.is_dir() or not (role_dir / "role.json").is_file():
         if jd_text and jd_text.strip():
-            return synthesize_role_rubric(role_name=role_name, jd_text=jd_text)
+            return synthesize_role_rubric(role_name=slug, jd_text=jd_text)
         available = list_roles()
         raise FileNotFoundError(f"Role '{role_name}' not found. Available roles: {', '.join(available)}")
 
@@ -63,7 +64,7 @@ def load_role(role_name: str = "startup_product_engineer", jd_text: str | None =
     ]
 
     return Role(
-        name=role_name,
+        name=slug,
         position_title=manifest.get("position_title", role_name),
         categories=categories,
         bonus_max=manifest.get("bonus_max", 10),
@@ -91,8 +92,10 @@ def synthesize_role_rubric(
     if not safe_slug:
         safe_slug = "custom_role"
     role_dir = ROLES_DIR / safe_slug
-    role_dir.mkdir(parents=True, exist_ok=True)
+    if (role_dir / "role.json").is_file():
+        return load_role(safe_slug)
 
+    role_dir.mkdir(parents=True, exist_ok=True)
     title = position_title or role_name.replace("_", " ").title()
 
     categories_manifest = [

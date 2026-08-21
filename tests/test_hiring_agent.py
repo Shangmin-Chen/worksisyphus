@@ -274,3 +274,18 @@ def test_synthesize_role_rubric_and_cleanup(tmp_path, monkeypatch) -> None:
     assert len(role.categories) == 3
     assert (tmp_path / "roles" / "cloud_platform_engineer" / "role.json").is_file()
     assert (tmp_path / "roles" / "cloud_platform_engineer" / "criteria.jinja").is_file()
+
+    # Verify that calling synthesize on an existing role does not overwrite it
+    (tmp_path / "roles" / "cloud_platform_engineer" / "role.json").write_text('{"categories": []}', encoding="utf-8")
+    existing_role = hiring_agent.synthesize_role_rubric(
+        role_name="cloud_platform_engineer",
+        jd_text="Different JD",
+    )
+    assert existing_role.name == "cloud_platform_engineer"
+
+
+def test_load_role_normalizes_slug() -> None:
+    from worksisyphus.hiring_agent import load_role
+
+    role = load_role("Product Engineer")
+    assert role.name == "product_engineer"

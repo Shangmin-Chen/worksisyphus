@@ -22,6 +22,11 @@ from .profile import Contact, Education, Experience, Profile, Project
 
 DEFAULT_DB_PATH = Path("worksisyphus.db")
 
+ACTION_APPLY = "APPLY"
+ACTION_STATUS_CHANGE = "STATUS_CHANGE"
+ACTION_INSERT = "INSERT"
+ACTION_UPDATE = "UPDATE"
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS contact (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -184,9 +189,7 @@ def seed_database(
     init_schema(conn)
 
     if not profile_path.is_file() and profile_path == Path("profile.json"):
-        if Path("profile.example.json").is_file():
-            profile_path = Path("profile.example.json")
-        elif (Path("tests") / "fixtures" / "profile.json").is_file():
+        if (Path("tests") / "fixtures" / "profile.json").is_file():
             profile_path = Path("tests") / "fixtures" / "profile.json"
 
     # 1. Contact
@@ -287,9 +290,8 @@ def seed_database(
             conn, "skills", "skills", "INSERT", metadata={"groups": list(data.get("skills", {}).keys())}, commit=False
         )
 
-    # 6. Applications
+    # 6. Applications (merge from applications_dir without clobbering existing DB records)
     if applications_dir.is_dir():
-        conn.execute("DELETE FROM applications")
         for d in sorted(applications_dir.iterdir()):
             if not d.is_dir():
                 continue
@@ -320,7 +322,7 @@ def seed_database(
                     plan_json,
                 ),
             )
-            log_audit_event(conn, "application", d.name, "ARCHIVE", metadata=meta, commit=False)
+            log_audit_event(conn, "application", d.name, ACTION_APPLY, metadata=meta, commit=False)
 
     conn.commit()
 
@@ -549,6 +551,16 @@ def sync_to_turso(db_path: Path = DEFAULT_DB_PATH, turso_db_name: str = "worksis
     if not turso_bin or not db_path.is_file():
         return False
     try:
+        dump_proc = subprocess.run(
+            ["sqlite3", str(db_path), ".dump"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        dump_sql = dump_proc.stdout
+        if not dump_sql.strip() or "CREATE TABLE" not in dump_sql:
+            return False
+
         drop_all = """
 DROP TABLE IF EXISTS audit_events;
 DROP TABLE IF EXISTS applications;
@@ -560,22 +572,10 @@ DROP TABLE IF EXISTS experiences;
 DROP TABLE IF EXISTS education;
 DROP TABLE IF EXISTS contact;
 """
-        subprocess.run(
-            [turso_bin, "db", "shell", turso_db_name],
-            input=drop_all,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        dump_proc = subprocess.run(
-            ["sqlite3", str(db_path), ".dump"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
+        full_sync_sql = drop_all + "\n" + dump_sql
         proc = subprocess.run(
             [turso_bin, "db", "shell", turso_db_name],
-            input=dump_proc.stdout,
+            input=full_sync_sql,
             capture_output=True,
             text=True,
             timeout=30,
