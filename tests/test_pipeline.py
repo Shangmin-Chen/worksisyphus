@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 
 import pytest
@@ -40,11 +39,6 @@ def test_tailor_trims_until_one_page(small_profile, monkeypatch, tmp_path) -> No
     assert "Proj" in compiled[0]
     # First trim drops the lowest-ranked project.
     assert r"Proj \& Two" not in compiled[1]
-    provenance = json.loads((tmp_path / ".provenance.json").read_text(encoding="utf-8"))
-    assert provenance == {
-        "plan_hash": hashlib.sha256(_plan_text().encode("utf-8")).hexdigest(),
-        "pdf_hash": hashlib.sha256(b"%PDF-fake").hexdigest(),
-    }
 
 
 def test_tailor_raises_when_nothing_left_to_trim(small_profile, monkeypatch, tmp_path) -> None:
@@ -92,77 +86,3 @@ def test_tailor_accepts_one_page_without_horizontal_overflow(small_profile, monk
     monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
 
     assert tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=tmp_path).overfull == ()
-
-
-def test_tailor_invalidates_provenance_before_compile(small_profile, monkeypatch, tmp_path) -> None:
-    pdf_dir = tmp_path / "pdf"
-    pdf_dir.mkdir()
-    provenance_path = pdf_dir / ".provenance.json"
-    provenance_path.write_text(json.dumps({"plan_hash": "old-plan", "pdf_hash": "old-pdf"}), encoding="utf-8")
-
-    def failed_compile(tex: str, name: str, tex_dir, output_dir) -> CompileResult:
-        (output_dir / f"{name}.pdf").write_bytes(b"partially replaced")
-        raise RuntimeError("compiler failed")
-
-    monkeypatch.setattr(pipeline, "compile_tex", failed_compile)
-    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
-
-    with pytest.raises(RuntimeError, match="compiler failed"):
-        tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=pdf_dir)
-
-    provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
-    assert provenance == {"plan_hash": hashlib.sha256(_plan_text().encode("utf-8")).hexdigest()}
-
-
-def test_tailor_normalizes_crlf_for_plan_hash(small_profile, monkeypatch, tmp_path) -> None:
-    plan_text = _plan_text().replace("{", "{\r\n", 1)
-
-    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
-        pdf_path = pdf_dir / f"{name}.pdf"
-        pdf_path.write_bytes(b"%PDF-fake")
-        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
-
-    monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
-    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
-
-    tailor(plan_text, tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
-
-    provenance = json.loads((tmp_path / ".provenance.json").read_text(encoding="utf-8"))
-    normalized_plan = plan_text.replace("\r\n", "\n")
-    assert provenance["plan_hash"] == hashlib.sha256(normalized_plan.encode("utf-8")).hexdigest()
-
-
-def test_tailor_writes_lockfile_and_blocks_conflict(small_profile, monkeypatch, tmp_path) -> None:
-    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
-        pdf_path = pdf_dir / f"{name}.pdf"
-        pdf_path.write_bytes(b"%PDF-fake")
-        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
-
-    monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
-    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
-
-    plan_a = json.dumps({"projects": ["proj1"]})
-    plan_b = json.dumps({"projects": ["proj2"]})
-
-    # 1. Tailor Plan A creates lockfile
-    tailor(plan_a, plan_name="bloomberg", tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
-    lock_file = tmp_path / ".tailor.lock"
-    assert lock_file.is_file()
-    lock_data = json.loads(lock_file.read_text(encoding="utf-8"))
-    assert lock_data["plan_name"] == "bloomberg"
-    assert lock_data["plan_hash"] == hashlib.sha256(plan_a.encode("utf-8")).hexdigest()
-
-    # 2. Re-tailoring same plan succeeds without error
-    tailor(plan_a, plan_name="bloomberg", tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
-
-    # 3. Tailoring Plan B without force raises RuntimeError
-    with pytest.raises(RuntimeError, match=r"Unarchived tailored resume exists for plan 'bloomberg'"):
-        tailor(plan_b, plan_name="citadel", tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
-
-    # 4. Tailoring Plan B with force=True succeeds and updates lockfile
-    logs: list[str] = []
-    tailor(plan_b, plan_name="citadel", force=True, log=logs.append, tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
-    assert any("Overwriting unarchived tailored resume" in log for log in logs)
-    updated_lock = json.loads(lock_file.read_text(encoding="utf-8"))
-    assert updated_lock["plan_name"] == "citadel"
-    assert updated_lock["plan_hash"] == hashlib.sha256(plan_b.encode("utf-8")).hexdigest()

@@ -71,11 +71,44 @@ def test_update_status_reports_transition(monkeypatch, capsys, tmp_path) -> None
     monkeypatch.setattr(
         cli,
         "update_application_status",
-        lambda app, status: (folder, "applied", status),
+        lambda app, status, **kwargs: (folder, "applied", status),
     )
 
     assert cli.main(["update-status", "--app", folder.name, "--status", "phone_screen"]) == 0
     assert capsys.readouterr().out == "Updated 2026-08-05_dirac_full-stack-engineer: applied -> phone_screen\n"
+
+
+def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
+    import io
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.compiler import CompileResult
+
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+    recorded = {}
+
+    def fake_apply(plan_text, jd_text, company, role="", source_url="", plan_name="", **kwargs):
+        recorded["plan_text"] = plan_text
+        recorded["jd_text"] = jd_text
+        recorded["company"] = company
+        folder = tmp_path / "applications" / "2026-08-20_primitive_product-engineer"
+        folder.mkdir(parents=True, exist_ok=True)
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
+
+    import worksisyphus.application as app_module
+
+    monkeypatch.setattr(app_module, "apply", fake_apply)
+    monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
+
+    ret = cli.main(["apply", "--company", "Primitive", "--role", "Product Engineer", "--jd", "-", "--plan", plan])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "Exported" in out
+    assert "ATS check: passed" in out
+    assert "Application created:" in out
+    assert recorded["company"] == "Primitive"
+    assert recorded["jd_text"] == "JD text content"
 
 
 def test_archive_reads_jd_from_stdin(monkeypatch, tmp_path, capsys) -> None:
@@ -85,7 +118,7 @@ def test_archive_reads_jd_from_stdin(monkeypatch, tmp_path, capsys) -> None:
     plan = _write_plan(tmp_path, {"projects": ["proj1"]})
     recorded_args = {}
 
-    def fake_archive(plan_path, pdf_path, jd_text, company, role="", source_url=""):
+    def fake_archive(plan_path, pdf_path, jd_text, company, role="", source_url="", **kwargs):
         recorded_args["plan_path"] = plan_path
         recorded_args["jd_text"] = jd_text
         recorded_args["company"] = company
@@ -279,14 +312,33 @@ def test_cli_tailor_invokes_pipeline_with_force(monkeypatch, tmp_path) -> None:
     assert recorded["force"] is True
 
 
-def test_cli_tailor_handles_unarchived_error(monkeypatch, tmp_path, capsys) -> None:
-    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
+    import io
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.compiler import CompileResult
 
-    def fake_tailor(plan_text, plan_name="custom", force=False, log=None):
-        raise RuntimeError("Unarchived tailored resume exists for plan 'other_company'")
+    recorded = {}
 
-    monkeypatch.setattr(cli, "tailor", fake_tailor)
+    def fake_apply(plan_text, jd_text, company, role="", source_url="", plan_name="", **kwargs):
+        recorded["plan_text"] = plan_text
+        recorded["jd_text"] = jd_text
+        recorded["company"] = company
+        folder = tmp_path / "applications" / "2026-08-20_primitive_product-engineer"
+        folder.mkdir(parents=True, exist_ok=True)
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
 
-    assert cli.main(["tailor", "--plan", plan]) == 1
-    err = capsys.readouterr().err
-    assert "error: Unarchived tailored resume exists for plan 'other_company'" in err
+    import worksisyphus.application as app_module
+
+    monkeypatch.setattr(app_module, "apply", fake_apply)
+    monkeypatch.setattr("sys.stdin", io.StringIO("Full-stack engineer building with Python and TypeScript."))
+
+    ret = cli.main(["apply", "--company", "Primitive", "--role", "product_engineer", "--jd", "-", "--no-sync"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "Exported" in out
+    assert "ATS check: passed" in out
+    assert recorded["company"] == "Primitive"
+    assert "projects" in recorded["plan_text"]
+

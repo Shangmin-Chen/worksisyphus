@@ -21,10 +21,10 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
 1. Open Claude Code in this repo: `claude`
 2. Paste the job description:
    > Tailor my resume to this JD: *(paste the whole posting, company name included)*
-3. Claude runs the pipeline: reads the slug index, writes `plans/<company>_<role>.json` ranked by relevance, validates it, compiles the one-page PDF, and runs the ATS extraction check.
-4. The resume is done when it's exactly one page and the ATS check passes — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut. (Content edits are different: Claude may propose bullet rewordings but never touches `profile.json` without my approval.)
-5. `resumes/Simon_Chen_Resume.pdf` is what goes to the employer — every tailored resume gets that same recruiter-friendly filename. The 3-page canonical never goes out.
-6. Claude then freezes the application with `worksisyphus archive` into `applications/<date>_<name>/` — the JD verbatim, the frozen plan, the exact PDF sent, and a `meta.json` with a `status` field. That folder is the immutable record for callbacks ("which applications are still open?" is answered from `applications/*/meta.json`).
+3. Claude runs the unified `apply` pipeline: reads the slug index, writes `plans/<company>_<role>.json` ranked by relevance, validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, runs the ATS extraction check, and automatically syncs to Turso cloud.
+4. The resume is done when `apply` succeeds (exactly one page, no horizontal overflow, ATS check passed) — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut.
+5. `resumes/Simon_Chen_Resume.pdf` is mirrored as the latest copy for quick opening. The 3-page canonical never goes out.
+6. The application is automatically tracked in SQLite and Turso cloud with full metadata, JD text, and audit logs.
 
 List tracked applications with `worksisyphus status`. Update one with
 `worksisyphus update-status --app <folder-or-unique-plan-stem> --status <status>`.
@@ -34,10 +34,10 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 ## Manual usage (no agent)
 
 ```bash
+uv run worksisyphus apply --company Acme --jd <file|-> [--role <role>] [--plan plans/x.json] # 1-step compile, validate, freeze & Turso sync
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan plans/x.json  # check a plan and print the resolved selection
-uv run worksisyphus tailor --plan plans/x.json    # one-page resume from a plan (- for stdin, -f for force)
-uv run worksisyphus archive --plan plans/x.json --company Acme --jd <file|->   # freeze an application folder (- for stdin)
+uv run worksisyphus tailor --plan plans/x.json    # standalone one-page resume from a plan (- for stdin)
 uv run worksisyphus status                        # list archived applications and identifiers
 uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD

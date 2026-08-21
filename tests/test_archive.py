@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 
-from worksisyphus import archive_application
-from worksisyphus.archive import list_applications, update_application_status
+from worksisyphus import CompileResult, apply, archive_application
+from worksisyphus.application import list_applications, slugify, update_application_status
+from worksisyphus.ats import ATSCheckResult
 
 
 @pytest.fixture()
@@ -16,17 +17,109 @@ def built(tmp_path):
     plan.write_text('{"projects": ["proj1"]}', encoding="utf-8")
     pdf = tmp_path / "acme_swe_resume.pdf"
     pdf.write_bytes(b"%PDF-fake")
-    (tmp_path / ".provenance.json").write_text(
-        json.dumps(
-            {
-                "plan_hash": hashlib.sha256(plan.read_bytes()).hexdigest(),
-                "pdf_hash": hashlib.sha256(pdf.read_bytes()).hexdigest(),
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     return plan, pdf, tmp_path / "applications"
+
+
+def test_slugify() -> None:
+    assert slugify("Primitive") == "primitive"
+    assert slugify("Product Engineer") == "product-engineer"
+    assert slugify("  Founding SWE (AI / Systems)  ") == "founding-swe-ai-systems"
+
+
+def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_path) -> None:
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    def fake_ats(pdf_path, **kwargs) -> ATSCheckResult:
+        return ATSCheckResult(passed=True, problems=(), pages=1, word_count=450, text="Simon Chen")
+
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
+    monkeypatch.setattr(app_module, "check_pdf_ats", fake_ats)
+
+    plan_text = json.dumps({"experiences": {"org-a": ["a1"]}, "projects": {"proj1": ["p1"]}})
+    apps_dir = tmp_path / "applications"
+    res_dir = tmp_path / "resumes"
+
+    folder, comp_res, ats_res = apply(
+        plan_text=plan_text,
+        jd_text="Backend engineer role",
+        company="Acme Corp",
+        role="Product Engineer",
+        when=date(2026, 8, 20),
+        applications_dir=apps_dir,
+        pdf_dir=res_dir,
+        sync_cloud=False,
+    )
+
+    assert folder == apps_dir / "2026-08-20_acme-corp_product-engineer"
+    assert (folder / "Simon_Chen_Resume.pdf").is_file()
+    assert (folder / "plan.json").is_file()
+    assert (folder / "jd.txt").read_text() == "Backend engineer role\n"
+    assert (res_dir / "Simon_Chen_Resume.pdf").is_file()
+    assert ats_res.passed is True
+
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["company"] == "Acme Corp"
+    assert meta["role"] == "Product Engineer"
+    assert meta["status"] == "applied"
+
+
+def test_apply_rejects_empty_jd(tmp_path) -> None:
+    with pytest.raises(ValueError, match="jd_text is empty"):
+        apply(
+            plan_text="{}",
+            jd_text="   ",
+            company="Acme",
+            applications_dir=tmp_path / "applications",
+        )
+
+
+def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
+    monkeypatch.setattr(
+        app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 100, "text")
+    )
+
+    plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
+    apps_dir = tmp_path / "applications"
+
+    apply(
+        plan_text=plan_text,
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        applications_dir=apps_dir,
+        pdf_dir=tmp_path / "resumes",
+        sync_cloud=False,
+    )
+
+    with pytest.raises(FileExistsError, match="immutable"):
+        apply(
+            plan_text=plan_text,
+            jd_text="JD text",
+            company="Acme",
+            role="SWE",
+            when=date(2026, 8, 20),
+            applications_dir=apps_dir,
+            pdf_dir=tmp_path / "resumes",
+            sync_cloud=False,
+        )
 
 
 def test_archive_freezes_all_four_files(built) -> None:
@@ -75,62 +168,12 @@ def test_archive_requires_compiled_pdf(built) -> None:
         archive_application(plan, pdf, "jd", company="Acme", applications_dir=apps)
 
 
-def test_archive_rejects_provenance_mismatch(built) -> None:
-    plan, pdf, apps = built
-    prov = pdf.parent / ".provenance.json"
-    prov.write_text(
-        json.dumps(
-            {
-                "plan_hash": "deadbeef1234",
-                "pdf_hash": hashlib.sha256(pdf.read_bytes()).hexdigest(),
-            }
-        )
-        + "\n",
-        encoding="utf-8",
-    )
-    with pytest.raises(ValueError, match="provenance mismatch"):
-        archive_application(plan, pdf, "jd", company="Acme", applications_dir=apps)
-
-
-@pytest.mark.parametrize("contents", ["{", "[]", "{}"])
-def test_archive_rejects_invalid_provenance(built, contents: str) -> None:
-    plan, pdf, apps = built
-    (pdf.parent / ".provenance.json").write_text(contents, encoding="utf-8")
-    with pytest.raises(ValueError, match="Could not validate build provenance"):
-        archive_application(plan, pdf, "jd", company="Acme", applications_dir=apps)
-
-
-def test_archive_rejects_missing_provenance(built) -> None:
-    plan, pdf, apps = built
-    (pdf.parent / ".provenance.json").unlink()
-    with pytest.raises(ValueError, match="No build provenance"):
-        archive_application(plan, pdf, "jd", company="Acme", applications_dir=apps)
-
-
-def test_archive_rejects_pdf_changed_after_tailoring(built) -> None:
-    plan, pdf, apps = built
-    pdf.write_bytes(b"%PDF-replaced")
-    with pytest.raises(ValueError, match="changed after tailoring"):
-        archive_application(plan, pdf, "jd", company="Acme", applications_dir=apps)
-
-
 def test_archive_accepts_crlf_plan_and_preserves_original_bytes(built) -> None:
     plan, pdf, apps = built
     plan_bytes = b'{\r\n  "projects": ["proj1"]\r\n}\r\n'
     plan.write_bytes(plan_bytes)
-    normalized_plan = plan_bytes.decode("utf-8").replace("\r\n", "\n")
-    (pdf.parent / ".provenance.json").write_text(
-        json.dumps(
-            {
-                "plan_hash": hashlib.sha256(normalized_plan.encode("utf-8")).hexdigest(),
-                "pdf_hash": hashlib.sha256(pdf.read_bytes()).hexdigest(),
-            }
-        ),
-        encoding="utf-8",
-    )
 
     folder = archive_application(plan, pdf, "jd", company="Acme", applications_dir=apps)
-
     assert (folder / "plan.json").read_bytes() == plan_bytes
 
 
@@ -144,7 +187,7 @@ def test_list_and_update_application_status(built) -> None:
     assert app_list[0]["company"] == "Acme"
     assert app_list[0]["status"] == "applied"
 
-    target, old, new = update_application_status("acme_swe", "phone_screen", applications_dir=apps)
+    target, old, new = update_application_status("acme_swe", "phone_screen", applications_dir=apps, sync_cloud=False)
     assert target == folder
     assert old == "applied"
     assert new == "phone_screen"
@@ -159,13 +202,13 @@ def test_update_status_rejects_ambiguous_stem_and_partial_match(built) -> None:
     second = archive_application(plan, pdf, "jd", company="Acme", when=date(2026, 7, 12), applications_dir=apps)
 
     with pytest.raises(ValueError, match="ambiguous"):
-        update_application_status("acme_swe", "phone_screen", applications_dir=apps)
+        update_application_status("acme_swe", "phone_screen", applications_dir=apps, sync_cloud=False)
     with pytest.raises(FileNotFoundError, match="No application folder"):
-        update_application_status("acme", "phone_screen", applications_dir=apps)
+        update_application_status("acme", "phone_screen", applications_dir=apps, sync_cloud=False)
     with pytest.raises(ValueError, match="must not be empty"):
-        update_application_status("", "phone_screen", applications_dir=apps)
+        update_application_status("", "phone_screen", applications_dir=apps, sync_cloud=False)
 
-    target, old, new = update_application_status(first.name, "phone_screen", applications_dir=apps)
+    target, old, new = update_application_status(first.name, "phone_screen", applications_dir=apps, sync_cloud=False)
     assert (target, old, new) == (first, "applied", "phone_screen")
     assert not (first / "meta.json.tmp").exists()
     assert json.loads((second / "meta.json").read_text(encoding="utf-8"))["status"] == "applied"
@@ -178,13 +221,3 @@ def test_list_applications_reports_invalid_metadata(tmp_path) -> None:
 
     with pytest.raises(ValueError, match=r"2026-07-11_acme_swe.*JSON object"):
         list_applications(tmp_path / "applications")
-
-
-def test_archive_releases_tailor_lock(built) -> None:
-    plan, pdf, apps = built
-    lock_path = pdf.parent / ".tailor.lock"
-    lock_path.write_text('{"plan_name": "acme_swe"}', encoding="utf-8")
-    assert lock_path.is_file()
-
-    archive_application(plan, pdf, "the JD text", company="Acme", applications_dir=apps)
-    assert not lock_path.exists()

@@ -26,22 +26,21 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 1. `uv run worksisyphus index` — see every selectable slug with full bullet text.
 2. Write `plans/<company>_<role>.json` (see `plans/example.json` for the format; order = rank).
 3. `uv run worksisyphus validate --plan plans/<name>.json` — catches unknown slugs and shows the resolved selection without compiling.
-4. `uv run worksisyphus tailor --plan plans/<name>.json` — renders, compiles, trims to one page. Output is always `resumes/Simon_Chen_Resume.pdf`, regardless of plan.
-5. ATS check: `uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume.pdf` — must pass.
-6. **Deliver.** The resume is done when it compiles to exactly 1 page AND has no horizontal overflow (tailor fails mechanically on overflow) AND the ATS check passes — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
-7. **Archive.** Immediately after delivering, freeze the application:
+4. **Apply (1-step compile, ATS check, freeze & Turso sync):**
 
    ```bash
-   cat << 'EOF' | uv run worksisyphus archive --plan plans/<name>.json --company <Company> --jd - [--role <Role>] [--url <posting url>]
+   cat << 'EOF' | uv run worksisyphus apply --company <Company> --jd - [--role <Role>] [--url <posting url>] [--plan plans/<name>.json]
    <Pasted JD text>
    EOF
    ```
 
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
 
-   This creates `applications/<YYYY-MM-DD>_<plan-stem>/` with `jd.txt` (verbatim posting), `plan.json` and `Simon_Chen_Resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`). Archive immediately after tailoring: all plans share the `Simon_Chen_Resume.pdf` output, so a later tailor run overwrites it.
+   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json` and `Simon_Chen_Resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`), mirrors the PDF to `resumes/Simon_Chen_Resume.pdf`, runs ATS extraction check, inserts into `worksisyphus.db`, and automatically syncs to Turso cloud.
 
-   Archived folders are immutable history: never modify an archived `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json`.
+5. **Deliver.** The resume is done when `apply` succeeds (compiles to exactly 1 page AND has no horizontal overflow AND passes ATS extraction check) — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
+
+   Archived folders are immutable history: never modify an archived `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json` or `uv run worksisyphus status`.
 
 ## Editing profile.json (only with approval)
 
@@ -53,17 +52,17 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 ## Commands
 
 ```bash
+uv run worksisyphus apply --company <name> --jd <file|-> [--role <role>] [--plan <plan>]  # 1-step compile, validate, freeze & Turso sync
 uv run worksisyphus compile                      # canonical 3-page database view (never for employers)
 uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
-uv run worksisyphus tailor --plan <file|->       # build the one-page PDF (-f for force)
-uv run worksisyphus archive --plan <file> --company <name> --jd <file|->  # freeze an application folder
+uv run worksisyphus tailor --plan <file|->       # build standalone one-page PDF
 uv run worksisyphus status                       # list all archived applications and their status
-uv run worksisyphus update-status --app <name> --status <status>  # update status (applied -> phone_screen / onsite / offer / rejected)
+uv run worksisyphus update-status --app <name> --status <status>  # update status & auto-sync to Turso
 uv run worksisyphus evaluate --app <name>        # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
 uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluate the full profile.json canonical database directly
-uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation (software_engineer, product_engineer, startup_product_engineer, ai_engineer, mle, systems_engineer, quant_engineer, software_engineering_intern)
+uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
 uv run worksisyphus evaluate --check-upstream        # check sync status against upstream interviewstreet/hiring-agent
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find highest-scoring plan for a JD
 uv run worksisyphus db status                    # show database overview, metrics, and connection status

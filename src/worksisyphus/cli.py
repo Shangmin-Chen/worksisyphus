@@ -47,6 +47,20 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Overwrite unarchived tailored resume without warning.",
     )
+    apply_cmd = sub.add_parser(
+        "apply",
+        help="Tailor, validate, compile directly into applications/<app>, run ATS check, and sync to Turso.",
+    )
+    apply_cmd.add_argument("--company", required=True, help="Company applied to.")
+    apply_cmd.add_argument("--jd", required=True, help="Path to the job description text file, or - for stdin.")
+    apply_cmd.add_argument("--role", default="", help="Role title, if known.")
+    apply_cmd.add_argument("--url", default="", help="Posting URL, if any.")
+    apply_cmd.add_argument(
+        "--plan",
+        default=None,
+        help="Path to a plan JSON file, or - for stdin. If omitted, uses the knapsack optimizer.",
+    )
+    apply_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     validate_cmd = sub.add_parser("validate", help="Parse a plan and print the resolved selection; no LaTeX involved.")
     validate_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
     archive_cmd = sub.add_parser("archive", help="Freeze a compiled application into applications/<date>_<name>/.")
@@ -55,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     archive_cmd.add_argument("--jd", required=True, help="Path to the job description text file, or - for stdin.")
     archive_cmd.add_argument("--role", default="", help="Role title, if known.")
     archive_cmd.add_argument("--url", default="", help="Posting URL, if any.")
+    archive_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     sub.add_parser("status", help="List all archived applications and their current statuses.")
     update_cmd = sub.add_parser("update-status", help="Update the status of an archived application.")
     update_cmd.add_argument(
@@ -63,6 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Exact application folder name or unique plan stem (e.g. dirac_full-stack-engineer).",
     )
     update_cmd.add_argument("--status", required=True, choices=STATUSES, help="New status value.")
+    update_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     db_cmd = sub.add_parser("db", help="Manage SQLite and Turso database layer.")
     db_sub = db_cmd.add_subparsers(dest="db_action", required=True)
     db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
@@ -117,6 +133,33 @@ def main(argv: list[str] | None = None) -> int:
             print(profile_index(load_profile()))
         elif args.command == "validate":
             print(_describe(parse_plan(_read_plan(args.plan), load_profile())))
+        elif args.command == "apply":
+            from .application import apply as apply_app
+            from .optimizer import optimize_plan
+
+            profile = load_profile()
+            jd_text = _read_plan(args.jd)
+            if args.plan:
+                plan_text = _read_plan(args.plan)
+                plan_name = Path(args.plan).stem if args.plan != "-" else ""
+            else:
+                best_plan, _, _ = optimize_plan(profile, jd_text, role_name=args.role or "software_engineer")
+                plan_text = json.dumps(best_plan, indent=2)
+                plan_name = ""
+
+            folder, compile_res, ats_res = apply_app(
+                plan_text=plan_text,
+                jd_text=jd_text,
+                company=args.company,
+                role=args.role,
+                source_url=args.url,
+                plan_name=plan_name,
+                sync_cloud=not args.no_sync,
+                log=print,
+            )
+            print(f"Exported {folder / 'Simon_Chen_Resume.pdf'} (1 page).")
+            print(f"ATS check: {'passed' if ats_res.passed else 'failed'} ({len(ats_res.text.split())} words extracted)")
+            print(f"Application created: {folder}")
         elif args.command == "archive":
             if args.plan == "-":
                 raise ValueError("archive requires a plan file path, not stdin (use --plan <path>).")
@@ -132,6 +175,7 @@ def main(argv: list[str] | None = None) -> int:
                 company=args.company,
                 role=args.role,
                 source_url=args.url,
+                sync_cloud=not args.no_sync,
             )
             print(f"Archived {folder}")
         elif args.command == "status":
@@ -150,7 +194,9 @@ def main(argv: list[str] | None = None) -> int:
                         f"{_fit_column(app.get('status', ''), 15):<15} {app.get('folder', '')}"
                     )
         elif args.command == "update-status":
-            folder, old_status, new_status = update_application_status(args.app, args.status)
+            folder, old_status, new_status = update_application_status(
+                args.app, args.status, sync_cloud=not args.no_sync
+            )
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
         elif args.command == "db":
             from .db import (
