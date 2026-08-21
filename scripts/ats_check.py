@@ -31,11 +31,12 @@ def main() -> int:
     profile = load_profile(profile_path)
     contact = profile.contact
 
+    has_real_profile = (ROOT / "profile.json").is_file()
     result = check_pdf_ats(
         pdf_path=pdf,
         name=contact.name,
-        email=contact.email,
-        phone=contact.phone,
+        email=contact.email if has_real_profile else None,
+        phone=contact.phone if has_real_profile else None,
     )
 
     for warning in result.warnings:
