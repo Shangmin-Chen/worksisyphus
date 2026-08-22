@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -157,6 +158,124 @@ def solve_line_budget_knapsack(
     return exp_picks, proj_picks, total_lines
 
 
+IT_KEYWORDS = ("it support", "desktop support", "it technician", "help desk", "it specialist", "sysadmin")
+MOBILE_KEYWORDS = ("mobile", "ios", "android", "swift", "swiftui", "react native", "flutter")
+CIVIC_KEYWORDS = ("civic", "food waste", "sustainability", "climate", "non-profit", "social impact")
+CRYPTO_KEYWORDS = (
+    "blockchain",
+    "web3",
+    "crypto",
+    "cryptocurrency",
+    "smart contract",
+    "ethereum",
+    "solana",
+    "defi",
+)
+FRONTEND_KEYWORDS = (
+    "frontend",
+    "front-end",
+    "ui",
+    "ux",
+    "react",
+    "next.js",
+    "full stack",
+    "fullstack",
+    "web",
+    "edge",
+    "serverless",
+)
+SYSTEMS_QUANT_KEYWORDS = (
+    "quant",
+    "quantitative",
+    "systems",
+    "infra",
+    "infrastructure",
+    "low-latency",
+    "c++",
+    "kernel",
+    "trading",
+    "embedded",
+    "networking",
+)
+ENGINEERING_KEYWORDS = ("backend", "distributed", "performance", "systems", "infra", "concurrency", "low-latency")
+
+
+def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
+    """Whole-token keyword search over already-lowercased text.
+
+    Plain substring matching is unusable here: 'ui' occurs inside 'building', 'ux' inside
+    'luxury', 'quant' inside 'quantify'. Word boundaries are expressed with alphanumeric
+    lookarounds rather than \\b so that keywords ending in punctuation ('c++', 'next.js')
+    still match.
+    """
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", text) for kw in keywords)
+
+
+def _promote(entries: list[ScoredEntry], slug: str) -> list[ScoredEntry]:
+    """Move the named slug to the front, preserving the relative order of everything else."""
+    if not any(e.slug == slug for e in entries):
+        return entries
+    return [e for e in entries if e.slug == slug] + [e for e in entries if e.slug != slug]
+
+
+def apply_selection_guardrails(
+    experiences: list[ScoredEntry],
+    projects: list[ScoredEntry],
+    jd_text: str,
+    role_name: str,
+) -> tuple[list[ScoredEntry], list[ScoredEntry]]:
+    """Enforce Simon's selection guardrails deterministically."""
+    jd_lower = jd_text.lower()
+    # Role rubric names are snake_case ("it_specialist"); keywords are written with spaces
+    # ("it specialist"), so normalize separators before matching or multi-word keywords never hit.
+    role_lower = re.sub(r"[_\-]+", " ", role_name.lower())
+
+    # 1. BU IT gate: only selected for IT/support/security roles
+    is_it_role = _mentions(jd_lower, IT_KEYWORDS) or _mentions(role_lower, IT_KEYWORDS)
+    filtered_exp = [e for e in experiences if e.slug != "bu-engineering-it" or is_it_role]
+
+    is_systems_quant = _mentions(jd_lower, SYSTEMS_QUANT_KEYWORDS) or _mentions(role_lower, SYSTEMS_QUANT_KEYWORDS)
+    is_engineering = is_systems_quant or _mentions(jd_lower, ENGINEERING_KEYWORDS)
+
+    # 2. Weak-project gate. The rule is "the JD *is* a mobile / civic / blockchain role", not
+    #    "the JD mentions the word" -- a backend posting that happens to say "mobile clients" must
+    #    not admit fitness-tracker as filler. The role title is the strongest signal, so it can
+    #    admit a domain even when the posting also reads as engineering-heavy.
+    def _is_role(keywords: tuple[str, ...]) -> bool:
+        return _mentions(role_lower, keywords) or (_mentions(jd_lower, keywords) and not is_engineering)
+
+    has_mobile = _is_role(MOBILE_KEYWORDS)
+    has_civic = _is_role(CIVIC_KEYWORDS)
+    has_crypto = _is_role(CRYPTO_KEYWORDS)
+
+    # 3. Personal-website gate: frontend/fullstack/web-infra/edge only; never quant/systems/infra
+    is_frontend_web = _mentions(jd_lower, FRONTEND_KEYWORDS)
+    allow_personal_website = is_frontend_web and not is_systems_quant
+
+    filtered_proj = [
+        p
+        for p in projects
+        if (p.slug != "fitness-tracker" or has_mobile)
+        and (p.slug != "spark-food-waste" or has_civic)
+        and (p.slug != "ml-marketplace" or has_crypto)
+        and (p.slug != "personal-website" or allow_personal_website)
+    ]
+
+    # 4. Ranking. Persephone-first outranks weak-project promotion: an engineering JD that merely
+    #    mentions mobile must not surface fitness-tracker above persephone. Weak projects lead only
+    #    when the JD is not an engineering role at all.
+    if is_engineering:
+        filtered_proj = _promote(filtered_proj, "persephone")
+    elif has_mobile:
+        filtered_proj = _promote(filtered_proj, "fitness-tracker")
+    elif has_civic:
+        filtered_proj = _promote(filtered_proj, "spark-food-waste")
+    elif has_crypto:
+        filtered_proj = _promote(filtered_proj, "ml-marketplace")
+
+    return filtered_exp, filtered_proj
+
+
 def generate_candidate_plans(
     profile: Profile,
     jd_text: str,
@@ -165,6 +284,7 @@ def generate_candidate_plans(
     """Generate line-budgeted candidate plans using the knapsack solver."""
     agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
     experiences, projects = score_and_rank_entries(profile, agent)
+    experiences, projects = apply_selection_guardrails(experiences, projects, jd_text, role_name)
 
     candidates: list[dict[str, Any]] = []
 

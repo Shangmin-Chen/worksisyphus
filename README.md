@@ -21,10 +21,10 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
 1. Open Claude Code in this repo: `claude`
 2. Paste the job description:
    > Tailor my resume to this JD: *(paste the whole posting, company name included)*
-3. Claude runs the pipeline: reads the slug index, writes `plans/<company>_<role>.json` ranked by relevance, validates it, compiles the one-page PDF, and runs the ATS extraction check.
-4. The resume is done when it's exactly one page and the ATS check passes — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut. (Content edits are different: Claude may propose bullet rewordings but never touches `profile.json` without my approval.)
-5. `resumes/Simon_Chen_Resume.pdf` is what goes to the employer — every tailored resume gets that same recruiter-friendly filename. The 3-page canonical never goes out.
-6. Claude then freezes the application with `worksisyphus archive` into `applications/<date>_<name>/` — the JD verbatim, the frozen plan, the exact PDF sent, and a `meta.json` with a `status` field. That folder is the immutable record for callbacks ("which applications are still open?" is answered from `applications/*/meta.json`).
+3. Claude runs the unified `apply` pipeline: reads the slug index, writes `plans/<company>_<role>.json` ranked by relevance, validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, runs the ATS extraction check, and automatically syncs to Turso cloud.
+4. The resume is done when `apply` succeeds (exactly one page, no horizontal overflow, ATS check passed) — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut.
+5. `resumes/Simon_Chen_Resume.pdf` is mirrored as the latest copy for quick opening. The 3-page canonical never goes out.
+6. The application is automatically tracked in SQLite and Turso cloud with full metadata, JD text, and audit logs.
 
 List tracked applications with `worksisyphus status`. Update one with
 `worksisyphus update-status --app <folder-or-unique-plan-stem> --status <status>`.
@@ -34,11 +34,12 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 ## Manual usage (no agent)
 
 ```bash
+uv run worksisyphus apply --company Acme --jd <file|-> [--role <role>] [--plan plans/x.json] [--no-sync] # 1-step compile, validate, freeze & Turso sync
+#   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan plans/x.json  # check a plan and print the resolved selection
-uv run worksisyphus tailor --plan plans/x.json    # one-page resume from a plan (- for stdin, -f for force)
-uv run worksisyphus archive --plan plans/x.json --company Acme --jd <file|->   # freeze an application folder (- for stdin)
-uv run worksisyphus status                        # list archived applications and identifiers
+uv run worksisyphus tailor --plan plans/x.json    # preview build into tex_files/ (never delivers; use apply)
+uv run worksisyphus status                        # list applications and identifiers
 uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
@@ -48,7 +49,7 @@ uv run worksisyphus evaluate --check-upstream     # check sync status against up
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find optimal plan
 uv run worksisyphus db status                     # show database stats and metrics
 uv run worksisyphus db history [--limit N]        # show timestamped append-only audit trail
-uv run worksisyphus db sync                       # export profile.json and sync to Turso cloud
+uv run worksisyphus db sync                       # load profile.json into SQLite and push to Turso cloud
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
 uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume.pdf   # ATS extraction check
 ```
@@ -61,7 +62,7 @@ Every tailored resume compiles to `resumes/Simon_Chen_Resume.pdf` — a clean, h
 ├── compile.sh              # rebuild the canonical full resume
 ├── profile.json            # master database; slug-keyed, values are TeX-formatted
 ├── profile.example.json    # template schema for profile.json
-├── plans/                  # plan files (see plans/example.json)
+├── plans/                  # plan files (see plans/example.json); drafts/ is exempt from the orphan check
 ├── applications/           # one immutable folder per application: jd, plan, pdf, meta
 ├── CLAUDE.md               # rules for AI agents operating this repo
 ├── GEMINI.md               # rules for Antigravity / Gemini agents
@@ -73,15 +74,15 @@ Every tailored resume compiles to `resumes/Simon_Chen_Resume.pdf` — a clean, h
 │   ├── selection.py        # Selection model + deterministic one-page trim order
 │   ├── renderer.py         # Jake's-template TeX renderer (verbatim values)
 │   ├── compiler.py         # pdflatex wrapper with page count
-│   ├── pipeline.py         # tailor() with provenance lock and build_canonical()
-│   ├── archive.py          # freeze sent applications into applications/
+│   ├── pipeline.py          # tailor() preview build and build_canonical()
+│   ├── application.py       # 1-step apply, lifecycle tracking, and cloud sync
 │   ├── ats.py              # ATS text extraction and formatting check
-│   ├── gates.py            # foolproof quality gates (GPA, banned content, density)
+│   ├── gates.py            # quality gates (GPA, banned content, density)
 │   ├── evaluator.py        # resume evaluation and scoring engine
 │   ├── hiring_agent.py     # 1:1 HackerRank hiring agent evaluation pipeline
 │   ├── optimizer.py        # marginal knapsack combinatorial plan optimizer
 │   ├── roles/              # role rubrics and criteria templates
-│   └── cli.py              # compile, tailor, validate, archive, evaluate, optimize, and db CLI
+│   └── cli.py              # compile, tailor, apply, validate, evaluate, optimize, and db CLI
 ├── tex_files/              # rendered TeX (only the canonical one is tracked)
 └── resumes/                # compiled PDFs (all tracked)
 ```

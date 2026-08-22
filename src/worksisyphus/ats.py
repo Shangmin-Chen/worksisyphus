@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import NamedTuple
 
@@ -9,6 +10,9 @@ from pdfminer.high_level import extract_text
 from pdfminer.pdfpage import PDFPage
 
 CANONICAL_STEM = "Simon_Chen_Resume_Compiled"
+MERGED_DATE_RE = re.compile(
+    r"[A-Za-z]{3,}(?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d"
+)
 
 
 class ATSCheckResult(NamedTuple):
@@ -17,6 +21,7 @@ class ATSCheckResult(NamedTuple):
     pages: int
     word_count: int
     text: str
+    warnings: tuple[str, ...] = ()
 
 
 def check_pdf_ats(
@@ -34,6 +39,7 @@ def check_pdf_ats(
             pages=0,
             word_count=0,
             text="",
+            warnings=(),
         )
 
     text = extract_text(pdf_path)
@@ -60,6 +66,11 @@ def check_pdf_ats(
     if "(cid:" in text:
         problems.append("broken glyphs: extraction produced (cid:N) placeholders")
 
+    warnings: list[str] = [
+        f"{m!r} extracted with no whitespace before the date; that keyword will not match"
+        for m in MERGED_DATE_RE.findall(text)
+    ]
+
     words = len(text.split())
     return ATSCheckResult(
         passed=len(problems) == 0,
@@ -67,4 +78,5 @@ def check_pdf_ats(
         pages=pages,
         word_count=words,
         text=text,
+        warnings=tuple(warnings),
     )

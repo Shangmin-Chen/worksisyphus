@@ -24,11 +24,12 @@ def test_tailored_resume_passes_all_gates(real_profile) -> None:
     if not TAILORED_PDF.is_file():
         pytest.skip(f"{TAILORED_PDF} not present")
 
+    has_real_profile = (ROOT / "profile.json").is_file()
     gates = check_resume_gates(
         pdf_path=TAILORED_PDF,
         candidate_name=real_profile.contact.name,
-        candidate_email=real_profile.contact.email,
-        candidate_phone=real_profile.contact.phone,
+        candidate_email=real_profile.contact.email if has_real_profile else "",
+        candidate_phone=real_profile.contact.phone if has_real_profile else "",
         expected_pages=1,
     )
 
@@ -40,11 +41,12 @@ def test_compiled_resume_passes_all_gates(real_profile) -> None:
     if not COMPILED_PDF.is_file():
         pytest.skip(f"{COMPILED_PDF} not present")
 
+    has_real_profile = (ROOT / "profile.json").is_file()
     gates = check_resume_gates(
         pdf_path=COMPILED_PDF,
         candidate_name=real_profile.contact.name,
-        candidate_email=real_profile.contact.email,
-        candidate_phone=real_profile.contact.phone,
+        candidate_email=real_profile.contact.email if has_real_profile else "",
+        candidate_phone=real_profile.contact.phone if has_real_profile else "",
         expected_pages=3,
     )
 
@@ -84,3 +86,34 @@ def test_employer_resume_filename_convention() -> None:
     assert not TAILORED_NAME.endswith(".pdf")
     assert "tailored" not in TAILORED_NAME.lower()
     assert "version" not in TAILORED_NAME.lower()
+
+
+def test_run_resume_gates_extracts_the_pdf_only_once(tmp_path, monkeypatch) -> None:
+    """apply() reuses this extraction; re-running check_pdf_ats would parse the PDF twice."""
+    import worksisyphus.gates as gates_module
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.gates import run_resume_gates
+
+    calls = []
+
+    def counting_ats(pdf_path, **kwargs) -> ATSCheckResult:
+        calls.append(pdf_path)
+        return ATSCheckResult(
+            passed=True,
+            problems=(),
+            pages=1,
+            word_count=500,
+            text="Simon Chen EXPERIENCE PROJECTS " + ("word " * 500),
+            warnings=("merged date",),
+        )
+
+    monkeypatch.setattr(gates_module, "check_pdf_ats", counting_ats)
+
+    pdf = tmp_path / "Simon_Chen_Resume.pdf"
+    gates, ats_res = run_resume_gates(pdf, candidate_name="Simon Chen", expected_pages=1)
+
+    assert len(calls) == 1
+    assert all(g.passed for g in gates)
+    # The extraction is handed back so callers get the warnings without re-parsing.
+    assert ats_res.warnings == ("merged date",)
+    assert ats_res.word_count == 500

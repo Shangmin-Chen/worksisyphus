@@ -1,4 +1,4 @@
-"""Tiny CLI for compiling, tailoring, archiving, and tracking applications."""
+"""Command-line interface for worksisyphus resume compiler and application manager."""
 
 from __future__ import annotations
 
@@ -7,8 +7,9 @@ import json
 import sys
 from pathlib import Path
 
-from .archive import STATUSES, archive_application, list_applications, update_application_status
-from .pipeline import PDF_DIR, build_canonical, tailor
+from .application import STATUSES, list_applications, update_application_status
+from .application import apply as apply_app
+from .pipeline import PDF_DIR, PREVIEW_DIR, build_canonical, tailor
 from .plan import parse_plan
 from .profile import load_profile, profile_index
 from .selection import Selection
@@ -39,34 +40,45 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("compile", help="Rebuild the canonical full resume.")
     sub.add_parser("index", help="Print every slug a plan file can reference.")
-    tailor_cmd = sub.add_parser("tailor", help="Compile a one-page resume from a plan file of slugs.")
+    tailor_cmd = sub.add_parser(
+        "tailor",
+        help="Preview-compile a one-page resume from a plan file of slugs (use apply to deliver one).",
+    )
     tailor_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
     tailor_cmd.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Overwrite unarchived tailored resume without warning.",
+        "--output",
+        default=None,
+        help=f"Directory to write the preview PDF into (default: {PREVIEW_DIR}/).",
     )
+    apply_cmd = sub.add_parser(
+        "apply",
+        help="Tailor, validate, compile directly into applications/<app>, run ATS check, and sync to Turso.",
+    )
+    apply_cmd.add_argument("--company", required=True, help="Company applied to.")
+    apply_cmd.add_argument("--jd", required=True, help="Path to the job description text file, or - for stdin.")
+    apply_cmd.add_argument("--role", default="", help="Role title, if known.")
+    apply_cmd.add_argument("--url", default="", help="Posting URL, if any.")
+    apply_cmd.add_argument(
+        "--plan",
+        default=None,
+        help="Path to a plan JSON file, or - for stdin. If omitted, uses the knapsack optimizer.",
+    )
+    apply_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     validate_cmd = sub.add_parser("validate", help="Parse a plan and print the resolved selection; no LaTeX involved.")
     validate_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
-    archive_cmd = sub.add_parser("archive", help="Freeze a compiled application into applications/<date>_<name>/.")
-    archive_cmd.add_argument("--plan", required=True, help="Path to the plan JSON file that built the resume.")
-    archive_cmd.add_argument("--company", required=True, help="Company applied to.")
-    archive_cmd.add_argument("--jd", required=True, help="Path to the job description text file, or - for stdin.")
-    archive_cmd.add_argument("--role", default="", help="Role title, if known.")
-    archive_cmd.add_argument("--url", default="", help="Posting URL, if any.")
-    sub.add_parser("status", help="List all archived applications and their current statuses.")
-    update_cmd = sub.add_parser("update-status", help="Update the status of an archived application.")
+    sub.add_parser("status", help="List all applications and their current statuses.")
+    update_cmd = sub.add_parser("update-status", help="Update the status of an application.")
     update_cmd.add_argument(
         "--app",
         required=True,
         help="Exact application folder name or unique plan stem (e.g. dirac_full-stack-engineer).",
     )
     update_cmd.add_argument("--status", required=True, choices=STATUSES, help="New status value.")
+    update_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     db_cmd = sub.add_parser("db", help="Manage SQLite and Turso database layer.")
     db_sub = db_cmd.add_subparsers(dest="db_action", required=True)
     db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
-    db_sub.add_parser("sync", help="Sync database: export profile.json and push to Turso cloud.")
+    db_sub.add_parser("sync", help="Sync database: load profile.json into SQLite and push to Turso cloud.")
     db_sub.add_parser("status", help="Show database metrics and connection status.")
     history_cmd = db_sub.add_parser("history", help="Show append-only audit trail.")
     history_cmd.add_argument("--limit", type=int, default=20, help="Number of audit events to display.")
@@ -79,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Resume PDF path to evaluate (defaults to resumes/Simon_Chen_Resume.pdf).",
     )
     eval_cmd.add_argument("--jd", default=None, help="Job description text file or - for stdin.")
-    eval_cmd.add_argument("--app", default=None, help="Archived application folder or unique stem to evaluate.")
+    eval_cmd.add_argument("--app", default=None, help="Application folder name or unique stem to evaluate.")
     eval_cmd.add_argument(
         "--profile",
         action="store_true",
@@ -117,27 +129,35 @@ def main(argv: list[str] | None = None) -> int:
             print(profile_index(load_profile()))
         elif args.command == "validate":
             print(_describe(parse_plan(_read_plan(args.plan), load_profile())))
-        elif args.command == "archive":
-            if args.plan == "-":
-                raise ValueError("archive requires a plan file path, not stdin (use --plan <path>).")
-            plan_path = Path(args.plan)
-            if not plan_path.is_file():
-                raise FileNotFoundError(f"Plan file not found: {plan_path}")
-            selection = parse_plan(plan_path.read_text(encoding="utf-8"), load_profile())
+        elif args.command == "apply":
+            from .optimizer import optimize_plan
+
+            profile = load_profile()
             jd_text = _read_plan(args.jd)
-            folder = archive_application(
-                plan_path,
-                PDF_DIR / f"{selection.name}.pdf",
-                jd_text,
+            if args.plan:
+                plan_text = _read_plan(args.plan)
+            else:
+                best_plan, _, _ = optimize_plan(profile, jd_text, role_name=args.role or "software_engineer")
+                plan_text = json.dumps(best_plan, indent=2)
+
+            folder, _compile_res, ats_res = apply_app(
+                plan_text=plan_text,
+                jd_text=jd_text,
                 company=args.company,
                 role=args.role,
                 source_url=args.url,
+                sync_cloud=not args.no_sync,
+                log=print,
             )
-            print(f"Archived {folder}")
+            print(f"Exported {folder / 'Simon_Chen_Resume.pdf'} (1 page).")
+            print(f"ATS check: {'passed' if ats_res.passed else 'failed'} ({ats_res.word_count} words extracted)")
+            for warning in ats_res.warnings:
+                print(f"WARN: {warning}")
+            print(f"Application created: {folder}")
         elif args.command == "status":
             apps = list_applications()
             if not apps:
-                print("No archived applications found.")
+                print("No applications found.")
             else:
                 header = f"{'Date':<12} {'Company':<20} {'Role':<32} {'Status':<15} Application"
                 print(header)
@@ -150,12 +170,13 @@ def main(argv: list[str] | None = None) -> int:
                         f"{_fit_column(app.get('status', ''), 15):<15} {app.get('folder', '')}"
                     )
         elif args.command == "update-status":
-            folder, old_status, new_status = update_application_status(args.app, args.status)
+            folder, old_status, new_status = update_application_status(
+                args.app, args.status, sync_cloud=not args.no_sync, log=print
+            )
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
         elif args.command == "db":
             from .db import (
                 DEFAULT_DB_PATH,
-                export_profile_json,
                 get_audit_history,
                 get_connection,
                 load_profile_from_db,
@@ -171,10 +192,11 @@ def main(argv: list[str] | None = None) -> int:
                     turso_ok = sync_to_turso()
                     print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
                 elif args.db_action == "sync":
-                    export_profile_json(conn)
-                    print("Exported active database state to profile.json")
+                    seed_database(conn)
                     turso_ok = sync_to_turso()
-                    print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
+                    print(
+                        f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
+                    )
                 elif args.db_action == "status":
                     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
                     if not cur.fetchone():
@@ -228,7 +250,7 @@ def main(argv: list[str] | None = None) -> int:
             finally:
                 conn.close()
         elif args.command == "evaluate":
-            from .archive import resolve_application_folder
+            from .application import resolve_application_folder
             from .ats import check_pdf_ats
             from .evaluator import (
                 evaluate_pdf_against_jd,
@@ -271,7 +293,7 @@ def main(argv: list[str] | None = None) -> int:
                 pdf_path = app_path / "Simon_Chen_Resume.pdf"
                 role_label = args.app
                 if pdf_path.is_file():
-                    resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+                    resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
             else:
                 if not args.jd and not args.hackerrank:
                     raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
@@ -287,7 +309,7 @@ def main(argv: list[str] | None = None) -> int:
                     pdf_path = Path(args.resume)
                     role_label = pdf_path.stem
                     if pdf_path.is_file():
-                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
                 elif args.plan:
                     plan_text = _read_plan(args.plan)
                     selection = parse_plan(plan_text, profile)
@@ -297,7 +319,7 @@ def main(argv: list[str] | None = None) -> int:
                     pdf_path = PDF_DIR / "Simon_Chen_Resume.pdf"
                     role_label = "Simon_Chen_Resume"
                     if pdf_path.is_file():
-                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text
+                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
 
             if args.hackerrank:
                 agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)
@@ -331,9 +353,10 @@ def main(argv: list[str] | None = None) -> int:
             tailor(
                 _read_plan(args.plan),
                 plan_name=plan_name,
-                force=args.force,
+                pdf_dir=Path(args.output) if args.output else PREVIEW_DIR,
                 log=print,
             )
+            print("Preview build only - run `worksisyphus apply` to produce a delivered resume.")
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

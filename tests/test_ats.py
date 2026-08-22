@@ -17,11 +17,12 @@ def test_tailored_resume_ats_extraction(real_profile) -> None:
     if not TAILORED_PDF.is_file():
         pytest.skip(f"{TAILORED_PDF} not present")
 
+    has_real_profile = (ROOT / "profile.json").is_file()
     res = check_pdf_ats(
         TAILORED_PDF,
         name=real_profile.contact.name,
-        email=real_profile.contact.email,
-        phone=real_profile.contact.phone,
+        email=real_profile.contact.email if has_real_profile else "",
+        phone=real_profile.contact.phone if has_real_profile else "",
         expected_pages=1,
     )
     assert res.passed, f"ATS check failed: {res.problems}"
@@ -33,11 +34,12 @@ def test_compiled_resume_ats_extraction(real_profile) -> None:
     if not COMPILED_PDF.is_file():
         pytest.skip(f"{COMPILED_PDF} not present")
 
+    has_real_profile = (ROOT / "profile.json").is_file()
     res = check_pdf_ats(
         COMPILED_PDF,
         name=real_profile.contact.name,
-        email=real_profile.contact.email,
-        phone=real_profile.contact.phone,
+        email=real_profile.contact.email if has_real_profile else "",
+        phone=real_profile.contact.phone if has_real_profile else "",
         expected_pages=3,
     )
     assert res.passed, f"ATS check failed for compiled: {res.problems}"

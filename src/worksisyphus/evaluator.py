@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .ats import check_pdf_ats
-from .gates import check_resume_gates
+from .gates import GateResult, check_resume_gates, run_resume_gates
 
 if TYPE_CHECKING:
     from .profile import Profile
@@ -182,8 +181,13 @@ def evaluate_resume_text(
     jd_text: str,
     candidate_name: str = "Simon Chen",
     pdf_path: Path | None = None,
+    gate_results: tuple[GateResult, ...] | None = None,
 ) -> EvaluationReport:
-    """Deterministically score resume text against a job description rubric."""
+    """Deterministically score resume text against a job description rubric.
+
+    Pass gate_results when the caller has already run the gates, so the PDF text layer is
+    extracted once per evaluation rather than once here and once in the caller.
+    """
     jd_keywords = _extract_technical_keywords(jd_text)
     resume_keywords = _extract_technical_keywords(resume_text)
 
@@ -224,12 +228,16 @@ def evaluate_resume_text(
     # 4. Quality Gate Compliance (0 - 10 pts)
     gate_score = 10
     gate_diagnostics: list[str] = []
-    if pdf_path is not None:
-        if not pdf_path.is_file():
+    if gate_results is not None or pdf_path is not None:
+        if gate_results is None and pdf_path is not None and not pdf_path.is_file():
             gate_score = 0
             gate_diagnostics.append(f"PDF file not found: {pdf_path}")
         else:
-            gates = check_resume_gates(pdf_path, candidate_name=candidate_name)
+            gates = (
+                gate_results
+                if gate_results is not None
+                else check_resume_gates(pdf_path, candidate_name=candidate_name)  # type: ignore[arg-type]
+            )
             failed_gates = [g for g in gates if not g.passed]
             if failed_gates:
                 gate_score = max(0, 10 - len(failed_gates) * 3)
@@ -272,12 +280,13 @@ def evaluate_resume_text(
 
 def evaluate_pdf_against_jd(pdf_path: Path, jd_text: str, candidate_name: str = "Simon Chen") -> EvaluationReport:
     """Evaluate a compiled PDF file directly against a job description."""
-    ats_res = check_pdf_ats(pdf_path, name=candidate_name)
+    gates, ats_res = run_resume_gates(pdf_path, candidate_name=candidate_name)
     return evaluate_resume_text(
         resume_text=ats_res.text,
         jd_text=jd_text,
         candidate_name=candidate_name,
         pdf_path=pdf_path,
+        gate_results=gates,
     )
 
 

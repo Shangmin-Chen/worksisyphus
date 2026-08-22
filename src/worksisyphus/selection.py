@@ -7,7 +7,9 @@ from dataclasses import dataclass, replace
 from .profile import Profile
 
 MIN_BULLETS = 2
-TAILORED_NAME = "Simon_Chen_Resume"  # every employer-facing PDF gets this name; archives keep per-application copies
+TAILORED_NAME = (
+    "Simon_Chen_Resume"  # every employer-facing PDF gets this name; applications keep per-application copies
+)
 
 
 @dataclass(frozen=True)

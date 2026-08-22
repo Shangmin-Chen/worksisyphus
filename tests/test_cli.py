@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from worksisyphus import cli
+from worksisyphus.pipeline import PREVIEW_DIR
 
 
 @pytest.fixture(autouse=True)
@@ -71,43 +72,43 @@ def test_update_status_reports_transition(monkeypatch, capsys, tmp_path) -> None
     monkeypatch.setattr(
         cli,
         "update_application_status",
-        lambda app, status: (folder, "applied", status),
+        lambda app, status, **kwargs: (folder, "applied", status),
     )
 
     assert cli.main(["update-status", "--app", folder.name, "--status", "phone_screen"]) == 0
     assert capsys.readouterr().out == "Updated 2026-08-05_dirac_full-stack-engineer: applied -> phone_screen\n"
 
 
-def test_archive_reads_jd_from_stdin(monkeypatch, tmp_path, capsys) -> None:
+def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
     import io
-    from pathlib import Path
+
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.compiler import CompileResult
 
     plan = _write_plan(tmp_path, {"projects": ["proj1"]})
-    recorded_args = {}
+    recorded = {}
 
-    def fake_archive(plan_path, pdf_path, jd_text, company, role="", source_url=""):
-        recorded_args["plan_path"] = plan_path
-        recorded_args["jd_text"] = jd_text
-        recorded_args["company"] = company
-        return Path("applications/2026-08-14_acme_swe")
+    def fake_apply(plan_text, jd_text, company, role="", source_url="", **kwargs):
+        recorded["plan_text"] = plan_text
+        recorded["jd_text"] = jd_text
+        recorded["company"] = company
+        folder = tmp_path / "applications" / "2026-08-20_primitive_product-engineer"
+        folder.mkdir(parents=True, exist_ok=True)
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
 
-    monkeypatch.setattr(cli, "archive_application", fake_archive)
-    monkeypatch.setattr("sys.stdin", io.StringIO("Frontend engineer job description"))
+    monkeypatch.setattr(cli, "apply_app", fake_apply)
+    monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
 
-    assert cli.main(["archive", "--plan", plan, "--company", "Acme", "--jd", "-"]) == 0
-    assert "Archived applications/2026-08-14_acme_swe" in capsys.readouterr().out
-    assert recorded_args["jd_text"] == "Frontend engineer job description"
-    assert recorded_args["company"] == "Acme"
-
-
-def test_archive_rejects_plan_from_stdin(capsys) -> None:
-    assert cli.main(["archive", "--plan", "-", "--company", "Acme", "--jd", "-"]) == 1
-    assert "error: archive requires a plan file path, not stdin" in capsys.readouterr().err
-
-
-def test_archive_rejects_missing_plan_file(capsys) -> None:
-    assert cli.main(["archive", "--plan", "nonexistent_plan.json", "--company", "Acme", "--jd", "-"]) == 1
-    assert "error: Plan file not found" in capsys.readouterr().err
+    ret = cli.main(["apply", "--company", "Primitive", "--role", "Product Engineer", "--jd", "-", "--plan", plan])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "Exported" in out
+    assert "ATS check: passed" in out
+    assert "Application created:" in out
+    assert recorded["company"] == "Primitive"
+    assert recorded["jd_text"] == "JD text content"
 
 
 def test_cli_index(capsys) -> None:
@@ -153,8 +154,7 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     # 6. Sync
     assert cli.main(["db", "sync"]) == 0
     sync_out = capsys.readouterr().out
-    assert "Exported active database state to profile.json" in sync_out
-    assert "Turso cloud sync: synced" in sync_out
+    assert "Synced profile.json to SQLite and Turso cloud" in sync_out
 
 
 def test_cli_evaluate_with_stdin_and_resume(capsys, monkeypatch) -> None:
@@ -193,9 +193,9 @@ def test_cli_evaluate_with_app(tmp_path, capsys, monkeypatch) -> None:
     else:
         pytest.skip("resumes/Simon_Chen_Resume.pdf not present")
 
-    from worksisyphus import archive
+    from worksisyphus import application
 
-    monkeypatch.setattr(archive, "APPLICATIONS_DIR", tmp_path / "applications")
+    monkeypatch.setattr(application, "APPLICATIONS_DIR", tmp_path / "applications")
 
     ret = cli.main(["evaluate", "--app", "testco_swe"])
     assert ret == 0
@@ -263,30 +263,48 @@ def test_cli_optimize_command(tmp_path, capsys) -> None:
     assert out_file.is_file()
 
 
-def test_cli_tailor_invokes_pipeline_with_force(monkeypatch, tmp_path) -> None:
+def test_cli_tailor_invokes_pipeline(monkeypatch, tmp_path) -> None:
     plan = _write_plan(tmp_path, {"projects": ["proj1"]})
     recorded = {}
 
-    def fake_tailor(plan_text, plan_name="custom", force=False, log=None):
+    def fake_tailor(plan_text, plan_name="custom", pdf_dir=None, log=None):
+        recorded["pdf_dir"] = pdf_dir
         recorded["plan_text"] = plan_text
         recorded["plan_name"] = plan_name
-        recorded["force"] = force
 
     monkeypatch.setattr(cli, "tailor", fake_tailor)
 
-    assert cli.main(["tailor", "--plan", plan, "--force"]) == 0
+    assert cli.main(["tailor", "--plan", plan]) == 0
     assert recorded["plan_name"] == "acme_swe"
-    assert recorded["force"] is True
+    # tailor is a preview command: it must never default into the employer-facing resumes/ dir.
+    assert recorded["pdf_dir"] == PREVIEW_DIR
 
 
-def test_cli_tailor_handles_unarchived_error(monkeypatch, tmp_path, capsys) -> None:
-    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
+    import io
 
-    def fake_tailor(plan_text, plan_name="custom", force=False, log=None):
-        raise RuntimeError("Unarchived tailored resume exists for plan 'other_company'")
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.compiler import CompileResult
 
-    monkeypatch.setattr(cli, "tailor", fake_tailor)
+    recorded = {}
 
-    assert cli.main(["tailor", "--plan", plan]) == 1
-    err = capsys.readouterr().err
-    assert "error: Unarchived tailored resume exists for plan 'other_company'" in err
+    def fake_apply(plan_text, jd_text, company, role="", source_url="", **kwargs):
+        recorded["plan_text"] = plan_text
+        recorded["jd_text"] = jd_text
+        recorded["company"] = company
+        folder = tmp_path / "applications" / "2026-08-20_primitive_product-engineer"
+        folder.mkdir(parents=True, exist_ok=True)
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
+
+    monkeypatch.setattr(cli, "apply_app", fake_apply)
+    monkeypatch.setattr("sys.stdin", io.StringIO("Full-stack engineer building with Python and TypeScript."))
+
+    ret = cli.main(["apply", "--company", "Primitive", "--role", "product_engineer", "--jd", "-", "--no-sync"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "Exported" in out
+    assert "ATS check: passed" in out
+    assert recorded["company"] == "Primitive"
+    assert "projects" in recorded["plan_text"]

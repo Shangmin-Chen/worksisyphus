@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import re
 from collections.abc import Callable
 from pathlib import Path
 
 from .compiler import CompileResult, compile_tex
 from .plan import parse_plan
-from .profile import DEFAULT_PROFILE_PATH, load_profile
+from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
 from .renderer import render_resume
 from .selection import Selection, full_selection, trim_step
 
 TEX_DIR = Path("tex_files")
 PDF_DIR = Path("resumes")
+# tailor() is a preview/debug command: apply() is the path that produces a delivered resume.
+# Its output must not default into PDF_DIR, where a run would overwrite the resume mirrored
+# from the most recent application. tex_files/*.pdf is already gitignored.
+PREVIEW_DIR = TEX_DIR
 PAGE_LIMIT = 1
 OVERFULL_TOLERANCE_PT = 2.0
 
@@ -42,50 +44,28 @@ def build_canonical(profile_path: Path = DEFAULT_PROFILE_PATH, log: Log = _silen
 
 def tailor(
     plan_text: str,
+    profile: Profile | None = None,
     profile_path: Path = DEFAULT_PROFILE_PATH,
     plan_name: str = "custom",
-    force: bool = False,
     log: Log = _silent,
     tex_dir: Path = TEX_DIR,
-    pdf_dir: Path = PDF_DIR,
+    pdf_dir: Path = PREVIEW_DIR,
 ) -> CompileResult:
-    """Render the plan and trim deterministically until it fits one page."""
+    """Render the plan and trim deterministically until it fits one page.
+
+    Writes to PREVIEW_DIR unless the caller names a destination; apply() passes its own
+    staging directory so a delivered resume is only ever published through that path.
+    """
     if not plan_text.strip():
         raise ValueError("Plan is empty.")
-    profile = load_profile(profile_path)
-    initial_selection = parse_plan(plan_text, profile)
+    active_profile = profile if profile is not None else load_profile(profile_path)
+    initial_selection = parse_plan(plan_text, active_profile)
     log(f"Plan parsed; output name: {initial_selection.name}")
-    normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
-    plan_hash = hashlib.sha256(normalized_plan.encode("utf-8")).hexdigest()
-
     pdf_dir.mkdir(parents=True, exist_ok=True)
-    lock_path = pdf_dir / ".tailor.lock"
-    if lock_path.is_file():
-        try:
-            lock_data = json.loads(lock_path.read_text(encoding="utf-8"))
-        except Exception:
-            lock_data = {}
-
-        if isinstance(lock_data, dict):
-            locked_plan_name = lock_data.get("plan_name", "previous_plan")
-            locked_plan_hash = lock_data.get("plan_hash", "")
-            locked_at = lock_data.get("tailored_at", "")
-
-            if locked_plan_hash and locked_plan_hash != plan_hash:
-                if not force:
-                    msg = f"Unarchived tailored resume exists for plan '{locked_plan_name}'"
-                    if locked_at:
-                        msg += f" (tailored at {locked_at})"
-                    msg += ". Run `worksisyphus archive` first, or pass `--force` to overwrite."
-                    raise RuntimeError(msg)
-                log(f"Warning: Overwriting unarchived tailored resume for '{locked_plan_name}' (--force enabled).")
-
-    provenance_path = pdf_dir / ".provenance.json"
-    _write_provenance(provenance_path, {"plan_hash": plan_hash})
 
     selection: Selection | None = initial_selection
     while selection is not None:
-        result = compile_tex(render_resume(profile, selection), selection.name, tex_dir, pdf_dir)
+        result = compile_tex(render_resume(active_profile, selection), selection.name, tex_dir, pdf_dir)
         if result.pages <= PAGE_LIMIT:
             excessive_overfull = tuple(
                 entry
@@ -95,28 +75,8 @@ def tailor(
             if excessive_overfull:
                 raise RuntimeError("Horizontal overflow detected: " + "; ".join(excessive_overfull))
             log(f"Exported {result.pdf_path} ({result.pages} page).")
-            pdf_hash = hashlib.sha256(result.pdf_path.read_bytes()).hexdigest()
-            _write_provenance(provenance_path, {"plan_hash": plan_hash, "pdf_hash": pdf_hash})
-
-            from datetime import UTC, datetime
-
-            now_iso = datetime.now(UTC).isoformat()
-            lock_info = {
-                "plan_name": plan_name,
-                "plan_hash": plan_hash,
-                "pdf_hash": pdf_hash,
-                "tailored_at": now_iso,
-            }
-            _write_provenance(lock_path, lock_info)
             return result
         log(f"{result.pages} pages; trimming and recompiling...")
         selection = trim_step(selection)
 
     raise RuntimeError("Could not fit the resume on one page even after maximum trimming.")
-
-
-def _write_provenance(path: Path, data: dict[str, str]) -> None:
-    """Atomically replace the build marker or lock file, avoiding a partially-written valid record."""
-    temporary_path = path.with_name(f"{path.name}.tmp")
-    temporary_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    temporary_path.replace(path)

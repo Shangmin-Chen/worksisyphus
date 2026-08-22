@@ -22,6 +22,12 @@ from .profile import Contact, Education, Experience, Profile, Project
 
 DEFAULT_DB_PATH = Path("worksisyphus.db")
 
+ACTION_APPLY = "APPLY"
+ACTION_STATUS_CHANGE = "STATUS_CHANGE"
+ACTION_INSERT = "INSERT"
+ACTION_UPDATE = "UPDATE"
+ACTION_DELETE = "DELETE"
+
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS contact (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -175,19 +181,68 @@ def log_audit_event(
         conn.commit()
 
 
+def _fetch_map(conn: sqlite3.Connection, sql: str, key_len: int = 1) -> dict[Any, tuple[Any, ...]]:
+    """Read a table into {key: remaining columns} for change detection during a reseed."""
+    result: dict[Any, tuple[Any, ...]] = {}
+    for row in conn.execute(sql).fetchall():
+        key = row[0] if key_len == 1 else tuple(row[:key_len])
+        result[key] = tuple(row[key_len:])
+    return result
+
+
+def _log_change(
+    conn: sqlite3.Connection,
+    prior: dict[Any, tuple[Any, ...]],
+    key: Any,
+    new_values: tuple[Any, ...],
+    entity_type: str,
+    entity_id: str,
+    action_new: str = ACTION_INSERT,
+    **kwargs: Any,
+) -> None:
+    """Append an audit event only when the row is new or its content actually changed.
+
+    Reseeding rewrites every row, so logging unconditionally would append a hundred no-op
+    events per `db sync` and bury the real edits the audit trail exists to record.
+    """
+    if key not in prior:
+        log_audit_event(conn, entity_type, entity_id, action_new, commit=False, **kwargs)
+    elif prior[key] != new_values:
+        log_audit_event(conn, entity_type, entity_id, ACTION_UPDATE, commit=False, **kwargs)
+
+
 def seed_database(
     conn: sqlite3.Connection,
     profile_path: Path = Path("profile.json"),
     applications_dir: Path = Path("applications"),
 ) -> None:
-    """Populate database from profile.json and applications/."""
+    """Populate database from profile.json and applications/, auditing only genuine changes."""
     init_schema(conn)
 
+    prior_contact = _fetch_map(conn, "SELECT id, name, email, phone, website, github, linkedin FROM contact")
+    prior_education = _fetch_map(
+        conn, "SELECT institution, location, degree, date, coursework, sort_order FROM education"
+    )
+    prior_experiences = _fetch_map(conn, "SELECT slug, role, org, location, date, sort_order FROM experiences")
+    prior_exp_bullets = _fetch_map(
+        conn, "SELECT experience_slug, slug, text, sort_order FROM experience_bullets", key_len=2
+    )
+    prior_projects = _fetch_map(conn, "SELECT slug, name, tech, date, sort_order FROM projects")
+    prior_proj_bullets = _fetch_map(conn, "SELECT project_slug, slug, text, sort_order FROM project_bullets", key_len=2)
+    prior_skills = _fetch_map(conn, "SELECT group_name, item, sort_order FROM skills", key_len=2)
+    prior_applications = _fetch_map(
+        conn, "SELECT id, company, role, date, source_url, status, jd_text, plan_json FROM applications"
+    )
+
     if not profile_path.is_file() and profile_path == Path("profile.json"):
-        if Path("profile.example.json").is_file():
-            profile_path = Path("profile.example.json")
-        elif (Path("tests") / "fixtures" / "profile.json").is_file():
+        if (Path("tests") / "fixtures" / "profile.json").is_file():
             profile_path = Path("tests") / "fixtures" / "profile.json"
+
+    seen_education: set[Any] = set()
+    seen_experiences: set[Any] = set()
+    seen_exp_bullets: set[Any] = set()
+    seen_projects: set[Any] = set()
+    seen_proj_bullets: set[Any] = set()
 
     # 1. Contact
     if profile_path.is_file():
@@ -207,7 +262,23 @@ def seed_database(
                 contact.get("linkedin", ""),
             ),
         )
-        log_audit_event(conn, "contact", "1", "INSERT", metadata={"name": contact.get("name", "")}, commit=False)
+        contact_values = (
+            contact.get("name", ""),
+            contact.get("email", ""),
+            contact.get("phone", ""),
+            contact.get("website", ""),
+            contact.get("github", ""),
+            contact.get("linkedin", ""),
+        )
+        _log_change(
+            conn,
+            prior_contact,
+            1,
+            contact_values,
+            "contact",
+            "1",
+            metadata={"name": contact.get("name", "")},
+        )
 
         # 2. Education
         conn.execute("DELETE FROM education")
@@ -226,7 +297,22 @@ def seed_database(
                     i,
                 ),
             )
-            log_audit_event(conn, "education", edu.get("institution", ""), "INSERT", metadata=edu, commit=False)
+            seen_education.add(edu.get("institution", ""))
+            _log_change(
+                conn,
+                prior_education,
+                edu.get("institution", ""),
+                (
+                    edu.get("location", ""),
+                    edu.get("degree", ""),
+                    edu.get("date", ""),
+                    json.dumps(edu.get("coursework", [])),
+                    i,
+                ),
+                "education",
+                edu.get("institution", ""),
+                metadata=edu,
+            )
 
         # 3. Experiences & bullets
         conn.execute("DELETE FROM experience_bullets")
@@ -239,7 +325,16 @@ def seed_database(
                 """,
                 (slug, exp.get("role", ""), exp.get("org", ""), exp.get("location", ""), exp.get("date", ""), i),
             )
-            log_audit_event(conn, "experience", slug, "INSERT", metadata=exp, commit=False)
+            seen_experiences.add(slug)
+            _log_change(
+                conn,
+                prior_experiences,
+                slug,
+                (exp.get("role", ""), exp.get("org", ""), exp.get("location", ""), exp.get("date", ""), i),
+                "experience",
+                slug,
+                metadata=exp,
+            )
             for j, (b_slug, b_text) in enumerate(exp.get("bullets", {}).items()):
                 conn.execute(
                     """
@@ -248,7 +343,16 @@ def seed_database(
                     """,
                     (slug, b_slug, b_text, j),
                 )
-                log_audit_event(conn, "experience_bullet", f"{slug}.{b_slug}", "INSERT", new_value=b_text, commit=False)
+                seen_exp_bullets.add((slug, b_slug))
+                _log_change(
+                    conn,
+                    prior_exp_bullets,
+                    (slug, b_slug),
+                    (b_text, j),
+                    "experience_bullet",
+                    f"{slug}.{b_slug}",
+                    new_value=b_text,
+                )
 
         # 4. Projects & bullets
         conn.execute("DELETE FROM project_bullets")
@@ -261,7 +365,16 @@ def seed_database(
                 """,
                 (slug, proj.get("name", ""), proj.get("tech", ""), proj.get("date", ""), i),
             )
-            log_audit_event(conn, "project", slug, "INSERT", metadata=proj, commit=False)
+            seen_projects.add(slug)
+            _log_change(
+                conn,
+                prior_projects,
+                slug,
+                (proj.get("name", ""), proj.get("tech", ""), proj.get("date", ""), i),
+                "project",
+                slug,
+                metadata=proj,
+            )
             for j, (b_slug, b_text) in enumerate(proj.get("bullets", {}).items()):
                 conn.execute(
                     """
@@ -270,10 +383,21 @@ def seed_database(
                     """,
                     (slug, b_slug, b_text, j),
                 )
-                log_audit_event(conn, "project_bullet", f"{slug}.{b_slug}", "INSERT", new_value=b_text, commit=False)
+                seen_proj_bullets.add((slug, b_slug))
+                _log_change(
+                    conn,
+                    prior_proj_bullets,
+                    (slug, b_slug),
+                    (b_text, j),
+                    "project_bullet",
+                    f"{slug}.{b_slug}",
+                    new_value=b_text,
+                )
 
         # 5. Skills
         conn.execute("DELETE FROM skills")
+        skills_changed = False
+        new_skill_keys: set[tuple[str, str]] = set()
         for group, items in data.get("skills", {}).items():
             for i, item in enumerate(items):
                 conn.execute(
@@ -283,13 +407,34 @@ def seed_database(
                     """,
                     (group, item, i),
                 )
-        log_audit_event(
-            conn, "skills", "skills", "INSERT", metadata={"groups": list(data.get("skills", {}).keys())}, commit=False
-        )
+                new_skill_keys.add((group, item))
+                if prior_skills.get((group, item)) != (i,):
+                    skills_changed = True
+        if skills_changed or new_skill_keys != set(prior_skills):
+            log_audit_event(
+                conn,
+                "skills",
+                "skills",
+                ACTION_INSERT if not prior_skills else ACTION_UPDATE,
+                metadata={"groups": list(data.get("skills", {}).keys())},
+                commit=False,
+            )
 
-    # 6. Applications
+        # 5b. Record removals. Reseeding deletes rows that vanished from profile.json; without
+        #     this the audit trail would silently lose bullets and slugs that were taken out.
+        for entity_type, prior_keys, seen_keys in (
+            ("education", prior_education, seen_education),
+            ("experience", prior_experiences, seen_experiences),
+            ("experience_bullet", prior_exp_bullets, seen_exp_bullets),
+            ("project", prior_projects, seen_projects),
+            ("project_bullet", prior_proj_bullets, seen_proj_bullets),
+        ):
+            for removed in sorted(set(prior_keys) - seen_keys, key=str):
+                entity_id = ".".join(removed) if isinstance(removed, tuple) else str(removed)
+                log_audit_event(conn, entity_type, entity_id, ACTION_DELETE, commit=False)
+
+    # 6. Applications (merge from applications_dir without clobbering existing DB records)
     if applications_dir.is_dir():
-        conn.execute("DELETE FROM applications")
         for d in sorted(applications_dir.iterdir()):
             if not d.is_dir():
                 continue
@@ -302,8 +447,9 @@ def seed_database(
                 meta = json.loads(meta_file.read_text(encoding="utf-8"))
             except Exception:
                 continue
-            jd_text = jd_file.read_text(encoding="utf-8") if jd_file.is_file() else ""
-            plan_json = plan_file.read_text(encoding="utf-8") if plan_file.is_file() else "{}"
+            # Strip to the same canonical form apply() stores, so DB and disk compare exactly.
+            jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
+            plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
             conn.execute(
                 """
                 INSERT OR REPLACE INTO applications (id, company, role, date, source_url, status, jd_text, plan_json)
@@ -320,7 +466,24 @@ def seed_database(
                     plan_json,
                 ),
             )
-            log_audit_event(conn, "application", d.name, "ARCHIVE", metadata=meta, commit=False)
+            _log_change(
+                conn,
+                prior_applications,
+                d.name,
+                (
+                    meta.get("company", ""),
+                    meta.get("role", ""),
+                    meta.get("date", ""),
+                    meta.get("source_url", ""),
+                    meta.get("status", "applied"),
+                    jd_text,
+                    plan_json,
+                ),
+                "application",
+                d.name,
+                action_new=ACTION_APPLY,
+                metadata=meta,
+            )
 
     conn.commit()
 
@@ -424,7 +587,7 @@ def export_profile_json(conn: sqlite3.Connection, output_path: Path = Path("prof
     return data
 
 
-def archive_application_to_db(
+def save_application_to_db(
     conn: sqlite3.Connection,
     app_id: str,
     company: str,
@@ -435,7 +598,7 @@ def archive_application_to_db(
     jd_text: str,
     plan_json: str,
 ) -> None:
-    """Store archived application in the applications table with audit logging."""
+    """Store application in the applications table with audit logging."""
     conn.execute(
         """
         INSERT OR REPLACE INTO applications (id, company, role, date, source_url, status, jd_text, plan_json)
@@ -447,7 +610,7 @@ def archive_application_to_db(
         conn,
         "application",
         app_id,
-        "ARCHIVE",
+        ACTION_APPLY,
         metadata={"company": company, "role": role, "date": date_str, "status": status},
         commit=True,
     )
@@ -495,7 +658,7 @@ def update_application_status_in_db(
         conn,
         "application",
         app_id,
-        "STATUS_CHANGE",
+        ACTION_STATUS_CHANGE,
         field_name="status",
         old_value=old_status,
         new_value=new_status,
@@ -542,15 +705,7 @@ def get_audit_history(
     return events
 
 
-def sync_to_turso(db_path: Path = DEFAULT_DB_PATH, turso_db_name: str = "worksisyphus") -> bool:
-    """Push local SQLite database state to Turso cloud via Turso CLI."""
-    home_turso = Path.home() / ".turso" / "turso"
-    turso_bin = shutil.which("turso") or (str(home_turso) if home_turso.is_file() else None)
-    if not turso_bin or not db_path.is_file():
-        return False
-    try:
-        drop_all = """
-DROP TABLE IF EXISTS audit_events;
+DROP_ALL_SQL = """DROP TABLE IF EXISTS audit_events;
 DROP TABLE IF EXISTS applications;
 DROP TABLE IF EXISTS skills;
 DROP TABLE IF EXISTS project_bullets;
@@ -560,22 +715,44 @@ DROP TABLE IF EXISTS experiences;
 DROP TABLE IF EXISTS education;
 DROP TABLE IF EXISTS contact;
 """
-        subprocess.run(
-            [turso_bin, "db", "shell", turso_db_name],
-            input=drop_all,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
+
+_TRANSACTION_MARKER = "BEGIN TRANSACTION;"
+
+
+def build_sync_sql(dump_sql: str) -> str | None:
+    """Splice the table drops inside the dump's own transaction, or return None if unusable.
+
+    sqlite3 .dump wraps its output in BEGIN TRANSACTION/COMMIT. Prepending the drops ahead of
+    that marker would commit them independently, so a restore that fails partway would leave the
+    remote database empty. Placing them after the marker makes drop-and-restore a single unit.
+    """
+    if not dump_sql.strip() or "CREATE TABLE" not in dump_sql:
+        return None
+    if _TRANSACTION_MARKER not in dump_sql:
+        return None
+    head, _, tail = dump_sql.partition(_TRANSACTION_MARKER)
+    return head + _TRANSACTION_MARKER + "\n" + DROP_ALL_SQL + tail
+
+
+def sync_to_turso(db_path: Path = DEFAULT_DB_PATH, turso_db_name: str = "worksisyphus") -> bool:
+    """Push local SQLite database state to Turso cloud via Turso CLI."""
+    home_turso = Path.home() / ".turso" / "turso"
+    turso_bin = shutil.which("turso") or (str(home_turso) if home_turso.is_file() else None)
+    if not turso_bin or not db_path.is_file():
+        return False
+    try:
         dump_proc = subprocess.run(
             ["sqlite3", str(db_path), ".dump"],
             capture_output=True,
             text=True,
             check=True,
         )
+        full_sync_sql = build_sync_sql(dump_proc.stdout)
+        if full_sync_sql is None:
+            return False
         proc = subprocess.run(
             [turso_bin, "db", "shell", turso_db_name],
-            input=dump_proc.stdout,
+            input=full_sync_sql,
             capture_output=True,
             text=True,
             timeout=30,
