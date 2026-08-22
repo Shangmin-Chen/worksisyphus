@@ -4,22 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from worksisyphus.ats import check_pdf_ats
 
 ROOT = Path(__file__).resolve().parents[1]
-TAILORED_PDF = ROOT / "resumes" / "Simon_Chen_Resume.pdf"
-COMPILED_PDF = ROOT / "resumes" / "Simon_Chen_Resume_Compiled.pdf"
 
 
-def test_tailored_resume_ats_extraction(real_profile) -> None:
-    if not TAILORED_PDF.is_file():
-        pytest.skip(f"{TAILORED_PDF} not present")
-
+def test_tailored_resume_ats_extraction(real_profile, delivered_pdf) -> None:
     has_real_profile = (ROOT / "profile.json").is_file()
     res = check_pdf_ats(
-        TAILORED_PDF,
+        delivered_pdf,
         name=real_profile.contact.name,
         email=real_profile.contact.email if has_real_profile else "",
         phone=real_profile.contact.phone if has_real_profile else "",
@@ -30,13 +23,10 @@ def test_tailored_resume_ats_extraction(real_profile) -> None:
     assert res.word_count > 300
 
 
-def test_compiled_resume_ats_extraction(real_profile) -> None:
-    if not COMPILED_PDF.is_file():
-        pytest.skip(f"{COMPILED_PDF} not present")
-
+def test_compiled_resume_ats_extraction(real_profile, canonical_pdf) -> None:
     has_real_profile = (ROOT / "profile.json").is_file()
     res = check_pdf_ats(
-        COMPILED_PDF,
+        canonical_pdf,
         name=real_profile.contact.name,
         email=real_profile.contact.email if has_real_profile else "",
         phone=real_profile.contact.phone if has_real_profile else "",

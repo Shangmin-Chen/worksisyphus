@@ -1,4 +1,4 @@
-# Intermediate TeX stays local (regenerable from plans); PDFs and applications/ are tracked
+# Build output stays local and regenerable; delivered resumes live only in applications/
 tex_files/*.tex
 tex_files/*.pdf
 !tex_files/Simon_Chen_Resume_Compiled.tex
@@ -21,7 +21,6 @@ build/
 /applications/
 /profile.json
 
-resumes/.provenance.json*
 scratch/
 
 .coverage

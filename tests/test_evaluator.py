@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from worksisyphus.evaluator import (
     evaluate_pdf_against_jd,
     evaluate_resume_text,
@@ -15,7 +13,6 @@ from worksisyphus.evaluator import (
 from worksisyphus.plan import parse_plan
 
 ROOT = Path(__file__).resolve().parents[1]
-TAILORED_PDF = ROOT / "resumes" / "Simon_Chen_Resume.pdf"
 
 
 def test_evaluate_resume_text_high_alignment() -> None:
@@ -80,11 +77,8 @@ def test_format_evaluation_report() -> None:
     assert "SCORE BREAKDOWN:" in formatted
 
 
-def test_evaluate_pdf_against_jd() -> None:
-    if not TAILORED_PDF.is_file():
-        pytest.skip(f"{TAILORED_PDF} not found")
-
+def test_evaluate_pdf_against_jd(delivered_pdf) -> None:
     jd = "Software Engineer with experience in C++, Python, distributed systems, and performance tuning."
-    report = evaluate_pdf_against_jd(TAILORED_PDF, jd)
+    report = evaluate_pdf_against_jd(delivered_pdf, jd)
     assert report.overall_score >= 70
     assert report.gate_compliance_score == 10

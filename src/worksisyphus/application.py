@@ -15,7 +15,7 @@ from pathlib import Path
 from .ats import ATSCheckResult
 from .compiler import CompileResult
 from .gates import run_resume_gates
-from .pipeline import PDF_DIR, tailor
+from .pipeline import tailor
 from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
 
 APPLICATIONS_DIR = Path("applications")
@@ -46,7 +46,6 @@ def apply(
     profile: Profile | None = None,
     profile_path: Path = DEFAULT_PROFILE_PATH,
     applications_dir: Path | None = None,
-    pdf_dir: Path = PDF_DIR,
     sync_cloud: bool = True,
     log: Log = _silent,
 ) -> tuple[Path, CompileResult, ATSCheckResult]:
@@ -129,11 +128,7 @@ def apply(
 
     compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
-    # 5. Mirror PDF to resumes/ as the final filesystem side effect, only once every gate has passed
-    pdf_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(target_folder / "Simon_Chen_Resume.pdf", pdf_dir / "Simon_Chen_Resume.pdf")
-
-    # 6. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
+    # 5. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
     from .db import DEFAULT_DB_PATH, get_connection, save_application_to_db
 
     if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():

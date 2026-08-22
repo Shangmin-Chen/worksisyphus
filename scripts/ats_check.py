@@ -1,6 +1,6 @@
 """ATS extraction check: verify a compiled resume PDF parses the way a recruiting system would.
 
-Usage: uv run --with pdfminer.six python scripts/ats_check.py resumes/<name>.pdf
+Usage: uv run --with pdfminer.six python scripts/ats_check.py applications/<app>/Simon_Chen_Resume.pdf
 
 Checks that the text layer extracts cleanly: contact info findable, standard
 section headers present, no broken glyphs, and (for tailored resumes) one page.

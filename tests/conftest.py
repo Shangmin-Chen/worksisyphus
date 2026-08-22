@@ -20,6 +20,31 @@ def real_profile() -> Profile:
     return load_profile(profile_path)
 
 
+@pytest.fixture(scope="session")
+def delivered_pdf() -> Path:
+    """The newest delivered resume.
+
+    applications/ is the only place a delivered PDF exists, and it is gitignored, so CI has
+    none and every test depending on a real PDF skips there.
+    """
+    apps = ROOT / "applications"
+    if apps.is_dir():
+        for folder in sorted((d for d in apps.iterdir() if d.is_dir()), reverse=True):
+            pdf = folder / "Simon_Chen_Resume.pdf"
+            if pdf.is_file():
+                return pdf
+    pytest.skip("no delivered resume in applications/ (gitignored)")
+
+
+@pytest.fixture(scope="session")
+def canonical_pdf() -> Path:
+    """The 3-page canonical view: regenerable build output, not a delivered resume."""
+    pdf = ROOT / "tex_files" / "Simon_Chen_Resume_Compiled.pdf"
+    if not pdf.is_file():
+        pytest.skip("canonical not built; run `uv run worksisyphus compile`")
+    return pdf
+
+
 @pytest.fixture()
 def small_profile() -> Profile:
     return Profile(

@@ -7,9 +7,9 @@ import json
 import sys
 from pathlib import Path
 
-from .application import STATUSES, list_applications, update_application_status
+from .application import APPLICATIONS_DIR, STATUSES, list_applications, update_application_status
 from .application import apply as apply_app
-from .pipeline import PDF_DIR, PREVIEW_DIR, build_canonical, tailor
+from .pipeline import PREVIEW_DIR, build_canonical, tailor
 from .plan import parse_plan
 from .profile import load_profile, profile_index
 from .selection import Selection
@@ -27,6 +27,14 @@ def _describe(selection: Selection) -> str:
         lines += [f"  {pick.id}: {', '.join(pick.bullets)}" for pick in picks]
     lines.append("skills: " + ", ".join(f"{group} ({len(items)})" for group, items in selection.skills.items()))
     return "\n".join(lines)
+
+
+def _latest_application_pdf() -> Path | None:
+    """The most recent delivered resume. Applications are the only place a delivered PDF lives."""
+    apps = list_applications()
+    if not apps:
+        return None
+    return APPLICATIONS_DIR / apps[0]["folder"] / "Simon_Chen_Resume.pdf"
 
 
 def _fit_column(value: object, width: int) -> str:
@@ -88,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     eval_cmd.add_argument(
         "--resume",
         default=None,
-        help="Resume PDF path to evaluate (defaults to resumes/Simon_Chen_Resume.pdf).",
+        help="Resume PDF path to evaluate (defaults to the most recent application's resume).",
     )
     eval_cmd.add_argument("--jd", default=None, help="Job description text file or - for stdin.")
     eval_cmd.add_argument("--app", default=None, help="Application folder name or unique stem to evaluate.")
@@ -316,10 +324,18 @@ def main(argv: list[str] | None = None) -> int:
                     resume_text = selection_to_plain_text(selection, profile)
                     role_label = Path(args.plan).stem
                 else:
-                    pdf_path = PDF_DIR / "Simon_Chen_Resume.pdf"
-                    role_label = "Simon_Chen_Resume"
-                    if pdf_path.is_file():
+                    # Delivered resumes live only in applications/, which is gitignored. Fall back
+                    # to the profile itself so the command still works in a fresh clone.
+                    pdf_path = _latest_application_pdf()
+                    if pdf_path is not None and pdf_path.is_file():
+                        role_label = pdf_path.parent.name
                         resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
+                    else:
+                        from .selection import full_selection
+
+                        pdf_path = None
+                        resume_text = selection_to_plain_text(full_selection(profile), profile)
+                        role_label = "profile_json"
 
             if args.hackerrank:
                 agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)

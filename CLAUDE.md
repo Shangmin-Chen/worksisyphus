@@ -42,7 +42,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
 
-   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json` and `Simon_Chen_Resume.pdf` (frozen copies), and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`), mirrors the PDF to `resumes/Simon_Chen_Resume.pdf`, runs ATS extraction check, inserts into `worksisyphus.db`, and automatically syncs to Turso cloud.
+   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`), runs the ATS extraction check, inserts into `worksisyphus.db`, and automatically syncs to Turso cloud. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
 
 5. **Deliver.** The resume is done when `apply` succeeds (compiles to exactly 1 page AND has no horizontal overflow AND passes all quality gates: ATS, No-GPA, Banned Content, LaTeX Leaks, Content Density) — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
 
