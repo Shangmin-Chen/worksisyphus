@@ -98,8 +98,6 @@ def apply(
             "source_url": source_url,
             "status": STATUSES[0],
         }
-        (staging_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-
         # 3. Quality gates and ATS validation, reusing a single PDF extraction
         gate_results, ats_result = run_resume_gates(
             staging_dir / "Simon_Chen_Resume.pdf",
@@ -201,6 +199,8 @@ def evaluate_application(
 def backfill_evaluations(
     applications_dir: Path | None = None,
     overwrite: bool = False,
+    profile: Profile | None = None,
+    profile_path: Path = DEFAULT_PROFILE_PATH,
     log: Log = _silent,
 ) -> list[tuple[str, float | None]]:
     """Score applications that predate evaluation recording, writing into meta.json.
@@ -212,6 +212,7 @@ def backfill_evaluations(
     scored: list[tuple[str, float | None]] = []
     if not applications_dir.is_dir():
         return scored
+    candidate_name = (profile if profile is not None else load_profile(profile_path)).contact.name
 
     for folder in sorted(applications_dir.iterdir()):
         if not folder.is_dir() or folder.name.startswith("."):
@@ -233,7 +234,7 @@ def backfill_evaluations(
             resume_text=resume_text,
             jd_text=jd_text,
             role=meta.get("role", ""),
-            candidate_name=meta.get("company", ""),
+            candidate_name=candidate_name,
         )
         meta["evaluation"] = evaluation
         temporary = meta_file.with_name(f"{meta_file.name}.tmp")
