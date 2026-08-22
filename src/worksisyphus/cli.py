@@ -7,9 +7,9 @@ import json
 import sys
 from pathlib import Path
 
-from .application import STATUSES, list_applications, update_application_status
+from .application import APPLICATIONS_DIR, STATUSES, list_applications, update_application_status
 from .application import apply as apply_app
-from .pipeline import PDF_DIR, PREVIEW_DIR, build_canonical, tailor
+from .pipeline import PREVIEW_DIR, build_canonical, tailor
 from .plan import parse_plan
 from .profile import load_profile, profile_index
 from .selection import Selection
@@ -27,6 +27,14 @@ def _describe(selection: Selection) -> str:
         lines += [f"  {pick.id}: {', '.join(pick.bullets)}" for pick in picks]
     lines.append("skills: " + ", ".join(f"{group} ({len(items)})" for group, items in selection.skills.items()))
     return "\n".join(lines)
+
+
+def _latest_application_pdf() -> Path | None:
+    """The most recent delivered resume. Applications are the only place a delivered PDF lives."""
+    apps = list_applications()
+    if not apps:
+        return None
+    return APPLICATIONS_DIR / apps[0]["folder"] / "Simon_Chen_Resume.pdf"
 
 
 def _fit_column(value: object, width: int) -> str:
@@ -75,6 +83,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     update_cmd.add_argument("--status", required=True, choices=STATUSES, help="New status value.")
     update_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
+    backfill_cmd = sub.add_parser(
+        "backfill-evals",
+        help="Score applications that predate evaluation recording and sync them to the database.",
+    )
+    backfill_cmd.add_argument(
+        "--overwrite", action="store_true", help="Re-score applications that already have an evaluation."
+    )
+    backfill_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     db_cmd = sub.add_parser("db", help="Manage SQLite and Turso database layer.")
     db_sub = db_cmd.add_subparsers(dest="db_action", required=True)
     db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
@@ -88,7 +104,7 @@ def main(argv: list[str] | None = None) -> int:
     eval_cmd.add_argument(
         "--resume",
         default=None,
-        help="Resume PDF path to evaluate (defaults to resumes/Simon_Chen_Resume.pdf).",
+        help="Resume PDF path to evaluate (defaults to the most recent application's resume).",
     )
     eval_cmd.add_argument("--jd", default=None, help="Job description text file or - for stdin.")
     eval_cmd.add_argument("--app", default=None, help="Application folder name or unique stem to evaluate.")
@@ -174,6 +190,23 @@ def main(argv: list[str] | None = None) -> int:
                 args.app, args.status, sync_cloud=not args.no_sync, log=print
             )
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
+        elif args.command == "backfill-evals":
+            from .application import backfill_evaluations
+            from .db import DEFAULT_DB_PATH, get_connection, seed_database, sync_to_turso
+
+            scored = backfill_evaluations(overwrite=args.overwrite, log=print)
+            if not scored:
+                print("No applications needed scoring.")
+            else:
+                conn = get_connection(DEFAULT_DB_PATH)
+                try:
+                    seed_database(conn)
+                finally:
+                    conn.close()
+                if not args.no_sync:
+                    ok = sync_to_turso()
+                    print(f"Turso cloud sync: {'synced' if ok else 'skipped / failed'}")
+                print(f"Scored {len(scored)} application(s).")
         elif args.command == "db":
             from .db import (
                 DEFAULT_DB_PATH,
@@ -316,10 +349,18 @@ def main(argv: list[str] | None = None) -> int:
                     resume_text = selection_to_plain_text(selection, profile)
                     role_label = Path(args.plan).stem
                 else:
-                    pdf_path = PDF_DIR / "Simon_Chen_Resume.pdf"
-                    role_label = "Simon_Chen_Resume"
-                    if pdf_path.is_file():
+                    # Delivered resumes live only in applications/, which is gitignored. Fall back
+                    # to the profile itself so the command still works in a fresh clone.
+                    pdf_path = _latest_application_pdf()
+                    if pdf_path is not None and pdf_path.is_file():
+                        role_label = pdf_path.parent.name
                         resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
+                    else:
+                        from .selection import full_selection
+
+                        pdf_path = None
+                        resume_text = selection_to_plain_text(full_selection(profile), profile)
+                        role_label = "profile_json"
 
             if args.hackerrank:
                 agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)

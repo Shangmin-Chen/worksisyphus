@@ -38,7 +38,6 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
 
     plan_text = json.dumps({"experiences": {"org-a": ["a1"]}, "projects": {"proj1": ["p1"]}})
     apps_dir = tmp_path / "applications"
-    res_dir = tmp_path / "resumes"
 
     folder, _comp_res, ats_res = apply(
         plan_text=plan_text,
@@ -48,7 +47,6 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
         when=date(2026, 8, 20),
         profile=small_profile,
         applications_dir=apps_dir,
-        pdf_dir=res_dir,
         sync_cloud=False,
     )
 
@@ -56,7 +54,6 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
     assert (folder / "Simon_Chen_Resume.pdf").is_file()
     assert (folder / "plan.json").is_file()
     assert (folder / "jd.txt").read_text() == "Backend engineer role\n"
-    assert (res_dir / "Simon_Chen_Resume.pdf").is_file()
     assert ats_res.passed is True
 
     meta = json.loads((folder / "meta.json").read_text())
@@ -84,7 +81,6 @@ def test_apply_rejects_when_quality_gate_fails_and_cleans_up_atomically(small_pr
     monkeypatch.setattr(app_module, "run_resume_gates", fake_failing_gates)
 
     apps_dir = tmp_path / "applications"
-    res_dir = tmp_path / "resumes"
     with pytest.raises(RuntimeError, match="Quality gate check failed"):
         apply(
             plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
@@ -94,19 +90,17 @@ def test_apply_rejects_when_quality_gate_fails_and_cleans_up_atomically(small_pr
             when=date(2026, 8, 20),
             profile=small_profile,
             applications_dir=apps_dir,
-            pdf_dir=res_dir,
             sync_cloud=False,
         )
 
-    # Verify atomic rollback: no folder in applications_dir and no mirrored PDF in res_dir
+    # Verify atomic rollback: nothing published into applications_dir
     assert not (apps_dir / "2026-08-20_acme-corp_product-engineer").exists()
-    assert not (res_dir / "Simon_Chen_Resume.pdf").exists()
     # No staging residue is left inside applications/
     assert list(apps_dir.iterdir()) == []
 
 
-def test_apply_gate_failure_leaves_previous_delivered_resume_intact(small_profile, monkeypatch, tmp_path) -> None:
-    """A resume that fails a gate must never replace the resume already staged for delivery."""
+def test_apply_gate_failure_leaves_existing_applications_intact(small_profile, monkeypatch, tmp_path) -> None:
+    """A failed build must not disturb any already-delivered application."""
 
     def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
         pdf_path = pdf_dir / f"{name}.pdf"
@@ -127,9 +121,12 @@ def test_apply_gate_failure_leaves_previous_delivered_resume_intact(small_profil
     )
 
     apps_dir = tmp_path / "applications"
-    res_dir = tmp_path / "resumes"
-    res_dir.mkdir(parents=True)
-    (res_dir / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-previously-delivered-good-resume")
+    apps_dir.mkdir(parents=True)
+    prior = apps_dir / "2026-08-19_other-co_swe"
+    prior.mkdir()
+    (prior / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-previously-delivered-good-resume")
+    (prior / "meta.json").write_text(json.dumps({"company": "Other Co", "status": "applied"}), encoding="utf-8")
+    before = {q.name: q.read_bytes() for q in prior.iterdir()}
 
     with pytest.raises(RuntimeError, match="Quality gate check failed"):
         apply(
@@ -140,11 +137,13 @@ def test_apply_gate_failure_leaves_previous_delivered_resume_intact(small_profil
             when=date(2026, 8, 20),
             profile=small_profile,
             applications_dir=apps_dir,
-            pdf_dir=res_dir,
             sync_cloud=False,
         )
 
-    assert (res_dir / "Simon_Chen_Resume.pdf").read_bytes() == b"%PDF-previously-delivered-good-resume"
+    # Delivered resumes exist only inside applications/. A failed build must not touch any of
+    # them, and must not publish or leave residue of its own.
+    assert {q.name: q.read_bytes() for q in prior.iterdir()} == before
+    assert sorted(q.name for q in apps_dir.iterdir()) == ["2026-08-19_other-co_swe"]
 
 
 def test_apply_can_be_retried_immediately_after_failure(small_profile, monkeypatch, tmp_path) -> None:
@@ -176,7 +175,6 @@ def test_apply_can_be_retried_immediately_after_failure(small_profile, monkeypat
         when=date(2026, 8, 20),
         profile=small_profile,
         applications_dir=apps_dir,
-        pdf_dir=tmp_path / "resumes",
         sync_cloud=False,
     )
     with pytest.raises(RuntimeError):
@@ -263,7 +261,6 @@ def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
         when=date(2026, 8, 20),
         profile=small_profile,
         applications_dir=apps_dir,
-        pdf_dir=tmp_path / "resumes",
         sync_cloud=False,
     )
 
@@ -276,7 +273,6 @@ def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
             when=date(2026, 8, 20),
             profile=small_profile,
             applications_dir=apps_dir,
-            pdf_dir=tmp_path / "resumes",
             sync_cloud=False,
         )
 
@@ -306,7 +302,6 @@ def test_list_and_update_application_status(small_profile, monkeypatch, tmp_path
         when=date(2026, 7, 11),
         profile=small_profile,
         applications_dir=apps_dir,
-        pdf_dir=tmp_path / "resumes",
         sync_cloud=False,
     )
     app_list = list_applications(applications_dir=apps_dir)
@@ -350,7 +345,6 @@ def test_update_status_rejects_ambiguous_stem_and_partial_match(small_profile, m
         when=date(2026, 7, 11),
         profile=small_profile,
         applications_dir=apps_dir,
-        pdf_dir=tmp_path / "resumes",
         sync_cloud=False,
     )
     second, _, _ = apply(
@@ -361,7 +355,6 @@ def test_update_status_rejects_ambiguous_stem_and_partial_match(small_profile, m
         when=date(2026, 7, 12),
         profile=small_profile,
         applications_dir=apps_dir,
-        pdf_dir=tmp_path / "resumes",
         sync_cloud=False,
     )
 
@@ -394,3 +387,69 @@ def test_resolve_application_folder_errors(tmp_path) -> None:
         resolve_application_folder("  ", applications_dir=tmp_path / "applications")
     with pytest.raises(FileNotFoundError, match="No application folder"):
         resolve_application_folder("nonexistent", applications_dir=tmp_path / "applications")
+
+
+def _fake_gates_ok():
+    return lambda *a, **kw: (
+        (GateResult("ATS", True, ()),),
+        ATSCheckResult(True, (), 1, 400, "Simon Chen Python React distributed systems latency"),
+    )
+
+
+def test_apply_records_the_hackerrank_evaluation(small_profile, monkeypatch, tmp_path) -> None:
+    """Every application must carry the score that was true when it was sent."""
+
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _fake_gates_ok())
+
+    folder, _c, _a = apply(
+        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+        jd_text="React frontend, Python backend, and infrastructure.",
+        company="Acme Corp",
+        role="Founding Product Engineer",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=tmp_path / "applications",
+        sync_cloud=False,
+    )
+
+    meta = json.loads((folder / "meta.json").read_text())
+    ev = meta["evaluation"]
+    assert ev["role_rubric"] == "founding_product_engineer"
+    assert ev["total_score"] > 0
+    assert len(ev["scores"]) == 3
+    assert ev["evaluated_at"]
+
+
+def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatch, tmp_path) -> None:
+    from worksisyphus.application import backfill_evaluations
+
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_oldco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(json.dumps({"company": "OldCo", "role": "SWE", "status": "applied"}))
+    (folder / "jd.txt").write_text("Python backend engineer.")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
+
+    import worksisyphus.application as app_module
+
+    monkeypatch.setattr(app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 400, "Python"))
+
+    first = backfill_evaluations(applications_dir=apps)
+    assert [name for name, _ in first] == ["2026-08-01_oldco_swe"]
+    stamp = json.loads((folder / "meta.json").read_text())["evaluation"]["evaluated_at"]
+
+    # Already scored: a second run must leave it alone.
+    assert backfill_evaluations(applications_dir=apps) == []
+    assert json.loads((folder / "meta.json").read_text())["evaluation"]["evaluated_at"] == stamp
+
+    # ...unless explicitly told to re-score.
+    assert len(backfill_evaluations(applications_dir=apps, overwrite=True)) == 1

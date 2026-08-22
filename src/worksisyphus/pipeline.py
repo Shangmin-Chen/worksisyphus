@@ -13,10 +13,9 @@ from .renderer import render_resume
 from .selection import Selection, full_selection, trim_step
 
 TEX_DIR = Path("tex_files")
-PDF_DIR = Path("resumes")
-# tailor() is a preview/debug command: apply() is the path that produces a delivered resume.
-# Its output must not default into PDF_DIR, where a run would overwrite the resume mirrored
-# from the most recent application. tex_files/*.pdf is already gitignored.
+# Delivered resumes live only in applications/<date>_<stem>/, written there by apply().
+# Everything else this module produces is regenerable build output: the canonical database
+# view and tailor()'s preview builds both land in TEX_DIR, which is gitignored.
 PREVIEW_DIR = TEX_DIR
 PAGE_LIMIT = 1
 OVERFULL_TOLERANCE_PT = 2.0
@@ -35,7 +34,7 @@ def build_canonical(profile_path: Path = DEFAULT_PROFILE_PATH, log: Log = _silen
     profile = load_profile(profile_path)
     selection = full_selection(profile)
     log("Rendering canonical resume...")
-    result = compile_tex(render_resume(profile, selection), selection.name, TEX_DIR, PDF_DIR)
+    result = compile_tex(render_resume(profile, selection), selection.name, TEX_DIR, TEX_DIR)
     if result.overfull:
         log("Warning: horizontal overflow: " + "; ".join(result.overfull))
     log(f"Exported {result.pdf_path} ({result.pages} page{'s' if result.pages != 1 else ''}).")

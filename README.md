@@ -23,8 +23,8 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
    > Tailor my resume to this JD: *(paste the whole posting, company name included)*
 3. Claude runs the unified `apply` pipeline: reads the slug index, writes `plans/<company>_<role>.json` ranked by relevance, validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, runs the ATS extraction check, and automatically syncs to Turso cloud.
 4. The resume is done when `apply` succeeds (exactly one page, no horizontal overflow, ATS check passed) — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut.
-5. `resumes/Simon_Chen_Resume.pdf` is mirrored as the latest copy for quick opening. The 3-page canonical never goes out.
-6. The application is automatically tracked in SQLite and Turso cloud with full metadata, JD text, and audit logs.
+5. The delivered PDF lives only at `applications/<date>_<company>_<role>/Simon_Chen_Resume.pdf`. The 3-page canonical is a local build artifact and never goes out.
+6. The application is automatically tracked in SQLite and Turso cloud with full metadata, JD text, audit logs, and the HackerRank hiring-agent score for the resume as sent.
 
 List tracked applications with `worksisyphus status`. Update one with
 `worksisyphus update-status --app <folder-or-unique-plan-stem> --status <status>`.
@@ -47,14 +47,15 @@ uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluat
 uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
 uv run worksisyphus evaluate --check-upstream     # check sync status against upstream hiring-agent
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find optimal plan
+uv run worksisyphus backfill-evals                # score applications that predate evaluation recording
 uv run worksisyphus db status                     # show database stats and metrics
 uv run worksisyphus db history [--limit N]        # show timestamped append-only audit trail
 uv run worksisyphus db sync                       # load profile.json into SQLite and push to Turso cloud
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
-uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume.pdf   # ATS extraction check
+uv run --with pdfminer.six python scripts/ats_check.py applications/<app>/Simon_Chen_Resume.pdf  # ATS extraction check
 ```
 
-Every tailored resume compiles to `resumes/Simon_Chen_Resume.pdf` — a clean, human filename for recruiters; per-application copies are frozen under `applications/`. If the first render runs past one page, the pipeline deterministically trims — lowest-ranked project first, then extra bullets — and recompiles until it fits; it fails loudly if it can't.
+Every tailored resume compiles straight into `applications/<date>_<company>_<role>/Simon_Chen_Resume.pdf` — a clean, human filename for recruiters, frozen with the JD and plan that produced it. If the first render runs past one page, the pipeline deterministically trims — lowest-ranked project first, then extra bullets — and recompiles until it fits; it fails loudly if it can't.
 
 ## Layout
 
@@ -84,7 +85,7 @@ Every tailored resume compiles to `resumes/Simon_Chen_Resume.pdf` — a clean, h
 │   ├── roles/              # role rubrics and criteria templates
 │   └── cli.py              # compile, tailor, apply, validate, evaluate, optimize, and db CLI
 ├── tex_files/              # rendered TeX (only the canonical one is tracked)
-└── resumes/                # compiled PDFs (all tracked)
+└── applications/           # delivered resumes + JD/plan/meta (gitignored; mirrored to Turso)
 ```
 
 ## Plan files

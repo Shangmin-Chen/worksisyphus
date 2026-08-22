@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from worksisyphus.gates import (
     check_banned_content_gate,
     check_density_gate,
@@ -16,17 +14,14 @@ from worksisyphus.gates import (
 from worksisyphus.selection import TAILORED_NAME
 
 ROOT = Path(__file__).resolve().parents[1]
-TAILORED_PDF = ROOT / "resumes" / "Simon_Chen_Resume.pdf"
-COMPILED_PDF = ROOT / "resumes" / "Simon_Chen_Resume_Compiled.pdf"
 
 
-def test_tailored_resume_passes_all_gates(real_profile) -> None:
-    if not TAILORED_PDF.is_file():
-        pytest.skip(f"{TAILORED_PDF} not present")
+def test_tailored_resume_passes_all_gates(real_profile, delivered_pdf) -> None:
+    """Every delivered resume lives in applications/; gate the most recent one."""
 
     has_real_profile = (ROOT / "profile.json").is_file()
     gates = check_resume_gates(
-        pdf_path=TAILORED_PDF,
+        pdf_path=delivered_pdf,
         candidate_name=real_profile.contact.name,
         candidate_email=real_profile.contact.email if has_real_profile else "",
         candidate_phone=real_profile.contact.phone if has_real_profile else "",
@@ -37,13 +32,10 @@ def test_tailored_resume_passes_all_gates(real_profile) -> None:
     assert not failed_gates, f"Gates failed: {[(g.gate_name, g.diagnostics) for g in failed_gates]}"
 
 
-def test_compiled_resume_passes_all_gates(real_profile) -> None:
-    if not COMPILED_PDF.is_file():
-        pytest.skip(f"{COMPILED_PDF} not present")
-
+def test_compiled_resume_passes_all_gates(real_profile, canonical_pdf) -> None:
     has_real_profile = (ROOT / "profile.json").is_file()
     gates = check_resume_gates(
-        pdf_path=COMPILED_PDF,
+        pdf_path=canonical_pdf,
         candidate_name=real_profile.contact.name,
         candidate_email=real_profile.contact.email if has_real_profile else "",
         candidate_phone=real_profile.contact.phone if has_real_profile else "",

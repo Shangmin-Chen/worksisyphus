@@ -60,7 +60,7 @@ jobs:
       - name: Run Pytest with Coverage
         run: uv run python -m pytest tests/ -v --cov=worksisyphus --cov-report=term-missing
 
-      - name: ATS Extraction Check on Tracked Resumes
-        run: |
-          uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume.pdf
-          uv run --with pdfminer.six python scripts/ats_check.py resumes/Simon_Chen_Resume_Compiled.pdf
+      # No ATS step here any more: delivered resumes live only in applications/, which is
+      # gitignored, and CI has no TeX toolchain to build one. The ATS and quality gates still
+      # run against real PDFs locally (see the delivered_pdf fixture) and inside `apply`,
+      # which refuses to publish an application whose resume fails them.

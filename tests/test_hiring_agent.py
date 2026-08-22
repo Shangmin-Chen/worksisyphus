@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from worksisyphus.hiring_agent import (
@@ -260,11 +262,13 @@ def test_check_upstream_status_env_file_token(monkeypatch, tmp_path) -> None:
     assert recorded_headers.get("Authorization") == "Bearer ghp_from_dotenv_file"
 
 
-def test_synthesize_role_rubric_and_cleanup(tmp_path, monkeypatch) -> None:
+def test_synthesize_role_rubric_writes_nothing_to_disk(tmp_path, monkeypatch) -> None:
+    """apply() evaluates arbitrary role titles; synthesis must not scatter rubrics through the package."""
     from worksisyphus import hiring_agent
 
-    monkeypatch.setattr(hiring_agent, "ROLES_DIR", tmp_path / "roles")
-    (tmp_path / "roles").mkdir()
+    roles_dir = tmp_path / "roles"
+    roles_dir.mkdir()
+    monkeypatch.setattr(hiring_agent, "ROLES_DIR", roles_dir)
 
     role = hiring_agent.synthesize_role_rubric(
         role_name="cloud_platform_engineer",
@@ -272,16 +276,27 @@ def test_synthesize_role_rubric_and_cleanup(tmp_path, monkeypatch) -> None:
     )
     assert role.name == "cloud_platform_engineer"
     assert len(role.categories) == 3
-    assert (tmp_path / "roles" / "cloud_platform_engineer" / "role.json").is_file()
-    assert (tmp_path / "roles" / "cloud_platform_engineer" / "criteria.jinja").is_file()
+    assert role.criteria_template  # the JD is baked into the in-memory rubric
+    assert list(roles_dir.iterdir()) == [], "synthesis must not persist anything"
 
-    # Verify that calling synthesize on an existing role does not overwrite it
-    (tmp_path / "roles" / "cloud_platform_engineer" / "role.json").write_text('{"categories": []}', encoding="utf-8")
-    existing_role = hiring_agent.synthesize_role_rubric(
-        role_name="cloud_platform_engineer",
-        jd_text="Different JD",
+
+def test_synthesize_never_overwrites_a_curated_rubric(tmp_path, monkeypatch) -> None:
+    from worksisyphus import hiring_agent
+
+    roles_dir = tmp_path / "roles"
+    curated = roles_dir / "cloud_platform_engineer"
+    curated.mkdir(parents=True)
+    (curated / "role.json").write_text(
+        json.dumps({"position_title": "Curated Title", "categories": [{"key": "k", "label": "L", "max": 100}]}),
+        encoding="utf-8",
     )
-    assert existing_role.name == "cloud_platform_engineer"
+    (curated / "criteria.jinja").write_text("curated criteria", encoding="utf-8")
+    (curated / "system_message.jinja").write_text("curated system", encoding="utf-8")
+    monkeypatch.setattr(hiring_agent, "ROLES_DIR", roles_dir)
+
+    role = hiring_agent.synthesize_role_rubric(role_name="Cloud Platform Engineer", jd_text="Different JD")
+    assert role.position_title == "Curated Title"
+    assert (curated / "criteria.jinja").read_text() == "curated criteria"
 
 
 def test_load_role_normalizes_slug() -> None:

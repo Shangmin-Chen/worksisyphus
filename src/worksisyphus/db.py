@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS applications (
     status TEXT NOT NULL DEFAULT 'applied',
     jd_text TEXT NOT NULL DEFAULT '',
     plan_json TEXT NOT NULL DEFAULT '',
+    evaluation_json TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
     updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -150,9 +151,21 @@ def get_connection(
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
-    """Create tables if they do not already exist."""
+    """Create tables if they do not already exist, then apply additive migrations."""
     conn.executescript(SCHEMA_SQL)
+    _migrate_schema(conn)
     conn.commit()
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a database was first created.
+
+    CREATE TABLE IF NOT EXISTS leaves an existing table untouched, so a database seeded before
+    a column existed never gains it. Each migration must be additive and idempotent.
+    """
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(applications)").fetchall()}
+    if existing and "evaluation_json" not in existing:
+        conn.execute("ALTER TABLE applications ADD COLUMN evaluation_json TEXT NOT NULL DEFAULT ''")
 
 
 def log_audit_event(
@@ -231,7 +244,8 @@ def seed_database(
     prior_proj_bullets = _fetch_map(conn, "SELECT project_slug, slug, text, sort_order FROM project_bullets", key_len=2)
     prior_skills = _fetch_map(conn, "SELECT group_name, item, sort_order FROM skills", key_len=2)
     prior_applications = _fetch_map(
-        conn, "SELECT id, company, role, date, source_url, status, jd_text, plan_json FROM applications"
+        conn,
+        "SELECT id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json FROM applications",
     )
 
     if not profile_path.is_file() and profile_path == Path("profile.json"):
@@ -450,10 +464,12 @@ def seed_database(
             # Strip to the same canonical form apply() stores, so DB and disk compare exactly.
             jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
             plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
+            evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
             conn.execute(
                 """
-                INSERT OR REPLACE INTO applications (id, company, role, date, source_url, status, jd_text, plan_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO applications
+                    (id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     d.name,
@@ -464,6 +480,7 @@ def seed_database(
                     meta.get("status", "applied"),
                     jd_text,
                     plan_json,
+                    evaluation_json,
                 ),
             )
             _log_change(
@@ -478,6 +495,7 @@ def seed_database(
                     meta.get("status", "applied"),
                     jd_text,
                     plan_json,
+                    evaluation_json,
                 ),
                 "application",
                 d.name,
@@ -597,14 +615,16 @@ def save_application_to_db(
     status: str,
     jd_text: str,
     plan_json: str,
+    evaluation_json: str = "",
 ) -> None:
     """Store application in the applications table with audit logging."""
     conn.execute(
         """
-        INSERT OR REPLACE INTO applications (id, company, role, date, source_url, status, jd_text, plan_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO applications
+            (id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (app_id, company, role, date_str, source_url, status, jd_text, plan_json),
+        (app_id, company, role, date_str, source_url, status, jd_text, plan_json, evaluation_json),
     )
     log_audit_event(
         conn,
