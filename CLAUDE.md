@@ -42,11 +42,11 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
 
-   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`), runs the ATS extraction check, inserts into `worksisyphus.db`, and automatically syncs to Turso cloud. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
+   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`, and `evaluation` — the HackerRank hiring-agent score for the resume as sent), runs the ATS extraction check, inserts into `worksisyphus.db` (including `evaluation_json`), and automatically syncs to Turso cloud. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
 
 5. **Deliver.** The resume is done when `apply` succeeds (compiles to exactly 1 page AND has no horizontal overflow AND passes all quality gates: ATS, No-GPA, Banned Content, LaTeX Leaks, Content Density) — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
 
-   Application folders are immutable history: never modify an application's `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json` or `uv run worksisyphus status`.
+   Application folders are immutable history: never modify an application's `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` (and `meta.json.evaluation`, via `backfill-evals`) when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json` or `uv run worksisyphus status`.
 
 ## Editing profile.json (only with approval)
 
@@ -71,6 +71,7 @@ uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluat
 uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
 uv run worksisyphus evaluate --check-upstream        # check sync status against upstream interviewstreet/hiring-agent
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find highest-scoring plan for a JD
+uv run worksisyphus backfill-evals [--overwrite]  # score applications that predate evaluation recording
 uv run worksisyphus db status                    # show database overview, metrics, and connection status
 uv run worksisyphus db history [--limit N]       # show append-only timestamped audit trail
 uv run worksisyphus db sync                      # load profile.json into SQLite and push to Turso cloud

@@ -83,6 +83,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     update_cmd.add_argument("--status", required=True, choices=STATUSES, help="New status value.")
     update_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
+    backfill_cmd = sub.add_parser(
+        "backfill-evals",
+        help="Score applications that predate evaluation recording and sync them to the database.",
+    )
+    backfill_cmd.add_argument(
+        "--overwrite", action="store_true", help="Re-score applications that already have an evaluation."
+    )
+    backfill_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     db_cmd = sub.add_parser("db", help="Manage SQLite and Turso database layer.")
     db_sub = db_cmd.add_subparsers(dest="db_action", required=True)
     db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
@@ -182,6 +190,23 @@ def main(argv: list[str] | None = None) -> int:
                 args.app, args.status, sync_cloud=not args.no_sync, log=print
             )
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
+        elif args.command == "backfill-evals":
+            from .application import backfill_evaluations
+            from .db import DEFAULT_DB_PATH, get_connection, seed_database, sync_to_turso
+
+            scored = backfill_evaluations(overwrite=args.overwrite, log=print)
+            if not scored:
+                print("No applications needed scoring.")
+            else:
+                conn = get_connection(DEFAULT_DB_PATH)
+                try:
+                    seed_database(conn)
+                finally:
+                    conn.close()
+                if not args.no_sync:
+                    ok = sync_to_turso()
+                    print(f"Turso cloud sync: {'synced' if ok else 'skipped / failed'}")
+                print(f"Scored {len(scored)} application(s).")
         elif args.command == "db":
             from .db import (
                 DEFAULT_DB_PATH,

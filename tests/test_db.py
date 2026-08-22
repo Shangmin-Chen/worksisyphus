@@ -355,3 +355,56 @@ def test_reseeding_after_a_deletion_is_stable(tmp_path: Path) -> None:
     seed_database(conn, profile_path=profile_file, applications_dir=apps_dir)
     assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == settled
     conn.close()
+
+
+def test_migration_adds_evaluation_column_to_an_existing_database(tmp_path: Path) -> None:
+    """CREATE TABLE IF NOT EXISTS leaves old tables alone, so new columns need a migration."""
+    from worksisyphus.db import get_connection, init_schema
+
+    db = tmp_path / "legacy.db"
+    conn = get_connection(db)
+    conn.executescript("""
+        CREATE TABLE applications (
+            id TEXT PRIMARY KEY, company TEXT NOT NULL, role TEXT DEFAULT '', date TEXT NOT NULL,
+            source_url TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'applied',
+            jd_text TEXT NOT NULL DEFAULT '', plan_json TEXT NOT NULL DEFAULT ''
+        );
+    """)
+    conn.execute("INSERT INTO applications (id, company, date) VALUES ('2026-01-01_old_swe', 'OldCo', '2026-01-01')")
+    conn.commit()
+
+    init_schema(conn)
+
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(applications)")}
+    assert "evaluation_json" in columns
+    # The pre-existing row survives, defaulted rather than dropped.
+    assert conn.execute("SELECT company, evaluation_json FROM applications").fetchone() == ("OldCo", "")
+
+    init_schema(conn)  # idempotent
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 1
+    conn.close()
+
+
+def test_evaluation_round_trips_through_seed(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_acme_swe"
+    folder.mkdir(parents=True)
+    (folder / "jd.txt").write_text("JD", encoding="utf-8")
+    (folder / "plan.json").write_text("{}", encoding="utf-8")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF")
+    (folder / "meta.json").write_text(
+        json.dumps({"company": "Acme", "status": "applied", "evaluation": {"total_score": 91.5}}), encoding="utf-8"
+    )
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    stored = conn.execute("SELECT evaluation_json FROM applications WHERE id = ?", (folder.name,)).fetchone()[0]
+    assert json.loads(stored)["total_score"] == 91.5
+
+    # Reseeding unchanged data must not look like a change.
+    before = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == before
+    conn.close()

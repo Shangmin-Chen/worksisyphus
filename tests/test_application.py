@@ -387,3 +387,69 @@ def test_resolve_application_folder_errors(tmp_path) -> None:
         resolve_application_folder("  ", applications_dir=tmp_path / "applications")
     with pytest.raises(FileNotFoundError, match="No application folder"):
         resolve_application_folder("nonexistent", applications_dir=tmp_path / "applications")
+
+
+def _fake_gates_ok():
+    return lambda *a, **kw: (
+        (GateResult("ATS", True, ()),),
+        ATSCheckResult(True, (), 1, 400, "Simon Chen Python React distributed systems latency"),
+    )
+
+
+def test_apply_records_the_hackerrank_evaluation(small_profile, monkeypatch, tmp_path) -> None:
+    """Every application must carry the score that was true when it was sent."""
+
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _fake_gates_ok())
+
+    folder, _c, _a = apply(
+        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+        jd_text="React frontend, Python backend, and infrastructure.",
+        company="Acme Corp",
+        role="Founding Product Engineer",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=tmp_path / "applications",
+        sync_cloud=False,
+    )
+
+    meta = json.loads((folder / "meta.json").read_text())
+    ev = meta["evaluation"]
+    assert ev["role_rubric"] == "founding_product_engineer"
+    assert ev["total_score"] > 0
+    assert len(ev["scores"]) == 3
+    assert ev["evaluated_at"]
+
+
+def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatch, tmp_path) -> None:
+    from worksisyphus.application import backfill_evaluations
+
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_oldco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(json.dumps({"company": "OldCo", "role": "SWE", "status": "applied"}))
+    (folder / "jd.txt").write_text("Python backend engineer.")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
+
+    import worksisyphus.application as app_module
+
+    monkeypatch.setattr(app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 400, "Python"))
+
+    first = backfill_evaluations(applications_dir=apps)
+    assert [name for name, _ in first] == ["2026-08-01_oldco_swe"]
+    stamp = json.loads((folder / "meta.json").read_text())["evaluation"]["evaluated_at"]
+
+    # Already scored: a second run must leave it alone.
+    assert backfill_evaluations(applications_dir=apps) == []
+    assert json.loads((folder / "meta.json").read_text())["evaluation"]["evaluated_at"] == stamp
+
+    # ...unless explicitly told to re-score.
+    assert len(backfill_evaluations(applications_dir=apps, overwrite=True)) == 1

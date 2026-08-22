@@ -95,22 +95,13 @@ def synthesize_role_rubric(
     if (role_dir / "role.json").is_file():
         return load_role(safe_slug)
 
-    role_dir.mkdir(parents=True, exist_ok=True)
     title = position_title or role_name.replace("_", " ").title()
 
-    categories_manifest = [
-        {"key": "core_competency", "label": "Core Technical Competency", "max": 40, "icon": "🎯"},
-        {"key": "architecture_scale", "label": "Architecture & Engineering Depth", "max": 35, "icon": "🏗️"},
-        {"key": "impact_metrics", "label": "Quantified Impact & Delivery", "max": 25, "icon": "📊"},
+    categories = [
+        Category(key="core_competency", label="Core Technical Competency", max=40, icon="🎯"),
+        Category(key="architecture_scale", label="Architecture & Engineering Depth", max=35, icon="🏗️"),
+        Category(key="impact_metrics", label="Quantified Impact & Delivery", max=25, icon="📊"),
     ]
-
-    role_manifest = {
-        "position_title": title,
-        "categories": categories_manifest,
-        "bonus_max": 10,
-        "min_final_score": 0,
-        "max_final_score": 110,
-    }
 
     criteria_content = f"""You are evaluating a candidate for {title}.
 Analyze the candidate's resume data against the job requirements:
@@ -135,11 +126,19 @@ Analyze the candidate's resume data against the job requirements:
 Provide strict, objective scores with cited evidence in valid JSON format.
 """
 
-    (role_dir / "role.json").write_text(json.dumps(role_manifest, indent=2), encoding="utf-8")
-    (role_dir / "criteria.jinja").write_text(criteria_content, encoding="utf-8")
-    (role_dir / "system_message.jinja").write_text(system_content, encoding="utf-8")
-
-    return load_role(safe_slug)
+    # Held in memory only. Synthesis is deterministic from (role_name, jd_text), so persisting
+    # buys nothing and would scatter generated rubrics through the installed package every time
+    # apply() evaluates a role title that has no curated rubric.
+    return Role(
+        name=safe_slug,
+        position_title=title,
+        categories=categories,
+        bonus_max=10,
+        min_final_score=0,
+        max_final_score=110,
+        criteria_template=criteria_content,
+        system_message=system_content,
+    )
 
 
 def _get_github_token() -> str | None:

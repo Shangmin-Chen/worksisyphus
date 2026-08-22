@@ -9,10 +9,11 @@ import shutil
 import tempfile
 from collections.abc import Callable
 from dataclasses import replace as dataclass_replace
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 
-from .ats import ATSCheckResult
+from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
 from .gates import run_resume_gates
 from .pipeline import tailor
@@ -90,7 +91,7 @@ def apply(
         # 2. Write metadata, plan, and JD into staging dir
         (staging_dir / "plan.json").write_text(normalized_plan.strip() + "\n", encoding="utf-8")
         (staging_dir / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
-        meta = {
+        meta: dict[str, Any] = {
             "company": company,
             "role": role,
             "date": when.isoformat(),
@@ -111,6 +112,17 @@ def apply(
         if failed_gates:
             reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
             raise RuntimeError(f"Quality gate check failed for {target_folder.name}:\n{reasons}")
+
+        # 3b. Score the delivered resume against this JD and record it alongside the application,
+        #     so every application carries the evaluation that was true when it was sent.
+        evaluation = evaluate_application(
+            resume_text=ats_result.text,
+            jd_text=jd_text,
+            role=role,
+            candidate_name=active_profile.contact.name,
+        )
+        meta["evaluation"] = evaluation
+        (staging_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
         # 4. Atomic publish. Re-check the target: compilation is slow enough that a concurrent
         #    apply could have claimed the slot since the check above, and os.replace would
@@ -146,6 +158,7 @@ def apply(
                 # disk, so a reseed does not see a phantom change on every application row.
                 jd_text=jd_text.strip(),
                 plan_json=normalized_plan.strip(),
+                evaluation_json=json.dumps(evaluation, sort_keys=True),
             )
         finally:
             conn.close()
@@ -154,6 +167,81 @@ def apply(
             _sync_cloud(log)
 
     return target_folder, compile_result, ats_result
+
+
+def evaluate_application(
+    resume_text: str,
+    jd_text: str,
+    role: str,
+    candidate_name: str = "",
+) -> dict[str, Any]:
+    """Score a resume with the HackerRank hiring agent, keyed to the role it was sent for.
+
+    The role title is free text ("Founding Product Engineer"); load_role normalizes it, uses a
+    curated rubric when one exists, and otherwise synthesizes one in memory from the JD.
+    """
+    from .hiring_agent import HackerRankHiringAgent
+
+    agent = HackerRankHiringAgent(role_name=role or "software_engineer", jd_text=jd_text)
+    result = agent.evaluate(resume_text=resume_text, candidate_name=candidate_name)
+    return {
+        "role_rubric": agent.role.name,
+        "role_title": agent.role.position_title,
+        "total_score": result.get("total_score"),
+        "max_possible": result.get("max_possible"),
+        "scores": result.get("scores", {}),
+        "bonus_points": result.get("bonus_points", {}),
+        "deductions": result.get("deductions", {}),
+        "key_strengths": result.get("key_strengths", []),
+        "areas_for_improvement": result.get("areas_for_improvement", []),
+        "evaluated_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def backfill_evaluations(
+    applications_dir: Path | None = None,
+    overwrite: bool = False,
+    log: Log = _silent,
+) -> list[tuple[str, float | None]]:
+    """Score applications that predate evaluation recording, writing into meta.json.
+
+    Returns (application_id, total_score) for each one scored. Existing evaluations are kept
+    unless overwrite is set, so re-running is safe and idempotent.
+    """
+    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
+    scored: list[tuple[str, float | None]] = []
+    if not applications_dir.is_dir():
+        return scored
+
+    for folder in sorted(applications_dir.iterdir()):
+        if not folder.is_dir() or folder.name.startswith("."):
+            continue
+        meta_file = folder / "meta.json"
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        jd_file = folder / "jd.txt"
+        if not meta_file.is_file() or not pdf.is_file():
+            log(f"Skipped {folder.name}: missing meta.json or resume")
+            continue
+
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        if meta.get("evaluation") and not overwrite:
+            continue
+
+        resume_text = check_pdf_ats(pdf).text
+        jd_text = jd_file.read_text(encoding="utf-8") if jd_file.is_file() else ""
+        evaluation = evaluate_application(
+            resume_text=resume_text,
+            jd_text=jd_text,
+            role=meta.get("role", ""),
+            candidate_name=meta.get("company", ""),
+        )
+        meta["evaluation"] = evaluation
+        temporary = meta_file.with_name(f"{meta_file.name}.tmp")
+        temporary.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(meta_file)
+        scored.append((folder.name, evaluation.get("total_score")))
+        log(f"Scored {folder.name}: {evaluation.get('total_score')}/{evaluation.get('max_possible')}")
+    return scored
 
 
 def _sync_cloud(log: Log) -> bool:
