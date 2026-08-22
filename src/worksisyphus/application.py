@@ -88,7 +88,8 @@ def apply(
             log=log,
         )
 
-        # 2. Write metadata, plan, and JD into staging dir
+        # 2. Freeze the plan and JD. meta.json is written after scoring, below, so the folder
+        #    is never published without the evaluation that belongs to it.
         (staging_dir / "plan.json").write_text(normalized_plan.strip() + "\n", encoding="utf-8")
         (staging_dir / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
         meta: dict[str, Any] = {
