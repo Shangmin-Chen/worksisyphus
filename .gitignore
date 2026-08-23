@@ -30,3 +30,7 @@ coverage.xml
 
 
 
+
+# Plans are inputs, not artifacts: apply() freezes each plan into applications/ and the DB.
+# This directory must never be tracked again (issue #41).
+/plans/

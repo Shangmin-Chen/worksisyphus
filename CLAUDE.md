@@ -24,13 +24,16 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 ## Workflow for "tailor my resume to this JD"
 
 1. `uv run worksisyphus index` — see every selectable slug with full bullet text.
-2. Write `plans/<company>_<role>.json` (see `plans/example.json` for the format; order = rank).
-   Every plan directly in `plans/` must end up with a matching application — `tests/test_consistency.py` enforces this so a plan cannot drift out of the record. Put work in progress in `plans/drafts/`, which is exempt, and move it up when you apply with it.
-3. `uv run worksisyphus validate --plan plans/<name>.json` — catches unknown slugs and shows the resolved selection without compiling.
+2. Compose the plan JSON yourself (order = rank; format in README "Plan files"). Plans are **inputs,
+   not artifacts**: there is no `plans/` directory. Write it to scratch outside version control
+   (e.g. `$TMPDIR/<company>_<role>.json`) — `apply` freezes the exact plan into
+   `applications/<YYYY-MM-DD>_<stem>/plan.json` and syncs it to Turso, which is the record.
+3. Optional pre-flight: `cat <plan> | uv run worksisyphus validate --plan -` catches unknown slugs
+   without compiling (`apply` validates too, so this step is skippable).
 4. **Apply (1-step compile, ATS check, freeze & Turso sync):**
 
    ```bash
-   cat << 'EOF' | uv run worksisyphus apply --company <Company> --jd - [--role <Role>] [--url <posting url>] [--plan plans/<name>.json]
+   cat << 'EOF' | uv run worksisyphus apply --company <Company> --jd - [--role <Role>] [--url <posting url>] [--plan <scratch plan file>]
    <Pasted JD text>
    EOF
    ```
@@ -87,7 +90,7 @@ Exit codes: 0 success, 1 failure with a one-line `error: ...` on stderr. Plan va
 
 When a constraint matters, enforce it in code — not in agent instructions. A CLI flag that is `required=True` can never be forgotten; a workflow step that says "remember to pass `--jd`" will eventually be skipped. Prefer compilation-level gates (argparse, validation errors, test assertions) over prose rules. If a new guardrail can be a test in `tests/test_consistency.py` or a check in a CLI command, put it there. Reserve CLAUDE.md rules for judgment calls that code cannot express (e.g. selection guardrails).
 
-When changing a schema or data format, migrate **all** existing data files — not just the source copies. Check both `plans/` and `applications/*/` for stale formats. A parser that rejects old data it once accepted is a bug if the old data wasn't migrated.
+When changing a schema or data format, migrate **all** existing data files — not just the source copies. Check `applications/*/` for stale formats. A parser that rejects old data it once accepted is a bug if the old data wasn't migrated.
 
 ## Architecture (for code changes)
 
