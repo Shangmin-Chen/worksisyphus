@@ -207,9 +207,7 @@ def main(argv: list[str] | None = None) -> int:
                     attempts[key] = attempts.get(key, 0) + 1
                     app["attempt"] = str(attempts[key])
 
-                header = (
-                    f"{'Date':<12} {'Company':<20} {'Role':<32} {'Status':<15} {'App#':<5} Application"
-                )
+                header = f"{'Date':<12} {'Company':<20} {'Role':<32} {'Status':<15} {'App#':<5} Application"
                 print(header)
                 print("-" * len(header))
                 for app in apps:

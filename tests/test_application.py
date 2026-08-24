@@ -593,7 +593,11 @@ def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatc
 
 def test_parse_app_folder_handles_legacy_names() -> None:
     # Legacy pre-#34 stems with literal underscores and hyphen-digits are never ordinals.
-    assert parse_app_folder("2026-07-09_bosch_software_engineer_ii") == ("2026-07-09", "bosch_software_engineer_ii", None)
+    assert parse_app_folder("2026-07-09_bosch_software_engineer_ii") == (
+        "2026-07-09",
+        "bosch_software_engineer_ii",
+        None,
+    )
     assert parse_app_folder("2026-08-18_bloomberg_software-engineer-2027") == (
         "2026-08-18",
         "bloomberg_software-engineer-2027",

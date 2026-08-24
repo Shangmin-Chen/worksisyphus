@@ -492,9 +492,7 @@ def test_seed_deletes_ghost_application_rows_with_audit(tmp_path: Path) -> None:
     shutil.rmtree(ghost)
     seed_database(conn, profile_path=profile_file, applications_dir=apps)
     assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 0
-    deletions = conn.execute(
-        "SELECT entity_type, entity_id FROM audit_events WHERE action = 'DELETE'"
-    ).fetchall()
+    deletions = conn.execute("SELECT entity_type, entity_id FROM audit_events WHERE action = 'DELETE'").fetchall()
     assert ("application", "2026-08-01_ghost_swe") in deletions
 
     # Reseeding unchanged data reports nothing further.
