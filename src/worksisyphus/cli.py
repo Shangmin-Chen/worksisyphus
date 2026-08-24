@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import date
 from pathlib import Path
 
-from .application import APPLICATIONS_DIR, STATUSES, list_applications, update_application_status
+from .application import STATUSES, list_applications, parse_app_folder, slugify, update_application_status
 from .application import apply as apply_app
 from .pipeline import PREVIEW_DIR, build_canonical, tailor
 from .plan import parse_plan
@@ -34,7 +35,20 @@ def _latest_application_pdf() -> Path | None:
     apps = list_applications()
     if not apps:
         return None
-    return APPLICATIONS_DIR / apps[0]["folder"] / "Simon_Chen_Resume.pdf"
+
+    def recency(app: dict[str, str]) -> tuple[int, int]:
+        date_str, _, ordinal = parse_app_folder(app["folder"], siblings={a["folder"] for a in apps})
+        try:
+            day = date.fromisoformat(date_str).toordinal()
+        except ValueError:
+            day = 0
+        return (day, ordinal or 0)
+
+    newest = max(apps, key=recency)
+    # Resolve the dir through the module so tests (and callers) can redirect applications/.
+    from .application import APPLICATIONS_DIR as _apps_dir
+
+    return _apps_dir / newest["folder"] / "Simon_Chen_Resume.pdf"
 
 
 def _fit_column(value: object, width: int) -> str:
@@ -74,12 +88,17 @@ def main(argv: list[str] | None = None) -> int:
     apply_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     validate_cmd = sub.add_parser("validate", help="Parse a plan and print the resolved selection; no LaTeX involved.")
     validate_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
-    sub.add_parser("status", help="List all applications and their current statuses.")
+    status_cmd = sub.add_parser("status", help="List all applications and their current statuses.")
+    status_cmd.add_argument(
+        "--company",
+        default=None,
+        help="Case-insensitive substring filter on the company name.",
+    )
     update_cmd = sub.add_parser("update-status", help="Update the status of an application.")
     update_cmd.add_argument(
         "--app",
         required=True,
-        help="Exact application folder name or unique plan stem (e.g. dirac_full-stack-engineer).",
+        help="Full application folder name or unique stem; ambiguous stems are rejected with the list of matches.",
     )
     update_cmd.add_argument("--status", required=True, choices=STATUSES, help="New status value.")
     update_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
@@ -172,18 +191,34 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Application created: {folder}")
         elif args.command == "status":
             apps = list_applications()
+            if args.company:
+                needle = args.company.lower()
+                apps = [app for app in apps if needle in app.get("company", "").lower()]
             if not apps:
                 print("No applications found.")
             else:
-                header = f"{'Date':<12} {'Company':<20} {'Role':<32} {'Status':<15} Application"
+                # App# = nth application to the same company, oldest first; blank for singletons.
+                # Same-day siblings are distinct attempts and get their own number.
+                attempts: dict[str, int] = {}
+                for app in reversed(apps):
+                    key = slugify(app.get("company", ""))
+                    attempts[key] = attempts.get(key, 0) + 1
+                    app["attempt"] = str(attempts[key])
+
+                header = (
+                    f"{'Date':<12} {'Company':<20} {'Role':<32} {'Status':<15} {'App#':<5} Application"
+                )
                 print(header)
                 print("-" * len(header))
                 for app in apps:
+                    key = slugify(app.get("company", ""))
+                    attempt_cell = f"#{app['attempt']}" if attempts[key] > 1 else ""
                     print(
                         f"{_fit_column(app.get('date', ''), 12):<12} "
                         f"{_fit_column(app.get('company', ''), 20):<20} "
                         f"{_fit_column(app.get('role', ''), 32):<32} "
-                        f"{_fit_column(app.get('status', ''), 15):<15} {app.get('folder', '')}"
+                        f"{_fit_column(app.get('status', ''), 15):<15} "
+                        f"{attempt_cell:<5} {app.get('folder', '')}"
                     )
         elif args.command == "update-status":
             folder, old_status, new_status = update_application_status(
@@ -324,7 +359,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise FileNotFoundError(f"Missing jd.txt in {app_path}")
                 jd_text = jd_file.read_text(encoding="utf-8")
                 pdf_path = app_path / "Simon_Chen_Resume.pdf"
-                role_label = args.app
+                role_label = app_path.name
                 if pdf_path.is_file():
                     resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
             else:
