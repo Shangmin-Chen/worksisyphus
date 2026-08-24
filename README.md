@@ -21,7 +21,7 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
 1. Open Claude Code in this repo: `claude`
 2. Paste the job description:
    > Tailor my resume to this JD: *(paste the whole posting, company name included)*
-3. Claude runs the unified `apply` pipeline: reads the slug index, writes `plans/<company>_<role>.json` ranked by relevance, validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, runs the ATS extraction check, and automatically syncs to Turso cloud.
+3. Claude runs the unified `apply` pipeline: reads the slug index, ranks content into a plan (order = relevance), validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, and freezes the exact plan alongside it, then runs the ATS extraction check and automatically syncs to Turso cloud.
 4. The resume is done when `apply` succeeds (exactly one page, no horizontal overflow, ATS check passed) — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut.
 5. The delivered PDF lives only at `applications/<date>_<company>_<role>/Simon_Chen_Resume.pdf`. The 3-page canonical is a local build artifact and never goes out.
 6. The application is automatically tracked in SQLite and Turso cloud with full metadata, JD text, audit logs, and the HackerRank hiring-agent score for the resume as sent.
@@ -34,11 +34,12 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 ## Manual usage (no agent)
 
 ```bash
-uv run worksisyphus apply --company Acme --jd <file|-> [--role <role>] [--plan plans/x.json] [--no-sync] # 1-step compile, validate, freeze & Turso sync
-#   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you
+uv run worksisyphus apply --company <company> --jd <file|-> [--role <role>] [--plan <file|->] [--no-sync] # 1-step compile, validate, freeze & Turso sync
+#   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you;
+#   only one of --jd/--plan may read stdin at a time (pass the other by file path)
 uv run worksisyphus index                         # list every slug a plan can reference
-uv run worksisyphus validate --plan plans/x.json  # check a plan and print the resolved selection
-uv run worksisyphus tailor --plan plans/x.json    # preview build into tex_files/ (never delivers; use apply)
+uv run worksisyphus validate --plan <file|->      # check a plan and print the resolved selection
+uv run worksisyphus tailor --plan <file|->        # preview build into tex_files/ (never delivers; use apply)
 uv run worksisyphus status                        # list applications and identifiers
 uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD
@@ -63,8 +64,6 @@ Every tailored resume compiles straight into `applications/<date>_<company>_<rol
 ├── compile.sh              # rebuild the canonical full resume
 ├── profile.json            # master database; slug-keyed, values are TeX-formatted
 ├── profile.example.json    # template schema for profile.json
-├── plans/                  # plan files (see plans/example.json); drafts/ is exempt from the orphan check
-├── applications/           # one immutable folder per application: jd, plan, pdf, meta
 ├── CLAUDE.md               # rules for AI agents operating this repo
 ├── GEMINI.md               # rules for Antigravity / Gemini agents
 ├── scripts/ats_check.py    # verify a compiled PDF extracts cleanly for ATS parsers
@@ -105,7 +104,12 @@ A plan is a small JSON file of slugs; order is rank (most relevant first), which
 
 - `experiences`/`projects`: an object of `slug -> "all" | [bullet slugs]`, or a plain list of slugs (each meaning all bullets).
 - `skills`: `"all"` (the default when omitted), or an object of `group -> "all" | [items copied verbatim]`.
-- The plan's filename identifies the application; the output PDF is always `Simon_Chen_Resume.pdf`. Unknown slugs fail loudly.
+- Unknown slugs fail loudly; a plan must select at least one experience or project.
+
+Plans are **inputs, not artifacts** — the repo keeps none. Pass one by path or stdin (`--plan <file|->`);
+`apply` names the application folder from `--company`/`--role` and freezes the exact plan into
+`applications/<date>_<stem>/plan.json`, which syncs to the database. For `tailor` previews, the plan's
+stem names the preview build.
 
 `profile.json` values are trusted TeX (`\$8K`, `75\%`, `$\sim$20$\mu$s`): escape special characters when editing.
 

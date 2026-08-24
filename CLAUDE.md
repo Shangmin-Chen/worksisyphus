@@ -13,7 +13,6 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
 - **Every employer-facing resume is named `Simon_Chen_Resume.pdf`** — recruiters see the filename, and it must never look auto-generated (no company slugs, no "tailored", no version suffixes). The pipeline enforces this; never rename the output. Per-application copies live in `applications/`, identified by their folder name. The 3-page canonical (`Simon_Chen_Resume_Compiled.pdf`) is the only differently-named PDF and never goes to employers.
 - **Never include a GPA** in `profile.json`, rendered TeX, or any resume output — Simon has decided it does not strengthen his profile. If a JD or application form explicitly demands a GPA, do not add it to the resume; flag it to Simon and let him handle it outside the pipeline.
-
 - **Never send the canonical resume to an employer.** `Simon_Chen_Resume_Compiled.pdf` (3 pages) is the database view for Simon's own reference. Employers only ever get tailored one-pagers.
 - **Persephone-first for engineering roles.** Any backend, systems, infra, performance, or quant JD ranks `persephone` as the top project unless the JD clearly contradicts it (e.g. a pure frontend or mobile role).
 - **Weak-project gate.** `fitness-tracker`, `spark-food-waste`, and `ml-marketplace` only appear when the JD directly matches them (mobile role, civic/impact org, blockchain role respectively). Never use them as filler.
@@ -24,13 +23,16 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 ## Workflow for "tailor my resume to this JD"
 
 1. `uv run worksisyphus index` — see every selectable slug with full bullet text.
-2. Write `plans/<company>_<role>.json` (see `plans/example.json` for the format; order = rank).
-   Every plan directly in `plans/` must end up with a matching application — `tests/test_consistency.py` enforces this so a plan cannot drift out of the record. Put work in progress in `plans/drafts/`, which is exempt, and move it up when you apply with it.
-3. `uv run worksisyphus validate --plan plans/<name>.json` — catches unknown slugs and shows the resolved selection without compiling.
+2. Compose the plan JSON yourself (order = rank; format in README "Plan files"). Plans are **inputs,
+   not artifacts**: there is no `plans/` directory. Write it to scratch outside version control
+   (e.g. `$TMPDIR/<company>_<role>.json`) — `apply` freezes the exact plan into
+   `applications/<YYYY-MM-DD>_<stem>/plan.json` and syncs it to Turso, which is the record.
+3. Optional pre-flight: `cat <plan> | uv run worksisyphus validate --plan -` catches unknown slugs
+   without compiling (`apply` validates too, so this step is skippable).
 4. **Apply (1-step compile, ATS check, freeze & Turso sync):**
 
    ```bash
-   cat << 'EOF' | uv run worksisyphus apply --company <Company> --jd - [--role <Role>] [--url <posting url>] [--plan plans/<name>.json]
+   cat << 'EOF' | uv run worksisyphus apply --company <Company> --jd - [--role <Role>] [--url <posting url>] [--plan <scratch plan file>]
    <Pasted JD text>
    EOF
    ```
@@ -41,6 +43,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
    the rubric cannot express. Add `--no-sync` to skip the Turso push.
 
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
+   Only one of `--jd`/`--plan` may read stdin at a time: when the JD comes via `-`, pass the plan by file path (and vice versa).
 
    This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`, and `evaluation` — the HackerRank hiring-agent score for the resume as sent), runs the ATS extraction check, inserts into `worksisyphus.db` (including `evaluation_json`), and automatically syncs to Turso cloud. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
 
@@ -87,7 +90,7 @@ Exit codes: 0 success, 1 failure with a one-line `error: ...` on stderr. Plan va
 
 When a constraint matters, enforce it in code — not in agent instructions. A CLI flag that is `required=True` can never be forgotten; a workflow step that says "remember to pass `--jd`" will eventually be skipped. Prefer compilation-level gates (argparse, validation errors, test assertions) over prose rules. If a new guardrail can be a test in `tests/test_consistency.py` or a check in a CLI command, put it there. Reserve CLAUDE.md rules for judgment calls that code cannot express (e.g. selection guardrails).
 
-When changing a schema or data format, migrate **all** existing data files — not just the source copies. Check both `plans/` and `applications/*/` for stale formats. A parser that rejects old data it once accepted is a bug if the old data wasn't migrated.
+When changing a schema or data format, migrate **all** existing data files — not just the source copies. Check `applications/*/` for stale formats. A parser that rejects old data it once accepted is a bug if the old data wasn't migrated.
 
 ## Architecture (for code changes)
 
