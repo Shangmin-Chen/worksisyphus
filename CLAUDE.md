@@ -13,7 +13,6 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
 - **Every employer-facing resume is named `Simon_Chen_Resume.pdf`** — recruiters see the filename, and it must never look auto-generated (no company slugs, no "tailored", no version suffixes). The pipeline enforces this; never rename the output. Per-application copies live in `applications/`, identified by their folder name. The 3-page canonical (`Simon_Chen_Resume_Compiled.pdf`) is the only differently-named PDF and never goes to employers.
 - **Never include a GPA** in `profile.json`, rendered TeX, or any resume output — Simon has decided it does not strengthen his profile. If a JD or application form explicitly demands a GPA, do not add it to the resume; flag it to Simon and let him handle it outside the pipeline.
-
 - **Never send the canonical resume to an employer.** `Simon_Chen_Resume_Compiled.pdf` (3 pages) is the database view for Simon's own reference. Employers only ever get tailored one-pagers.
 - **Persephone-first for engineering roles.** Any backend, systems, infra, performance, or quant JD ranks `persephone` as the top project unless the JD clearly contradicts it (e.g. a pure frontend or mobile role).
 - **Weak-project gate.** `fitness-tracker`, `spark-food-waste`, and `ml-marketplace` only appear when the JD directly matches them (mobile role, civic/impact org, blockchain role respectively). Never use them as filler.
@@ -44,6 +43,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
    the rubric cannot express. Add `--no-sync` to skip the Turso push.
 
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
+   Only one of `--jd`/`--plan` may read stdin at a time: when the JD comes via `-`, pass the plan by file path (and vice versa).
 
    This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`, and `evaluation` — the HackerRank hiring-agent score for the resume as sent), runs the ATS extraction check, inserts into `worksisyphus.db` (including `evaluation_json`), and automatically syncs to Turso cloud. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
 

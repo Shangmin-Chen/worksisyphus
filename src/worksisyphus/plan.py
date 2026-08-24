@@ -12,8 +12,9 @@ Sections accept either an object (slug -> "all" | [bullet slugs]) or a plain
 list of slugs (each meaning all bullets). "skills" is "all", an object
 (group -> "all" | [items copied verbatim]), or omitted (meaning all).
 Unknown slugs fail loudly; a plan can omit content, never invent it.
-The plan's filename identifies the application; the rendered PDF is always
-named Simon_Chen_Resume.pdf.
+Plans are inputs, not artifacts: apply() names the application folder from
+--company/--role and freezes the plan verbatim into it; the rendered PDF is
+always named Simon_Chen_Resume.pdf.
 """
 
 from __future__ import annotations

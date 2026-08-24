@@ -43,6 +43,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
    the rubric cannot express. Add `--no-sync` to skip the Turso push.
 
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
+   Only one of `--jd`/`--plan` may read stdin at a time: when the JD comes via `-`, pass the plan by file path (and vice versa).
 
    This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`, and `evaluation` — the HackerRank hiring-agent score for the resume as sent), runs the ATS extraction check, inserts into `worksisyphus.db` (including `evaluation_json`), and automatically syncs to Turso cloud. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
 
@@ -57,7 +58,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 - Every metric must be defensible in an interview. Never add a number the user didn't state.
 - Banned content (removed deliberately, do not reintroduce): piracy-adjacent tooling names (Sonarr/Radarr/Prowlarr/Jellyfin/qBittorrent/Slskd/Soulseek), fake-smelling metrics ("uptime by 15%", "100% incident resolution"), keyword-stuffed skills.
 
-## Commands & Execution Details
+## Commands
 
 ```bash
 uv run worksisyphus apply --company <name> --jd <file|-> [--role <role>] [--url <url>] [--plan <plan>] [--no-sync]  # 1-step compile, validate, freeze & Turso sync

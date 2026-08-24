@@ -35,7 +35,8 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 
 ```bash
 uv run worksisyphus apply --company Acme --jd <file|-> [--role <role>] [--plan <file|->] [--no-sync] # 1-step compile, validate, freeze & Turso sync
-#   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you
+#   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you;
+#   only one of --jd/--plan may read stdin at a time (pass the other by file path)
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan <file|->      # check a plan and print the resolved selection
 uv run worksisyphus tailor --plan <file|->        # preview build into tex_files/ (never delivers; use apply)
@@ -63,7 +64,6 @@ Every tailored resume compiles straight into `applications/<date>_<company>_<rol
 ├── compile.sh              # rebuild the canonical full resume
 ├── profile.json            # master database; slug-keyed, values are TeX-formatted
 ├── profile.example.json    # template schema for profile.json
-├── applications/           # one immutable folder per application: jd, plan, pdf, meta
 ├── CLAUDE.md               # rules for AI agents operating this repo
 ├── GEMINI.md               # rules for Antigravity / Gemini agents
 ├── scripts/ats_check.py    # verify a compiled PDF extracts cleanly for ATS parsers
@@ -104,7 +104,7 @@ A plan is a small JSON file of slugs; order is rank (most relevant first), which
 
 - `experiences`/`projects`: an object of `slug -> "all" | [bullet slugs]`, or a plain list of slugs (each meaning all bullets).
 - `skills`: `"all"` (the default when omitted), or an object of `group -> "all" | [items copied verbatim]`.
-- Unknown slugs fail loudly.
+- Unknown slugs fail loudly; a plan must select at least one experience or project.
 
 Plans are **inputs, not artifacts** — the repo keeps none. Pass one by path or stdin (`--plan <file|->`);
 `apply` names the application folder from `--company`/`--role` and freezes the exact plan into
