@@ -31,6 +31,9 @@ applications; filter with `--company <name>`). Update one with
 `worksisyphus update-status --app <folder-or-unique-stem> --status <status>`; ambiguous stems are
 rejected with the list of matching full folder names. Re-applying to the same company/role on the
 same day automatically allocates the next free `_N` suffix (`2026-08-24_acme_swe_2`).
+Known limitation: a legacy folder name that already ends in `_<digits>` can be mistaken for a
+retry ordinal in status grouping if its unsuffixed base also exists — new folders are immune
+(slugs never contain `_`).
 
 Useful follow-up prompts: "swap hermes-letters for the home server", "make it lean more infra than frontend", "show me what the trim loop would cut first".
 

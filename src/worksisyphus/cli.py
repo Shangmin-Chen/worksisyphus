@@ -30,14 +30,19 @@ def _describe(selection: Selection) -> str:
     return "\n".join(lines)
 
 
-def _latest_application_pdf() -> Path | None:
+def _latest_application_pdf(applications_dir: Path | None = None) -> Path | None:
     """The most recent delivered resume. Applications are the only place a delivered PDF lives."""
-    apps = list_applications()
+    from .application import APPLICATIONS_DIR
+
+    # Resolve through the module so tests (and callers) can redirect applications/.
+    resolved_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
+    apps = list_applications(applications_dir=resolved_dir)
     if not apps:
         return None
+    names = {app["folder"] for app in apps}
 
     def recency(app: dict[str, str]) -> tuple[int, int]:
-        date_str, _, ordinal = parse_app_folder(app["folder"], siblings={a["folder"] for a in apps})
+        date_str, _, ordinal = parse_app_folder(app["folder"], siblings=names)
         try:
             day = date.fromisoformat(date_str).toordinal()
         except ValueError:
@@ -45,10 +50,7 @@ def _latest_application_pdf() -> Path | None:
         return (day, ordinal or 0)
 
     newest = max(apps, key=recency)
-    # Resolve the dir through the module so tests (and callers) can redirect applications/.
-    from .application import APPLICATIONS_DIR as _apps_dir
-
-    return _apps_dir / newest["folder"] / "Simon_Chen_Resume.pdf"
+    return resolved_dir / newest["folder"] / "Simon_Chen_Resume.pdf"
 
 
 def _fit_column(value: object, width: int) -> str:
