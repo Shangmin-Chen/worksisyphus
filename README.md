@@ -34,7 +34,7 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 ## Manual usage (no agent)
 
 ```bash
-uv run worksisyphus apply --company Acme --jd <file|-> [--role <role>] [--plan <file|->] [--no-sync] # 1-step compile, validate, freeze & Turso sync
+uv run worksisyphus apply --company <company> --jd <file|-> [--role <role>] [--plan <file|->] [--no-sync] # 1-step compile, validate, freeze & Turso sync
 #   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you;
 #   only one of --jd/--plan may read stdin at a time (pass the other by file path)
 uv run worksisyphus index                         # list every slug a plan can reference
