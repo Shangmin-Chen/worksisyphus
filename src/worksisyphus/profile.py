@@ -3,10 +3,39 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
 DEFAULT_PROFILE_PATH = Path("profile.json")
+
+#: Contact fields without which a resume cannot be answered. Everything else (website,
+#: github, linkedin) is a nice-to-have a recruiter can do without.
+REQUIRED_CONTACT_FIELDS = ("name", "email", "phone")
+
+#: Literal placeholder fragments, all of them present in tests/fixtures/profile.json.
+#: Matched case-insensitively against every contact field, required or not.
+PLACEHOLDER_FRAGMENTS = (
+    "example.com",
+    "example.org",
+    "@example.",
+    "linkedin.com/in/example",
+    "github.com/example",
+    "your-name",
+    "yourname",
+    "555-555-5555",
+)
+
+#: The 555 exchange is reserved for fiction in the North American numbering plan, so any
+#: number whose exchange is 555 (555-0100, 617-555-1234, +1 555 555 5555) is fake.
+PLACEHOLDER_PHONE_RE = re.compile(r"\b\(?555\)?[-.\s]?\d{4}\b")
+
+#: How to get real contact details back. The database is the only other copy on disk.
+_RECOVERY_HINT = (
+    "profile.json is gitignored, so git will not report it wrong and git checkout will not "
+    "restore it. Recover the real contact block from the database with "
+    "`uv run worksisyphus db export-profile --force`."
+)
 
 
 @dataclass(frozen=True)
@@ -86,6 +115,43 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
         projects={slug: Project(id=slug, **p) for slug, p in data.get("projects", {}).items()},
         skills={group: tuple(items) for group, items in data.get("skills", {}).items()},
     )
+
+
+def validate_contact(contact: Contact, source: str = "profile.json") -> None:
+    """Fail closed on contact details that cannot reach a human.
+
+    Two rules, both structural:
+
+    1. ``name``, ``email`` and ``phone`` must be non-empty. ``website``, ``github`` and
+       ``linkedin`` stay optional -- a resume without a portfolio link is still deliverable.
+    2. No field, required or optional, may hold a placeholder (example.com, a 555 exchange,
+       github.com/example, ...).
+
+    This exists because the quality gates cannot catch a bad header: they compare the
+    rendered PDF against the same profile that rendered it, so a resume addressed to
+    simon@example.com passes every one of them. Four were sent that way. Validate the
+    profile against the rules, not against itself.
+    """
+    for field_name in REQUIRED_CONTACT_FIELDS:
+        if not getattr(contact, field_name, "").strip():
+            raise ValueError(
+                f"contact.{field_name} is empty in {source}; a resume without it cannot be answered. {_RECOVERY_HINT}"
+            )
+
+    for field_name in ("name", "email", "phone", "website", "github", "linkedin"):
+        value = getattr(contact, field_name, "")
+        if not value:
+            continue
+        lowered = value.lower()
+        hit = next((fragment for fragment in PLACEHOLDER_FRAGMENTS if fragment in lowered), None)
+        if hit is None and field_name == "phone" and PLACEHOLDER_PHONE_RE.search(value):
+            hit = "the 555 exchange, reserved for fictional numbers"
+        if hit is not None:
+            raise ValueError(
+                f"contact.{field_name} in {source} is a placeholder: {value!r} contains {hit!r}. "
+                f"This is what tests/fixtures/profile.json looks like, not a deliverable resume. "
+                f"{_RECOVERY_HINT}"
+            )
 
 
 def profile_index(profile: Profile) -> str:

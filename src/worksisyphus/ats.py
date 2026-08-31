@@ -30,8 +30,19 @@ def check_pdf_ats(
     email: str = "",
     phone: str = "",
     expected_pages: int | None = None,
+    *,
+    require_contact: bool = False,
 ) -> ATSCheckResult:
-    """Extract text from a PDF and check that standard fields and sections are present."""
+    """Extract text from a PDF and check that standard fields and sections are present.
+
+    ``require_contact`` decides what an *empty* expected value means. Off (the default) it
+    means "not checking that field", which is what the text-extraction callers want: they
+    pass only ``name=`` and use the extraction, not the verdict. On, it means "this resume
+    is about to be delivered and I cannot verify its contact details", which is a problem in
+    its own right -- an empty expectation used to be silently skipped, so passing
+    ``candidate_email=""`` for a PDF whose header said simon@example.com reported ALL GATES
+    PASS. The delivery path (run_resume_gates) turns it on.
+    """
     if not pdf_path.is_file():
         return ATSCheckResult(
             passed=False,
@@ -56,7 +67,11 @@ def check_pdf_ats(
         problems.append(f"expected 1 page, got {pages}")
 
     for label, needle in (("name", name), ("email", email), ("phone", phone)):
-        if needle and needle not in text:
+        if not needle:
+            if require_contact:
+                problems.append(f"contact {label} not provided; cannot verify it reached the PDF")
+            continue
+        if needle not in text:
             problems.append(f"contact {label} {needle!r} did not extract")
 
     for section in ("Education", "Experience", "Technical Skills"):
