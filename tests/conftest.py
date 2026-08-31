@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -8,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from worksisyphus import Profile, load_profile  # noqa: E402
+from worksisyphus import Profile, load_profile, validate_contact  # noqa: E402
 from worksisyphus.profile import Contact, Education, Experience, Project  # noqa: E402
 
 
@@ -45,10 +46,42 @@ def canonical_pdf() -> Path:
     return pdf
 
 
+@pytest.fixture(scope="session")
+def deliverable_contact(real_profile) -> Contact:
+    """The real, deliverable contact block -- or a skip.
+
+    Tests used to blank email/phone when profile.json was absent, which made the contact
+    check vacuous and kept them green against a placeholder header. That is the same bug
+    require_contact closes in ats.py: a check that cannot run must say so, not pass.
+    """
+    if not (ROOT / "profile.json").is_file():
+        pytest.skip("no profile.json on disk; contact extraction cannot be verified")
+    validate_contact(real_profile.contact)
+    return real_profile.contact
+
+
+@pytest.fixture()
+def placeholder_profile(small_profile) -> Profile:
+    """The shape of the incident: a complete profile whose contact block is scrubbed."""
+    return dataclasses.replace(
+        small_profile,
+        contact=Contact(
+            name="Simon Chen",
+            email="simon@example.com",
+            phone="555-555-5555",
+            website="https://example.com",
+            github="https://github.com/example",
+            linkedin="https://linkedin.com/in/example",
+        ),
+    )
+
+
 @pytest.fixture()
 def small_profile() -> Profile:
     return Profile(
-        contact=Contact(name="Simon Chen", email="s@example.com", phone="555-0100"),
+        # Deliberately not a placeholder: validate_contact rejects example.com addresses and
+        # 555-exchange numbers, so a fixture using them could never exercise the apply path.
+        contact=Contact(name="Simon Chen", email="simon.chen@fixture.test", phone="617-201-4477"),
         education=(Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),),
         experiences={
             "org-a": Experience(

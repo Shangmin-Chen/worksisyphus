@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .profile import Contact, Profile
+from .profile import REQUIRED_CONTACT_FIELDS, Contact, Profile
 from .selection import Selection
 
 SKILL_GROUP_LABELS = {
@@ -53,9 +53,23 @@ def _href(url: str, label: str) -> str:
 
 
 def _heading(contact: Contact) -> list[str]:
-    links = [contact.phone] if contact.phone else []
-    if contact.email:
-        links.append(_href(f"mailto:{contact.email}", contact.email))
+    """Render the contact header.
+
+    ``name``, ``email`` and ``phone`` are mandatory and a missing one is a hard error:
+    dropping a field silently produced a header a recruiter cannot answer, and no downstream
+    gate could tell, because every gate compares the PDF against the profile that rendered
+    it. ``website``, ``linkedin`` and ``github`` stay optional and are simply omitted.
+    """
+    for field_name in REQUIRED_CONTACT_FIELDS:
+        if not getattr(contact, field_name, "").strip():
+            raise ValueError(
+                f"Cannot render a resume header: contact.{field_name} is empty. A resume "
+                f"missing it cannot be answered; fix profile.json (recover it with "
+                f"`uv run worksisyphus db export-profile --force`) rather than shipping "
+                f"a header without it."
+            )
+
+    links = [contact.phone, _href(f"mailto:{contact.email}", contact.email)]
     for url in (contact.website, contact.linkedin, contact.github):
         if url:
             links.append(_href(url, _display_url(url)))

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import dataclasses
 import json
+from pathlib import Path
 
 import pytest
 
-from worksisyphus import load_profile, profile_index
+from worksisyphus import load_profile, profile_index, validate_contact
+from worksisyphus.profile import Contact
 
 
 def test_real_profile_loads_expected_shape(real_profile) -> None:
@@ -69,3 +72,63 @@ def test_real_profile_contact_is_not_placeholder(real_profile) -> None:
         assert value, f"contact.{field_name} is empty"
         assert "example.com" not in value, f"contact.{field_name} is a placeholder: {value}"
         assert "555-555-5555" not in value, f"contact.{field_name} is a placeholder: {value}"
+
+
+GOOD_CONTACT = Contact(
+    name="Simon Chen",
+    email="simon.chen@fixture.test",
+    phone="617-201-4477",
+    website="https://simonchen.dev",
+    github="https://github.com/Shangmin-Chen",
+    linkedin="https://linkedin.com/in/shangmin-chen",
+)
+
+
+def test_validate_contact_accepts_a_deliverable_contact() -> None:
+    validate_contact(GOOD_CONTACT)
+
+
+def test_validate_contact_accepts_missing_optional_links() -> None:
+    """website/github/linkedin are optional: a resume without a portfolio link still reaches a human."""
+    validate_contact(Contact(name="Simon Chen", email="simon.chen@fixture.test", phone="617-201-4477"))
+
+
+@pytest.mark.parametrize("field_name", ["name", "email", "phone"])
+def test_validate_contact_rejects_empty_required_fields(field_name) -> None:
+    contact = dataclasses.replace(GOOD_CONTACT, **{field_name: "   "})
+    with pytest.raises(ValueError) as excinfo:
+        validate_contact(contact)
+    message = str(excinfo.value)
+    assert f"contact.{field_name}" in message
+    assert "db export-profile" in message
+
+
+@pytest.mark.parametrize(
+    ("field_name", "value"),
+    [
+        ("email", "simon@example.com"),
+        ("email", "simon@example.org"),
+        ("email", "simon@example.dev"),
+        ("phone", "555-555-5555"),
+        ("phone", "555-0100"),
+        ("phone", "(617) 555-0199"),
+        ("website", "https://example.com"),
+        ("github", "https://github.com/example"),
+        ("linkedin", "https://linkedin.com/in/example"),
+    ],
+)
+def test_validate_contact_rejects_placeholders(field_name, value) -> None:
+    """Optional fields are checked too: a placeholder link is still a wrong link on a sent resume."""
+    contact = dataclasses.replace(GOOD_CONTACT, **{field_name: value})
+    with pytest.raises(ValueError) as excinfo:
+        validate_contact(contact)
+    message = str(excinfo.value)
+    assert f"contact.{field_name}" in message
+    assert value in message, "the error must name the offending value, not just the field"
+
+
+def test_validate_contact_rejects_the_test_fixture_profile() -> None:
+    """The exact profile that shipped four dead resumes must not survive validation."""
+    fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
+    with pytest.raises(ValueError, match="placeholder"):
+        validate_contact(load_profile(fixture).contact, source=str(fixture))

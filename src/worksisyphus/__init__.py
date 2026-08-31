@@ -4,7 +4,7 @@ from .application import apply, list_applications, update_application_status
 from .compiler import CompileError, CompileResult, compile_tex
 from .pipeline import build_canonical, tailor
 from .plan import PlanError, parse_plan
-from .profile import Profile, load_profile, profile_index
+from .profile import Profile, load_profile, profile_index, validate_contact
 from .renderer import render_resume
 from .selection import Pick, Selection, full_selection, trim_step
 
@@ -27,4 +27,5 @@ __all__ = [
     "tailor",
     "trim_step",
     "update_application_status",
+    "validate_contact",
 ]

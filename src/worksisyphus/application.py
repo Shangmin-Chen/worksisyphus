@@ -17,7 +17,7 @@ from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
 from .gates import run_resume_gates
 from .pipeline import tailor
-from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
+from .profile import DEFAULT_PROFILE_PATH, Contact, Profile, load_profile, validate_contact
 
 APPLICATIONS_DIR = Path("applications")
 STATUSES = ("applied", "phone_screen", "onsite", "offer", "rejected")
@@ -37,6 +37,78 @@ def slugify(text: str) -> str:
     return re.sub(r"[\s_-]+", "-", text).strip("-")
 
 
+def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | None:
+    """Which database this run should cross-check and record against, or None for neither.
+
+    An explicit db_path always wins. Otherwise the default database is used only for a real
+    delivery into applications/; a run staged into some other directory (tests, scratch
+    builds) must not touch the live store. Imported lazily: db.py is a store, not a source,
+    and the render path must not depend on it at import time.
+    """
+    if db_path is not None:
+        return Path(db_path)
+    from .db import DEFAULT_DB_PATH
+
+    return DEFAULT_DB_PATH if applications_dir == APPLICATIONS_DIR else None
+
+
+def cross_check_contact_against_db(
+    contact: Contact,
+    db_path: Path | None,
+    log: Log = _silent,
+) -> bool:
+    """Compare the profile's contact block against the independent copy in the database.
+
+    This is the check that would have caught the incident. profile.json vanished and a
+    fixture with a scrubbed contact block stood in for it; every quality gate passed,
+    because each one compares the rendered PDF against the very profile that rendered it.
+    The database still held the real name, email and phone the whole time -- so a second,
+    independent copy is the only thing that can contradict a wrong profile.
+
+    Returns True when the cross-check actually ran. A missing database or a database with no
+    contact row is skipped and logged, never treated as agreement: the rules in
+    validate_contact still apply, so a fresh clone or CI is protected but not silently
+    "verified".
+    """
+    if db_path is None:
+        log("Contact cross-check skipped: this run is not writing to the default database.")
+        return False
+    if not db_path.is_file():
+        log(f"Contact cross-check skipped: no database at {db_path} (fresh clone or CI). Rule checks still applied.")
+        return False
+
+    from .db import get_connection, load_profile_from_db
+
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
+        if cur.fetchone() is None:
+            log(f"Contact cross-check skipped: {db_path} has no contact table. Run `uv run worksisyphus db sync`.")
+            return False
+        db_contact = load_profile_from_db(conn).contact
+    finally:
+        conn.close()
+
+    if not any((db_contact.name, db_contact.email, db_contact.phone)):
+        log(f"Contact cross-check skipped: {db_path} has no contact row. Run `uv run worksisyphus db sync`.")
+        return False
+
+    mismatches = [
+        f"contact.{field_name}: profile has {getattr(contact, field_name)!r}, database has {getattr(db_contact, field_name)!r}"
+        for field_name in ("name", "email", "phone", "website", "github", "linkedin")
+        if getattr(contact, field_name) != getattr(db_contact, field_name)
+    ]
+    if mismatches:
+        joined = "\n".join(f"- {m}" for m in mismatches)
+        raise ValueError(
+            f"Contact details disagree with {db_path}; refusing to build a resume until they match.\n{joined}\n"
+            f"The database is the surviving copy: if profile.json is the one that is wrong, restore it with "
+            f"`uv run worksisyphus db export-profile --force`. If profile.json is right, publish it with "
+            f"`uv run worksisyphus db sync`."
+        )
+    return True
+
+
 def apply(
     plan_text: str,
     jd_text: str,
@@ -47,6 +119,7 @@ def apply(
     profile: Profile | None = None,
     profile_path: Path = DEFAULT_PROFILE_PATH,
     applications_dir: Path | None = None,
+    db_path: Path | None = None,
     sync_cloud: bool = True,
     log: Log = _silent,
 ) -> tuple[Path, CompileResult, ATSCheckResult]:
@@ -61,6 +134,15 @@ def apply(
     applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     when = when or date.today()
 
+    # Contact validation runs before anything is compiled or staged. A resume with a dead
+    # email is worse than no resume, and no downstream gate can catch one: they all compare
+    # the PDF against the same profile that rendered it. Failing here costs a few
+    # milliseconds and leaves no artifacts behind.
+    active_profile = profile if profile is not None else load_profile(profile_path)
+    validate_contact(active_profile.contact, source=str(profile_path))
+    resolved_db_path = _resolve_db_path(db_path, applications_dir)
+    cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
+
     # Deterministic naming strictly derived from company and role (#34)
     comp_slug = slugify(company)
     role_slug = slugify(role) if role.strip() else "swe"
@@ -70,7 +152,6 @@ def apply(
     if target_folder.exists():
         raise FileExistsError(f"{target_folder} already exists; applications are immutable, use a new date or role.")
 
-    active_profile = profile if profile is not None else load_profile(profile_path)
     normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
 
     # Atomic publication: stage inside applications_dir so the final publish is a same-filesystem
@@ -140,10 +221,10 @@ def apply(
     compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
     # 5. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
-    from .db import DEFAULT_DB_PATH, get_connection, save_application_to_db
+    from .db import get_connection, save_application_to_db
 
-    if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
-        conn = get_connection(DEFAULT_DB_PATH)
+    if resolved_db_path is not None and resolved_db_path.is_file():
+        conn = get_connection(resolved_db_path)
         try:
             save_application_to_db(
                 conn=conn,
@@ -197,6 +278,30 @@ def evaluate_application(
     }
 
 
+def _lazy_candidate_name(profile: Profile | None, profile_path: Path, log: Log) -> Callable[[], str]:
+    """Resolve the candidate name on first use, tolerating an absent profile.
+
+    Used only by the scoring path, which labels a report and delivers nothing. A missing
+    profile there is a degraded label, not a dead resume, so it is logged and the scoring
+    continues; the delivery path (apply) still refuses outright.
+    """
+    resolved: list[str] = []
+
+    def resolve() -> str:
+        if not resolved:
+            if profile is not None:
+                resolved.append(profile.contact.name)
+            else:
+                try:
+                    resolved.append(load_profile(profile_path).contact.name)
+                except FileNotFoundError:
+                    log(f"No {profile_path} on disk; scoring without a candidate name (nothing is delivered here).")
+                    resolved.append("")
+        return resolved[0]
+
+    return resolve
+
+
 def backfill_evaluations(
     applications_dir: Path | None = None,
     overwrite: bool = False,
@@ -208,12 +313,18 @@ def backfill_evaluations(
 
     Returns (application_id, total_score) for each one scored. Existing evaluations are kept
     unless overwrite is set, so re-running is safe and idempotent.
+
+    Backfill re-scores resumes that were already delivered; it publishes nothing, so it must
+    not require the live profile.json. The candidate name is resolved lazily and only if some
+    application actually needs scoring -- an eager load made a run over an explicitly named
+    applications_dir fail on any checkout without a profile (it is gitignored), which since
+    load_profile stopped falling back to the fixture means every fresh clone and CI.
     """
     applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     scored: list[tuple[str, float | None]] = []
     if not applications_dir.is_dir():
         return scored
-    candidate_name = (profile if profile is not None else load_profile(profile_path)).contact.name
+    resolve_name = _lazy_candidate_name(profile, profile_path, log)
 
     for folder in sorted(applications_dir.iterdir()):
         if not folder.is_dir() or folder.name.startswith("."):
@@ -235,7 +346,7 @@ def backfill_evaluations(
             resume_text=resume_text,
             jd_text=jd_text,
             role=meta.get("role", ""),
-            candidate_name=candidate_name,
+            candidate_name=resolve_name(),
         )
         meta["evaluation"] = evaluation
         temporary = meta_file.with_name(f"{meta_file.name}.tmp")

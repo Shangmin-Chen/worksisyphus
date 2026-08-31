@@ -118,11 +118,17 @@ def run_resume_gates(
     candidate_email: str = "",
     candidate_phone: str = "",
     expected_pages: int | None = None,
+    *,
+    require_contact: bool = True,
 ) -> tuple[tuple[GateResult, ...], ATSCheckResult]:
     """Run every quality gate and return both the results and the ATS extraction they were derived from.
 
     Callers that need the extraction (word counts, warnings) should use this rather than
     re-running check_pdf_ats, which would parse the PDF a second time.
+
+    ``require_contact`` defaults to True: these gates guard delivery, so an unverifiable
+    contact field is a gate failure, not a skipped check. Diagnostic callers that only have
+    a name to hand (the evaluator) pass False explicitly.
     """
     ats_res = check_pdf_ats(
         pdf_path=pdf_path,
@@ -130,6 +136,7 @@ def run_resume_gates(
         email=candidate_email,
         phone=candidate_phone,
         expected_pages=expected_pages,
+        require_contact=require_contact,
     )
 
     ats_gate = GateResult(
@@ -157,6 +164,8 @@ def check_resume_gates(
     candidate_email: str = "",
     candidate_phone: str = "",
     expected_pages: int | None = None,
+    *,
+    require_contact: bool = True,
 ) -> tuple[GateResult, ...]:
     """Run the complete battery of foolproof quality gates against a compiled resume."""
     gates, _ = run_resume_gates(
@@ -165,5 +174,6 @@ def check_resume_gates(
         candidate_email=candidate_email,
         candidate_phone=candidate_phone,
         expected_pages=expected_pages,
+        require_contact=require_contact,
     )
     return gates

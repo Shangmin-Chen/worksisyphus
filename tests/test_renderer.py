@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -72,3 +73,23 @@ def test_render_requires_template_document_marker(small_profile, tmp_path) -> No
             Selection(name="x_resume", experiences=(), projects=(), skills={}),
             template_path=template,
         )
+
+
+@pytest.mark.parametrize("field_name", ["name", "email", "phone"])
+def test_render_refuses_to_omit_a_required_contact_field(small_profile, field_name) -> None:
+    """Regression: an empty phone or email used to render a header silently missing it.
+
+    No gate could catch that -- every one compares the PDF against the profile that rendered
+    it -- so the resume looked perfect and could not be answered.
+    """
+    profile = dataclasses.replace(small_profile, contact=dataclasses.replace(small_profile.contact, **{field_name: ""}))
+    with pytest.raises(ValueError, match=f"contact.{field_name} is empty"):
+        render_resume(profile, full_selection(profile))
+
+
+def test_render_allows_missing_optional_links(small_profile) -> None:
+    """website/linkedin/github stay optional and are simply omitted from the header."""
+    tex = render_resume(small_profile, full_selection(small_profile))
+    assert small_profile.contact.phone in tex
+    assert f"mailto:{small_profile.contact.email}" in tex
+    assert "linkedin" not in tex

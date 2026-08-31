@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 
@@ -453,3 +454,246 @@ def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatc
 
     # ...unless explicitly told to re-score.
     assert len(backfill_evaluations(applications_dir=apps, overwrite=True)) == 1
+
+
+def _fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+    pdf_path = pdf_dir / f"{name}.pdf"
+    pdf_path.write_bytes(b"%PDF-fake")
+    return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+
+def _passing_gates(pdf_path, **kwargs) -> tuple[tuple[GateResult, ...], ATSCheckResult]:
+    return (
+        (GateResult("ATS Extraction & Page Count Gate", True, ()),),
+        ATSCheckResult(passed=True, problems=(), pages=1, word_count=450, text="Simon Chen"),
+    )
+
+
+def _seed_db(path, contact: dict | None) -> None:
+    """A temp database with schema, optionally carrying a contact row."""
+    from worksisyphus.db import get_connection, init_schema
+
+    conn = get_connection(path)
+    try:
+        init_schema(conn)
+        if contact is not None:
+            conn.execute(
+                "INSERT OR REPLACE INTO contact (id, name, email, phone, website, github, linkedin) "
+                "VALUES (1, ?, ?, ?, ?, ?, ?)",
+                (
+                    contact["name"],
+                    contact["email"],
+                    contact["phone"],
+                    contact.get("website", ""),
+                    contact.get("github", ""),
+                    contact.get("linkedin", ""),
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _apply_kwargs(apps_dir, profile, **overrides):
+    kwargs = dict(
+        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}, "projects": {"proj1": ["p1"]}}),
+        jd_text="Backend engineer role",
+        company="Acme Corp",
+        role="Product Engineer",
+        when=date(2026, 8, 20),
+        profile=profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+    kwargs.update(overrides)
+    return kwargs
+
+
+def test_apply_refuses_a_placeholder_contact_before_compiling(placeholder_profile, monkeypatch, tmp_path) -> None:
+    """The incident, reproduced: a full profile whose contact block is scrubbed.
+
+    Every quality gate passed for four resumes built this way, because each gate compares the
+    PDF against the profile that rendered it. apply() now checks the profile against the
+    rules first, before pdflatex is ever invoked.
+    """
+    import worksisyphus.pipeline as pipe_module
+
+    compiled: list[str] = []
+
+    def exploding_compile(tex, name, tex_dir, pdf_dir):
+        compiled.append(name)
+        return _fake_compile(tex, name, tex_dir, pdf_dir)
+
+    monkeypatch.setattr(pipe_module, "compile_tex", exploding_compile)
+
+    apps_dir = tmp_path / "applications"
+    with pytest.raises(ValueError, match="placeholder"):
+        apply(**_apply_kwargs(apps_dir, placeholder_profile))
+
+    assert compiled == [], "contact validation must run before any LaTeX compilation"
+    assert not apps_dir.exists(), "a rejected apply must not even create applications/"
+
+
+def test_apply_refuses_when_contact_disagrees_with_the_database(small_profile, monkeypatch, tmp_path) -> None:
+    """The check that would have caught the incident: the database held the real contact."""
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
+
+    db_file = tmp_path / "worksisyphus.db"
+    _seed_db(
+        db_file,
+        {"name": "Simon Chen", "email": "real.simon@fixture.test", "phone": "617-201-4477"},
+    )
+
+    apps_dir = tmp_path / "applications"
+    with pytest.raises(ValueError) as excinfo:
+        apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
+
+    message = str(excinfo.value)
+    assert "contact.email" in message
+    assert small_profile.contact.email in message, "the error must name the profile value"
+    assert "real.simon@fixture.test" in message, "the error must name the database value"
+    assert not (apps_dir / "2026-08-20_acme-corp_product-engineer").exists()
+
+
+def test_apply_accepts_a_contact_matching_the_database(small_profile, monkeypatch, tmp_path) -> None:
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
+
+    db_file = tmp_path / "worksisyphus.db"
+    contact = small_profile.contact
+    _seed_db(db_file, {"name": contact.name, "email": contact.email, "phone": contact.phone})
+
+    apps_dir = tmp_path / "applications"
+    folder, _compile_result, _ats = apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
+    assert (folder / "Simon_Chen_Resume.pdf").is_file()
+
+
+def test_apply_skips_the_cross_check_loudly_when_the_database_is_absent(small_profile, monkeypatch, tmp_path) -> None:
+    """A missing database must not become the next silent fallback: skip, but say so."""
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
+
+    messages: list[str] = []
+    apps_dir = tmp_path / "applications"
+    folder, _compile_result, _ats = apply(
+        **_apply_kwargs(apps_dir, small_profile, db_path=tmp_path / "absent.db", log=messages.append)
+    )
+
+    assert (folder / "Simon_Chen_Resume.pdf").is_file()
+    assert any("cross-check skipped" in m and "absent.db" in m for m in messages), messages
+
+
+def test_apply_skips_the_cross_check_when_the_database_has_no_contact_row(small_profile, monkeypatch, tmp_path) -> None:
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
+
+    db_file = tmp_path / "worksisyphus.db"
+    _seed_db(db_file, None)
+
+    messages: list[str] = []
+    apps_dir = tmp_path / "applications"
+    apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file, log=messages.append))
+    assert any("no contact row" in m for m in messages), messages
+
+
+def test_apply_cross_check_is_skipped_for_non_default_application_dirs(small_profile, tmp_path) -> None:
+    """A scratch build must never be cross-checked against -- or recorded in -- the live store."""
+    from worksisyphus.application import _resolve_db_path
+
+    assert _resolve_db_path(None, tmp_path / "applications") is None
+    assert _resolve_db_path(None, Path("applications")) == Path("worksisyphus.db")
+
+
+def test_failed_apply_publishes_nothing_at_all(small_profile, monkeypatch, tmp_path) -> None:
+    """A failure inside the staging window leaves no folder, no staging residue, and no DB row."""
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    def failing_gates(pdf_path, **kwargs) -> tuple[tuple[GateResult, ...], ATSCheckResult]:
+        return (
+            (GateResult("No-GPA Gate", False, ("Found GPA reference: ['3.9/4.0']",)),),
+            ATSCheckResult(passed=True, problems=(), pages=1, word_count=450, text="Simon Chen"),
+        )
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", failing_gates)
+
+    db_file = tmp_path / "worksisyphus.db"
+    contact = small_profile.contact
+    _seed_db(db_file, {"name": contact.name, "email": contact.email, "phone": contact.phone})
+
+    apps_dir = tmp_path / "applications"
+    with pytest.raises(RuntimeError, match="Quality gate check failed"):
+        apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
+
+    assert list(apps_dir.iterdir()) == [], "no published folder and no .staging-* residue"
+    assert not any(child.name.startswith(".staging-") for child in apps_dir.iterdir())
+
+    from worksisyphus.db import get_connection
+
+    conn = get_connection(db_file)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_backfill_scores_without_a_profile_on_disk(monkeypatch, tmp_path) -> None:
+    """Backfill delivers nothing, so a missing profile.json must degrade, not raise.
+
+    Regression: it resolved profile.json eagerly even when handed an explicit
+    applications_dir, so every checkout without the gitignored profile (fresh clone, CI)
+    failed here once load_profile stopped falling back to the fixture.
+    """
+    import worksisyphus.application as app_module
+    from worksisyphus.application import backfill_evaluations
+
+    monkeypatch.chdir(tmp_path)
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_oldco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(json.dumps({"company": "OldCo", "role": "SWE", "status": "applied"}))
+    (folder / "jd.txt").write_text("Python backend engineer.")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
+    monkeypatch.setattr(app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 400, "Python"))
+
+    messages: list[str] = []
+    assert not Path("profile.json").exists()
+    scored = backfill_evaluations(applications_dir=apps, log=messages.append)
+
+    assert [name for name, _ in scored] == ["2026-08-01_oldco_swe"]
+    assert any("without a candidate name" in m for m in messages), messages
+
+
+def test_backfill_never_touches_the_profile_when_nothing_needs_scoring(monkeypatch, tmp_path) -> None:
+    """The load is deferred until a name is actually needed, not merely deferred in name."""
+    import worksisyphus.application as app_module
+    from worksisyphus.application import backfill_evaluations
+
+    def exploding_load(_path):
+        raise AssertionError("backfill must not resolve the profile when it scores nothing")
+
+    monkeypatch.setattr(app_module, "load_profile", exploding_load)
+
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_oldco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(
+        json.dumps({"company": "OldCo", "role": "SWE", "status": "applied", "evaluation": {"total_score": 1}})
+    )
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
+
+    assert backfill_evaluations(applications_dir=apps) == []
