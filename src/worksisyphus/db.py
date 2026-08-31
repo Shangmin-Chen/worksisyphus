@@ -18,7 +18,16 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .profile import Contact, Education, Experience, Profile, Project
+from .profile import (
+    Contact,
+    Education,
+    Experience,
+    Profile,
+    Project,
+    load_profile,
+    profile_to_dict,
+    validate_contact,
+)
 
 DEFAULT_DB_PATH = Path("worksisyphus.db")
 
@@ -229,7 +238,33 @@ def seed_database(
     profile_path: Path = Path("profile.json"),
     applications_dir: Path = Path("applications"),
 ) -> None:
-    """Populate database from profile.json and applications/, auditing only genuine changes."""
+    """Populate database from profile.json and applications/, auditing only genuine changes.
+
+    The profile is read through ``load_profile`` and re-serialized with ``profile_to_dict``
+    rather than parsed here a second time. That is deliberate: this function used to open
+    profile.json itself, and it carried its own copy of the silent
+    ``tests/fixtures/profile.json`` fallback that ``load_profile`` was hardened against --
+    an audit for the bug grepped for ``load_profile(`` and never found this one. Duplicated
+    reading is how a fixed bug stays alive in a second place.
+
+    A missing profile is a hard error, raised before a single row is touched. Seeding from a
+    substitute here is strictly worse than the original incident: the database is the only
+    surviving copy of the real contact block, it is what ``db export-profile`` restores from,
+    and it is the independent copy ``cross_check_contact_against_db`` compares the profile
+    against. Overwriting it with placeholders corrupts the recovery path itself, and
+    ``sync_to_turso`` then pushes that corruption to the last remaining backup.
+    """
+    profile_path = Path(profile_path)
+    try:
+        data = profile_to_dict(load_profile(profile_path))
+    except FileNotFoundError as exc:
+        raise FileNotFoundError(
+            f"Refusing to seed the database: {exc} Nothing has been written, so the database "
+            f"still holds the last good profile -- restore profile.json from it first, then "
+            f"seed. Seeding from a substitute would overwrite the database, which is both the "
+            f"copy export-profile reads back and the copy the contact cross-check trusts."
+        ) from exc
+
     init_schema(conn)
 
     prior_contact = _fetch_map(conn, "SELECT id, name, email, phone, website, github, linkedin FROM contact")
@@ -248,10 +283,6 @@ def seed_database(
         "SELECT id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json FROM applications",
     )
 
-    if not profile_path.is_file() and profile_path == Path("profile.json"):
-        if (Path("tests") / "fixtures" / "profile.json").is_file():
-            profile_path = Path("tests") / "fixtures" / "profile.json"
-
     seen_education: set[Any] = set()
     seen_experiences: set[Any] = set()
     seen_exp_bullets: set[Any] = set()
@@ -259,193 +290,191 @@ def seed_database(
     seen_proj_bullets: set[Any] = set()
 
     # 1. Contact
-    if profile_path.is_file():
-        data = json.loads(profile_path.read_text(encoding="utf-8"))
-        contact = data.get("contact", {})
-        conn.execute(
-            """
-            INSERT OR REPLACE INTO contact (id, name, email, phone, website, github, linkedin)
-            VALUES (1, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                contact.get("name", ""),
-                contact.get("email", ""),
-                contact.get("phone", ""),
-                contact.get("website", ""),
-                contact.get("github", ""),
-                contact.get("linkedin", ""),
-            ),
-        )
-        contact_values = (
+    contact = data.get("contact", {})
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO contact (id, name, email, phone, website, github, linkedin)
+        VALUES (1, ?, ?, ?, ?, ?, ?)
+        """,
+        (
             contact.get("name", ""),
             contact.get("email", ""),
             contact.get("phone", ""),
             contact.get("website", ""),
             contact.get("github", ""),
             contact.get("linkedin", ""),
+        ),
+    )
+    contact_values = (
+        contact.get("name", ""),
+        contact.get("email", ""),
+        contact.get("phone", ""),
+        contact.get("website", ""),
+        contact.get("github", ""),
+        contact.get("linkedin", ""),
+    )
+    _log_change(
+        conn,
+        prior_contact,
+        1,
+        contact_values,
+        "contact",
+        "1",
+        metadata={"name": contact.get("name", "")},
+    )
+
+    # 2. Education
+    conn.execute("DELETE FROM education")
+    for i, edu in enumerate(data.get("education", [])):
+        conn.execute(
+            """
+            INSERT INTO education (institution, location, degree, date, coursework, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                edu.get("institution", ""),
+                edu.get("location", ""),
+                edu.get("degree", ""),
+                edu.get("date", ""),
+                json.dumps(edu.get("coursework", [])),
+                i,
+            ),
         )
+        seen_education.add(edu.get("institution", ""))
         _log_change(
             conn,
-            prior_contact,
-            1,
-            contact_values,
-            "contact",
-            "1",
-            metadata={"name": contact.get("name", "")},
+            prior_education,
+            edu.get("institution", ""),
+            (
+                edu.get("location", ""),
+                edu.get("degree", ""),
+                edu.get("date", ""),
+                json.dumps(edu.get("coursework", [])),
+                i,
+            ),
+            "education",
+            edu.get("institution", ""),
+            metadata=edu,
         )
 
-        # 2. Education
-        conn.execute("DELETE FROM education")
-        for i, edu in enumerate(data.get("education", [])):
+    # 3. Experiences & bullets
+    conn.execute("DELETE FROM experience_bullets")
+    conn.execute("DELETE FROM experiences")
+    for i, (slug, exp) in enumerate(data.get("experiences", {}).items()):
+        conn.execute(
+            """
+            INSERT INTO experiences (slug, role, org, location, date, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (slug, exp.get("role", ""), exp.get("org", ""), exp.get("location", ""), exp.get("date", ""), i),
+        )
+        seen_experiences.add(slug)
+        _log_change(
+            conn,
+            prior_experiences,
+            slug,
+            (exp.get("role", ""), exp.get("org", ""), exp.get("location", ""), exp.get("date", ""), i),
+            "experience",
+            slug,
+            metadata=exp,
+        )
+        for j, (b_slug, b_text) in enumerate(exp.get("bullets", {}).items()):
             conn.execute(
                 """
-                INSERT INTO education (institution, location, degree, date, coursework, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO experience_bullets (experience_slug, slug, text, sort_order)
+                VALUES (?, ?, ?, ?)
                 """,
-                (
-                    edu.get("institution", ""),
-                    edu.get("location", ""),
-                    edu.get("degree", ""),
-                    edu.get("date", ""),
-                    json.dumps(edu.get("coursework", [])),
-                    i,
-                ),
+                (slug, b_slug, b_text, j),
             )
-            seen_education.add(edu.get("institution", ""))
+            seen_exp_bullets.add((slug, b_slug))
             _log_change(
                 conn,
-                prior_education,
-                edu.get("institution", ""),
-                (
-                    edu.get("location", ""),
-                    edu.get("degree", ""),
-                    edu.get("date", ""),
-                    json.dumps(edu.get("coursework", [])),
-                    i,
-                ),
-                "education",
-                edu.get("institution", ""),
-                metadata=edu,
+                prior_exp_bullets,
+                (slug, b_slug),
+                (b_text, j),
+                "experience_bullet",
+                f"{slug}.{b_slug}",
+                new_value=b_text,
             )
 
-        # 3. Experiences & bullets
-        conn.execute("DELETE FROM experience_bullets")
-        conn.execute("DELETE FROM experiences")
-        for i, (slug, exp) in enumerate(data.get("experiences", {}).items()):
+    # 4. Projects & bullets
+    conn.execute("DELETE FROM project_bullets")
+    conn.execute("DELETE FROM projects")
+    for i, (slug, proj) in enumerate(data.get("projects", {}).items()):
+        conn.execute(
+            """
+            INSERT INTO projects (slug, name, tech, date, sort_order)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (slug, proj.get("name", ""), proj.get("tech", ""), proj.get("date", ""), i),
+        )
+        seen_projects.add(slug)
+        _log_change(
+            conn,
+            prior_projects,
+            slug,
+            (proj.get("name", ""), proj.get("tech", ""), proj.get("date", ""), i),
+            "project",
+            slug,
+            metadata=proj,
+        )
+        for j, (b_slug, b_text) in enumerate(proj.get("bullets", {}).items()):
             conn.execute(
                 """
-                INSERT INTO experiences (slug, role, org, location, date, sort_order)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO project_bullets (project_slug, slug, text, sort_order)
+                VALUES (?, ?, ?, ?)
                 """,
-                (slug, exp.get("role", ""), exp.get("org", ""), exp.get("location", ""), exp.get("date", ""), i),
+                (slug, b_slug, b_text, j),
             )
-            seen_experiences.add(slug)
+            seen_proj_bullets.add((slug, b_slug))
             _log_change(
                 conn,
-                prior_experiences,
-                slug,
-                (exp.get("role", ""), exp.get("org", ""), exp.get("location", ""), exp.get("date", ""), i),
-                "experience",
-                slug,
-                metadata=exp,
+                prior_proj_bullets,
+                (slug, b_slug),
+                (b_text, j),
+                "project_bullet",
+                f"{slug}.{b_slug}",
+                new_value=b_text,
             )
-            for j, (b_slug, b_text) in enumerate(exp.get("bullets", {}).items()):
-                conn.execute(
-                    """
-                    INSERT INTO experience_bullets (experience_slug, slug, text, sort_order)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (slug, b_slug, b_text, j),
-                )
-                seen_exp_bullets.add((slug, b_slug))
-                _log_change(
-                    conn,
-                    prior_exp_bullets,
-                    (slug, b_slug),
-                    (b_text, j),
-                    "experience_bullet",
-                    f"{slug}.{b_slug}",
-                    new_value=b_text,
-                )
 
-        # 4. Projects & bullets
-        conn.execute("DELETE FROM project_bullets")
-        conn.execute("DELETE FROM projects")
-        for i, (slug, proj) in enumerate(data.get("projects", {}).items()):
+    # 5. Skills
+    conn.execute("DELETE FROM skills")
+    skills_changed = False
+    new_skill_keys: set[tuple[str, str]] = set()
+    for group, items in data.get("skills", {}).items():
+        for i, item in enumerate(items):
             conn.execute(
                 """
-                INSERT INTO projects (slug, name, tech, date, sort_order)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT OR REPLACE INTO skills (group_name, item, sort_order)
+                VALUES (?, ?, ?)
                 """,
-                (slug, proj.get("name", ""), proj.get("tech", ""), proj.get("date", ""), i),
+                (group, item, i),
             )
-            seen_projects.add(slug)
-            _log_change(
-                conn,
-                prior_projects,
-                slug,
-                (proj.get("name", ""), proj.get("tech", ""), proj.get("date", ""), i),
-                "project",
-                slug,
-                metadata=proj,
-            )
-            for j, (b_slug, b_text) in enumerate(proj.get("bullets", {}).items()):
-                conn.execute(
-                    """
-                    INSERT INTO project_bullets (project_slug, slug, text, sort_order)
-                    VALUES (?, ?, ?, ?)
-                    """,
-                    (slug, b_slug, b_text, j),
-                )
-                seen_proj_bullets.add((slug, b_slug))
-                _log_change(
-                    conn,
-                    prior_proj_bullets,
-                    (slug, b_slug),
-                    (b_text, j),
-                    "project_bullet",
-                    f"{slug}.{b_slug}",
-                    new_value=b_text,
-                )
+            new_skill_keys.add((group, item))
+            if prior_skills.get((group, item)) != (i,):
+                skills_changed = True
+    if skills_changed or new_skill_keys != set(prior_skills):
+        log_audit_event(
+            conn,
+            "skills",
+            "skills",
+            ACTION_INSERT if not prior_skills else ACTION_UPDATE,
+            metadata={"groups": list(data.get("skills", {}).keys())},
+            commit=False,
+        )
 
-        # 5. Skills
-        conn.execute("DELETE FROM skills")
-        skills_changed = False
-        new_skill_keys: set[tuple[str, str]] = set()
-        for group, items in data.get("skills", {}).items():
-            for i, item in enumerate(items):
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO skills (group_name, item, sort_order)
-                    VALUES (?, ?, ?)
-                    """,
-                    (group, item, i),
-                )
-                new_skill_keys.add((group, item))
-                if prior_skills.get((group, item)) != (i,):
-                    skills_changed = True
-        if skills_changed or new_skill_keys != set(prior_skills):
-            log_audit_event(
-                conn,
-                "skills",
-                "skills",
-                ACTION_INSERT if not prior_skills else ACTION_UPDATE,
-                metadata={"groups": list(data.get("skills", {}).keys())},
-                commit=False,
-            )
-
-        # 5b. Record removals. Reseeding deletes rows that vanished from profile.json; without
-        #     this the audit trail would silently lose bullets and slugs that were taken out.
-        for entity_type, prior_keys, seen_keys in (
-            ("education", prior_education, seen_education),
-            ("experience", prior_experiences, seen_experiences),
-            ("experience_bullet", prior_exp_bullets, seen_exp_bullets),
-            ("project", prior_projects, seen_projects),
-            ("project_bullet", prior_proj_bullets, seen_proj_bullets),
-        ):
-            for removed in sorted(set(prior_keys) - seen_keys, key=str):
-                entity_id = ".".join(removed) if isinstance(removed, tuple) else str(removed)
-                log_audit_event(conn, entity_type, entity_id, ACTION_DELETE, commit=False)
+    # 5b. Record removals. Reseeding deletes rows that vanished from profile.json; without
+    #     this the audit trail would silently lose bullets and slugs that were taken out.
+    for entity_type, prior_keys, seen_keys in (
+        ("education", prior_education, seen_education),
+        ("experience", prior_experiences, seen_experiences),
+        ("experience_bullet", prior_exp_bullets, seen_exp_bullets),
+        ("project", prior_projects, seen_projects),
+        ("project_bullet", prior_proj_bullets, seen_proj_bullets),
+    ):
+        for removed in sorted(set(prior_keys) - seen_keys, key=str):
+            entity_id = ".".join(removed) if isinstance(removed, tuple) else str(removed)
+            log_audit_event(conn, entity_type, entity_id, ACTION_DELETE, commit=False)
 
     # 6. Applications (merge from applications_dir without clobbering existing DB records)
     if applications_dir.is_dir():
@@ -558,49 +587,43 @@ def load_profile_from_db(conn: sqlite3.Connection) -> Profile:
     )
 
 
+#: What to do when the database itself -- the copy every other recovery path trusts -- turns
+#: out to hold placeholders. Deliberately never says "db export-profile": that is the command
+#: raising this, and pointing back at it is the loop this guard exists to break.
+_DB_CONTACT_RECOVERY_HINT = (
+    "The database is supposed to be the surviving good copy, so this means the corruption has "
+    "already reached it -- most likely a `db sync` that seeded from a scrubbed profile. Do not "
+    "run `db sync` again; that would overwrite the database from the same bad source. Recover "
+    "the real contact block from the Turso cloud copy (`turso db shell worksisyphus`), a "
+    "backup, or the header of an already-delivered applications/*/Simon_Chen_Resume.pdf, "
+    "write it into profile.json by hand, and only then run `uv run worksisyphus db sync` to "
+    "repair the database from it."
+)
+
+
 def export_profile_json(conn: sqlite3.Connection, output_path: Path = Path("profile.json")) -> dict[str, Any]:
-    """Materialize database profile state into profile.json format."""
+    """Materialize database profile state into profile.json format.
+
+    This is the documented recovery path for a lost profile.json, which makes writing
+    unvalidated data out of here the most destructive thing in the codebase: it would
+    overwrite the real profile with whatever the database happens to hold. So the contact
+    block is validated with the same rules that guard a build, *before* anything is written.
+
+    The check is inside this function rather than in the CLI on purpose. ``--force`` means
+    "overwrite an existing destination", never "write known-bad data", and it is handled a
+    level up -- so no flag can reach past this guard.
+    """
     profile = load_profile_from_db(conn)
-    data = {
-        "contact": {
-            "name": profile.contact.name,
-            "email": profile.contact.email,
-            "phone": profile.contact.phone,
-            "website": profile.contact.website,
-            "github": profile.contact.github,
-            "linkedin": profile.contact.linkedin,
-        },
-        "education": [
-            {
-                "institution": edu.institution,
-                "location": edu.location,
-                "degree": edu.degree,
-                "date": edu.date,
-                "coursework": list(edu.coursework),
-            }
-            for edu in profile.education
-        ],
-        "experiences": {
-            slug: {
-                "role": exp.role,
-                "org": exp.org,
-                "location": exp.location,
-                "date": exp.date,
-                "bullets": dict(exp.bullets),
-            }
-            for slug, exp in profile.experiences.items()
-        },
-        "projects": {
-            slug: {
-                "name": proj.name,
-                "tech": proj.tech,
-                "date": proj.date,
-                "bullets": dict(proj.bullets),
-            }
-            for slug, proj in profile.projects.items()
-        },
-        "skills": {group: list(items) for group, items in profile.skills.items()},
-    }
+    try:
+        validate_contact(
+            profile.contact,
+            source="the database",
+            recovery_hint=_DB_CONTACT_RECOVERY_HINT,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Refusing to write {output_path}: {exc}") from exc
+
+    data = profile_to_dict(profile)
     output_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return data
 
