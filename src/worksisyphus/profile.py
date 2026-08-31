@@ -27,8 +27,14 @@ PLACEHOLDER_FRAGMENTS = (
 )
 
 #: The 555 exchange is reserved for fiction in the North American numbering plan, so any
-#: number whose exchange is 555 (555-0100, 617-555-1234, +1 555 555 5555) is fake.
+#: number whose exchange is 555 (555-0100, 617-555-1234, +1 555 555 5555) is fake. This
+#: pattern only sees *separated* forms: its leading \b needs a non-word character before the
+#: 555, so a compact "3475550100" slipped past it. It is kept as the fallback for shapes the
+#: positional check below cannot parse, because a review verified it has no false positives
+#: on real formats.
 PLACEHOLDER_PHONE_RE = re.compile(r"\b\(?555\)?[-.\s]?\d{4}\b")
+
+_NON_DIGITS_RE = re.compile(r"\D")
 
 #: How to get real contact details back. The database is the only other copy on disk.
 _RECOVERY_HINT = (
@@ -117,6 +123,31 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
     )
 
 
+def _is_fictional_phone(value: str) -> bool:
+    """True when the number's exchange is 555, the block the NANP reserves for fiction.
+
+    Textual matching fails in both directions, so this matches by *position* instead.
+    Requiring a separator before the 555 (``PLACEHOLDER_PHONE_RE``) let the compact forms
+    ``3475550100`` and ``+13475550100`` -- both 347-555-0100 -- through, while searching the
+    stripped digits for a bare "555" would reject real numbers that merely contain those
+    digits somewhere else: ``212-955-5187`` becomes 2129555187 and ``+44 20 7555 0123``
+    becomes 442075550123. The exchange is digits 4-6 of a 10-digit NANP number (or the first
+    three of a bare 7-digit local number), and nowhere else.
+
+    Anything that is not NANP-shaped -- a UK number, a number carrying an extension -- falls
+    back to the regex. A false positive here blocks a legitimate resume build, which is worse
+    than the false negative being fixed, so the fallback stays as narrow as it was.
+    """
+    digits = _NON_DIGITS_RE.sub("", value)
+    if len(digits) == 11 and digits.startswith("1"):  # +1 / 1- country code
+        digits = digits[1:]
+    if len(digits) == 10:
+        return digits[3:6] == "555"
+    if len(digits) == 7:  # bare local number, e.g. 555-0100
+        return digits.startswith("555")
+    return bool(PLACEHOLDER_PHONE_RE.search(value))
+
+
 def validate_contact(contact: Contact, source: str = "profile.json") -> None:
     """Fail closed on contact details that cannot reach a human.
 
@@ -144,7 +175,7 @@ def validate_contact(contact: Contact, source: str = "profile.json") -> None:
             continue
         lowered = value.lower()
         hit = next((fragment for fragment in PLACEHOLDER_FRAGMENTS if fragment in lowered), None)
-        if hit is None and field_name == "phone" and PLACEHOLDER_PHONE_RE.search(value):
+        if hit is None and field_name == "phone" and _is_fictional_phone(value):
             hit = "the 555 exchange, reserved for fictional numbers"
         if hit is not None:
             raise ValueError(

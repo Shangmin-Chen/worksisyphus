@@ -22,6 +22,34 @@ def real_profile() -> Profile:
 
 
 @pytest.fixture(scope="session")
+def renderable_profile(real_profile) -> Profile:
+    """A full-size profile that render_resume will actually accept.
+
+    render_resume now validates the contact block -- no code path may render a placeholder
+    header -- and real_profile falls back to tests/fixtures/profile.json, whose contact block
+    is deliberately scrubbed. Swapping in a deliverable contact keeps the render-shape tests
+    (sections, preamble, verbatim TeX) meaningful on a checkout without profile.json, which is
+    every fresh clone and CI. The scrubbed block is still exercised, on purpose, by the tests
+    that assert rendering it is impossible.
+    """
+    try:
+        validate_contact(real_profile.contact)
+    except ValueError:
+        return dataclasses.replace(
+            real_profile,
+            contact=Contact(
+                name="Simon Chen",
+                email="simon.chen@fixture.test",
+                phone="617-201-4477",
+                website="https://simonchen.dev",
+                github="https://github.com/fixture-user",
+                linkedin="https://linkedin.com/in/fixture-user",
+            ),
+        )
+    return real_profile
+
+
+@pytest.fixture(scope="session")
 def delivered_pdf() -> Path:
     """The newest delivered resume.
 

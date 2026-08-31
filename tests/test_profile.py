@@ -132,3 +132,32 @@ def test_validate_contact_rejects_the_test_fixture_profile() -> None:
     fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
     with pytest.raises(ValueError, match="placeholder"):
         validate_contact(load_profile(fixture).contact, source=str(fixture))
+
+
+@pytest.mark.parametrize(
+    ("phone", "is_placeholder"),
+    [
+        # Compact NANP forms the old \b-anchored regex missed: \b needs a non-word character
+        # before the 555, so a number written without separators sailed through. Both of these
+        # are 347-555-0100 -- reserved-fictional, exactly what the check claims to catch.
+        ("3475550100", True),
+        ("+13475550100", True),
+        # Already caught before this fix; it must stay caught.
+        ("347 5550100", True),
+        # Real numbers that contain the digits 555 once separators are stripped (2129555187,
+        # 02075550123, 442075550123). A false positive here blocks a legitimate resume build,
+        # which is worse than the false negative above, so these must stay accepted.
+        ("212-955-5187", False),
+        ("020 7555 0123", False),
+        ("+44 20 7555 0123", False),
+    ],
+)
+def test_placeholder_phone_verdicts(phone, is_placeholder) -> None:
+    """The 555 exchange is fictional wherever it sits; the digits 555 elsewhere are not."""
+    contact = dataclasses.replace(GOOD_CONTACT, phone=phone)
+    if is_placeholder:
+        with pytest.raises(ValueError) as excinfo:
+            validate_contact(contact)
+        assert "555 exchange" in str(excinfo.value)
+    else:
+        validate_contact(contact)

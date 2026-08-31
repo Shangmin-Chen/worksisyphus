@@ -64,3 +64,34 @@ def test_applications_db_and_filesystem_consistency() -> None:
     fs_apps = {d.name for d in APPLICATIONS_DIR.iterdir() if d.is_dir()}
     diff = fs_apps.symmetric_difference(db_apps)
     assert diff == set(), f"Inconsistency between applications/ and DB: {diff}"
+
+
+def test_contact_verification_blocks_are_well_formed() -> None:
+    """meta.json's contact_verification block, wherever present, is readable and complete.
+
+    Application folders are immutable history, so the ~50 folders published before this field
+    existed were deliberately NOT backfilled: nothing can reconstruct whether their contact was
+    cross-checked, and inventing an answer would be exactly the silent-substitution mistake the
+    field exists to prevent. Absent therefore means "not recorded" -- a third state, distinct
+    from both verified and skipped. What is asserted here is that a block that IS present says
+    something definite, and that a skip always carries its reason.
+    """
+    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
+        pytest.skip("Applications directory not present or empty")
+    invalid: list[str] = []
+    for d in sorted(APPLICATIONS_DIR.iterdir()):
+        meta_file = d / "meta.json"
+        if not d.is_dir() or not meta_file.is_file():
+            continue
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        verification = meta.get("contact_verification")
+        if verification is None:  # published before the field existed; not backfillable
+            continue
+        if not isinstance(verification, dict):
+            invalid.append(f"{d.name}: contact_verification is not an object")
+            continue
+        if not isinstance(verification.get("cross_checked_against_db"), bool):
+            invalid.append(f"{d.name}: cross_checked_against_db is not a bool")
+        elif not verification["cross_checked_against_db"] and not verification.get("skip_reason"):
+            invalid.append(f"{d.name}: the cross-check was skipped without recording a reason")
+    assert invalid == [], f"Malformed contact_verification blocks: {invalid}"
