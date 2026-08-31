@@ -617,6 +617,73 @@ def test_apply_cross_check_is_skipped_for_non_default_application_dirs(small_pro
     assert _resolve_db_path(None, Path("applications")) == Path("worksisyphus.db")
 
 
+def test_resolve_db_path_normalizes_an_equivalent_absolute_applications_dir() -> None:
+    """The default applications/ dir must be recognised however it is spelled.
+
+    ``Path.__eq__`` compares strings, so the absolute form of the very same directory compared
+    unequal and silently turned off both the contact cross-check and DB persistence -- no
+    error, no log. Not reachable from today's CLI, which always passes None, but the
+    incident-preventing check is now routed through this comparison.
+    """
+    from worksisyphus.application import _resolve_db_path
+
+    relative = _resolve_db_path(None, Path("applications"))
+    absolute = _resolve_db_path(None, Path.cwd() / "applications")
+    assert relative == Path("worksisyphus.db")
+    assert absolute == relative, "an equivalent absolute path must resolve to the same database"
+    assert _resolve_db_path(None, Path("./applications/")) == relative
+
+
+def test_apply_records_that_the_contact_was_cross_checked(small_profile, monkeypatch, tmp_path) -> None:
+    """meta.json states that the contact was verified against the database.
+
+    The cross-check's outcome used to exist only as a bool apply() threw away plus a string
+    handed to `log`, which defaults to silence. A reader of an application folder could not
+    tell a verified contact from an unverifiable one; meta.json is the frozen record of what
+    was true when the resume was sent, so the answer belongs there.
+    """
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
+
+    db_file = tmp_path / "worksisyphus.db"
+    contact = small_profile.contact
+    _seed_db(db_file, {"name": contact.name, "email": contact.email, "phone": contact.phone})
+
+    apps_dir = tmp_path / "applications"
+    folder, _compile_result, _ats = apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
+
+    verification = json.loads((folder / "meta.json").read_text(encoding="utf-8"))["contact_verification"]
+    assert verification["rules_checked"] is True
+    assert verification["cross_checked_against_db"] is True
+    assert verification["database"] == str(db_file)
+    assert verification["skip_reason"] == ""
+
+
+def test_apply_records_why_the_cross_check_was_skipped(small_profile, monkeypatch, tmp_path) -> None:
+    """A skip is written down with its reason, so it can never read as a pass.
+
+    Reproduces the reviewer's case: a nonexistent db_path and no log= at all. The run still
+    succeeds -- the rule checks protect a fresh clone -- but the folder says so out loud.
+    """
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
+
+    missing_db = tmp_path / "absent.db"
+    apps_dir = tmp_path / "applications"
+    folder, _compile_result, _ats = apply(**_apply_kwargs(apps_dir, small_profile, db_path=missing_db))
+
+    verification = json.loads((folder / "meta.json").read_text(encoding="utf-8"))["contact_verification"]
+    assert verification["rules_checked"] is True
+    assert verification["cross_checked_against_db"] is False
+    assert "absent.db" in verification["skip_reason"]
+
+
 def test_failed_apply_publishes_nothing_at_all(small_profile, monkeypatch, tmp_path) -> None:
     """A failure inside the staging window leaves no folder, no staging residue, and no DB row."""
     import worksisyphus.application as app_module

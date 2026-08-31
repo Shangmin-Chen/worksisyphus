@@ -304,3 +304,60 @@ def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
     assert "ATS check: passed" in out
     assert recorded["company"] == "Primitive"
     assert "projects" in recorded["plan_text"]
+
+
+def test_cli_apply_surfaces_optimizer_failure_as_an_error(monkeypatch, capsys) -> None:
+    """Plan-less apply must report an optimizer failure, not spill a traceback.
+
+    `apply` without --plan runs the optimizer, which raises OptimizerError rather than handing
+    back an unscored plan. The CLI contract is exit code 1 and a single `error: ...` line on
+    stderr; nothing covered that path.
+    """
+    import io
+
+    import worksisyphus.optimizer as optimizer_module
+
+    def failing_optimize(profile, jd_text, role_name="software_engineer"):
+        raise optimizer_module.OptimizerError("no candidate plan could be scored")
+
+    def unreachable_apply(*args, **kwargs):
+        raise AssertionError("apply must not run when the optimizer produced no plan")
+
+    monkeypatch.setattr(optimizer_module, "optimize_plan", failing_optimize)
+    monkeypatch.setattr(cli, "apply_app", unreachable_apply)
+    monkeypatch.setattr("sys.stdin", io.StringIO("Backend engineer, distributed systems."))
+
+    assert cli.main(["apply", "--company", "Primitive", "--jd", "-", "--no-sync"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error: ")
+    assert "no candidate plan could be scored" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_cli_tailor_refuses_a_placeholder_contact(monkeypatch, tmp_path, capsys, placeholder_profile) -> None:
+    """Finding 1, at the level the reviewer reproduced it.
+
+    `worksisyphus tailor` used to exit 0 on a placeholder profile and leave a complete,
+    plausible, one-page Simon_Chen_Resume.pdf on disk -- the same filename a delivered resume
+    carries. Only a prose sentence in CLAUDE.md stood between that file and a recruiter.
+    """
+    import worksisyphus.pipeline as pipeline_module
+
+    compiled: list[str] = []
+
+    def exploding_compile(tex, name, tex_dir, pdf_dir):
+        compiled.append(name)
+        raise AssertionError("compilation must not be reached for an invalid contact")
+
+    monkeypatch.setattr(pipeline_module, "compile_tex", exploding_compile)
+    monkeypatch.setattr(pipeline_module, "load_profile", lambda _path: placeholder_profile)
+
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+    out_dir = tmp_path / "preview"
+
+    assert cli.main(["tailor", "--plan", plan, "--output", str(out_dir)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ")
+    assert "placeholder" in err
+    assert compiled == []
+    assert list(out_dir.glob("*.pdf")) == []

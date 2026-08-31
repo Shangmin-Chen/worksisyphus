@@ -8,6 +8,7 @@ import re
 import shutil
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -37,6 +38,22 @@ def slugify(text: str) -> str:
     return re.sub(r"[\s_-]+", "-", text).strip("-")
 
 
+def _is_default_applications_dir(applications_dir: Path) -> bool:
+    """Is this the live applications/ directory, however it was spelled?
+
+    A bare ``Path.__eq__`` compares strings, so ``Path.cwd() / "applications"`` did not equal
+    ``Path("applications")`` and an equivalent-but-absolute path silently switched off both the
+    contact cross-check and database persistence -- no error, no log. That is the same failure
+    shape as the incident: a safety check that disappears without saying so.
+
+    ``resolve()`` also follows symlinks, which is what we want here: a symlinked applications/
+    is still the live delivery directory, and a run into it must be cross-checked and recorded
+    like any other. It is used non-strictly, so a directory that does not exist yet (the first
+    apply in a fresh clone) still compares correctly.
+    """
+    return Path(applications_dir).resolve() == APPLICATIONS_DIR.resolve()
+
+
 def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | None:
     """Which database this run should cross-check and record against, or None for neither.
 
@@ -49,14 +66,41 @@ def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | Non
         return Path(db_path)
     from .db import DEFAULT_DB_PATH
 
-    return DEFAULT_DB_PATH if applications_dir == APPLICATIONS_DIR else None
+    return DEFAULT_DB_PATH if _is_default_applications_dir(applications_dir) else None
+
+
+@dataclass(frozen=True)
+class ContactCrossCheck:
+    """Whether the contact block was verified against the independent copy in the database.
+
+    A plain bool carried this too, but apply() discarded it and the reason for a skip existed
+    only as a string handed to ``log``, which defaults to ``_silent``. Nothing on disk recorded
+    it, so a reader of an application folder could not tell "contact was verified against the
+    database" from "contact could not be verified" -- precisely the ambiguity the incident
+    lived inside. ``as_meta()`` freezes the answer into meta.json, next to ``evaluation``,
+    which is there for the same reason: it records what was true when the resume was sent.
+    """
+
+    ran: bool
+    database: str = ""
+    reason: str = ""
+
+    def as_meta(self) -> dict[str, Any]:
+        return {
+            # validate_contact ran unconditionally before this point in apply(); had it failed,
+            # this folder would never have been published.
+            "rules_checked": True,
+            "cross_checked_against_db": self.ran,
+            "database": self.database,
+            "skip_reason": self.reason,
+        }
 
 
 def cross_check_contact_against_db(
     contact: Contact,
     db_path: Path | None,
     log: Log = _silent,
-) -> bool:
+) -> ContactCrossCheck:
     """Compare the profile's contact block against the independent copy in the database.
 
     This is the check that would have caught the incident. profile.json vanished and a
@@ -65,17 +109,22 @@ def cross_check_contact_against_db(
     The database still held the real name, email and phone the whole time -- so a second,
     independent copy is the only thing that can contradict a wrong profile.
 
-    Returns True when the cross-check actually ran. A missing database or a database with no
-    contact row is skipped and logged, never treated as agreement: the rules in
-    validate_contact still apply, so a fresh clone or CI is protected but not silently
-    "verified".
+    Returns a ContactCrossCheck saying whether the check actually ran and, when it did not,
+    why. A missing database or a database with no contact row is skipped and reported, never
+    treated as agreement: the rules in validate_contact still apply, so a fresh clone or CI is
+    protected but not silently "verified". The caller freezes that answer into meta.json --
+    the skip must survive somewhere a human can read it later, not only in a log line.
     """
+    database = str(db_path) if db_path is not None else ""
+
+    def skipped(reason: str) -> ContactCrossCheck:
+        log(f"Contact cross-check skipped: {reason}")
+        return ContactCrossCheck(ran=False, database=database, reason=reason)
+
     if db_path is None:
-        log("Contact cross-check skipped: this run is not writing to the default database.")
-        return False
+        return skipped("this run is not writing to the default database.")
     if not db_path.is_file():
-        log(f"Contact cross-check skipped: no database at {db_path} (fresh clone or CI). Rule checks still applied.")
-        return False
+        return skipped(f"no database at {db_path} (fresh clone or CI). Rule checks still applied.")
 
     from .db import get_connection, load_profile_from_db
 
@@ -83,15 +132,13 @@ def cross_check_contact_against_db(
     try:
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
         if cur.fetchone() is None:
-            log(f"Contact cross-check skipped: {db_path} has no contact table. Run `uv run worksisyphus db sync`.")
-            return False
+            return skipped(f"{db_path} has no contact table. Run `uv run worksisyphus db sync`.")
         db_contact = load_profile_from_db(conn).contact
     finally:
         conn.close()
 
     if not any((db_contact.name, db_contact.email, db_contact.phone)):
-        log(f"Contact cross-check skipped: {db_path} has no contact row. Run `uv run worksisyphus db sync`.")
-        return False
+        return skipped(f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.")
 
     mismatches = [
         f"contact.{field_name}: profile has {getattr(contact, field_name)!r}, database has {getattr(db_contact, field_name)!r}"
@@ -106,7 +153,7 @@ def cross_check_contact_against_db(
             f"`uv run worksisyphus db export-profile --force`. If profile.json is right, publish it with "
             f"`uv run worksisyphus db sync`."
         )
-    return True
+    return ContactCrossCheck(ran=True, database=database)
 
 
 def apply(
@@ -141,7 +188,7 @@ def apply(
     active_profile = profile if profile is not None else load_profile(profile_path)
     validate_contact(active_profile.contact, source=str(profile_path))
     resolved_db_path = _resolve_db_path(db_path, applications_dir)
-    cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
+    contact_cross_check = cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
 
     # Deterministic naming strictly derived from company and role (#34)
     comp_slug = slugify(company)
@@ -179,6 +226,11 @@ def apply(
             "date": when.isoformat(),
             "source_url": source_url,
             "status": STATUSES[0],
+            # Frozen alongside the resume: a folder must state whether its contact details were
+            # verified against the database, not leave a reader guessing. Absent on folders
+            # published before this field existed, which reads as "not recorded" -- distinct
+            # from both "verified" and "skipped", and honest, since it cannot be reconstructed.
+            "contact_verification": contact_cross_check.as_meta(),
         }
         # 3. Quality gates and ATS validation, reusing a single PDF extraction
         gate_results, ats_result = run_resume_gates(
@@ -456,7 +508,7 @@ def update_application_status(
 
     from .db import DEFAULT_DB_PATH, get_connection, update_application_status_in_db
 
-    if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
+    if _is_default_applications_dir(applications_dir) and DEFAULT_DB_PATH.is_file():
         conn = get_connection(DEFAULT_DB_PATH)
         try:
             update_application_status_in_db(conn, target_folder.name, new_status)
