@@ -57,24 +57,35 @@ class Profile:
 
 
 def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
-    """Load profile directly from a profile.json file."""
-    path = Path(source)
-    if not path.is_file() and path == DEFAULT_PROFILE_PATH:
-        if (Path("tests") / "fixtures" / "profile.json").is_file():
-            path = Path("tests") / "fixtures" / "profile.json"
+    """Load profile directly from a profile.json file.
 
-    if path.is_file():
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return Profile(
-            contact=Contact(**data.get("contact", {"name": ""})),
-            education=tuple(
-                Education(**{**e, "coursework": tuple(e.get("coursework", []))}) for e in data.get("education", [])
-            ),
-            experiences={slug: Experience(id=slug, **e) for slug, e in data.get("experiences", {}).items()},
-            projects={slug: Project(id=slug, **p) for slug, p in data.get("projects", {}).items()},
-            skills={group: tuple(items) for group, items in data.get("skills", {}).items()},
+    A missing profile is a hard error, never a fallback. profile.json is gitignored
+    (cloud-backed), so its absence is invisible to `git status`, and every other profile
+    on disk -- tests/fixtures/profile.json above all -- carries a scrubbed contact block.
+    Substituting one renders a resume that passes every quality gate (one page, ATS,
+    no-GPA, content density) while addressing the recruiter to simon@example.com.
+    Silence here ships undeliverable resumes; fail loudly instead.
+    """
+    path = Path(source)
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Profile not found: {path}. profile.json is gitignored, so git will not report it "
+            f"missing and git checkout will not restore it. Recover it from the database with "
+            f"`uv run worksisyphus db export-profile`. "
+            f"Do not substitute tests/fixtures/profile.json: its contact block is scrubbed to "
+            f"example.com placeholders."
         )
-    raise FileNotFoundError(f"Profile not found: {source}")
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return Profile(
+        contact=Contact(**data.get("contact", {"name": ""})),
+        education=tuple(
+            Education(**{**e, "coursework": tuple(e.get("coursework", []))}) for e in data.get("education", [])
+        ),
+        experiences={slug: Experience(id=slug, **e) for slug, e in data.get("experiences", {}).items()},
+        projects={slug: Project(id=slug, **p) for slug, p in data.get("projects", {}).items()},
+        skills={group: tuple(items) for group, items in data.get("skills", {}).items()},
+    )
 
 
 def profile_index(profile: Profile) -> str:

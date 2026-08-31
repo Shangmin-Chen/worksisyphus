@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from worksisyphus import profile_index
+import json
+
+import pytest
+
+from worksisyphus import load_profile, profile_index
 
 
 def test_real_profile_loads_expected_shape(real_profile) -> None:
@@ -34,3 +38,34 @@ def test_values_stay_verbatim_tex(real_profile) -> None:
     joined = profile_index(real_profile)
     assert r"\$8K" in joined
     assert r"$\sim$20$\mu$s" in joined
+
+
+def test_missing_profile_raises_instead_of_falling_back(tmp_path, monkeypatch) -> None:
+    """A missing profile.json must fail loudly, never silently load another profile.
+
+    Regression: load_profile used to fall back to tests/fixtures/profile.json, whose contact
+    block is scrubbed to example.com placeholders. Four resumes were built and sent with a
+    dead phone and email while passing every quality gate, because only the header was wrong.
+    """
+    monkeypatch.chdir(tmp_path)
+    fixtures = tmp_path / "tests" / "fixtures"
+    fixtures.mkdir(parents=True)
+    (fixtures / "profile.json").write_text(
+        json.dumps({"contact": {"name": "Simon Chen", "email": "simon@example.com"}}), encoding="utf-8"
+    )
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        load_profile()
+    assert "db export-profile" in str(excinfo.value)
+
+
+def test_real_profile_contact_is_not_placeholder(real_profile) -> None:
+    """The loaded profile must carry deliverable contact details, not fixture placeholders."""
+    contact = real_profile.contact
+    if "example.com" in contact.email:
+        pytest.skip("running against the scrubbed fixture (no profile.json present)")
+    for field_name in ("email", "phone", "website", "github", "linkedin"):
+        value = getattr(contact, field_name)
+        assert value, f"contact.{field_name} is empty"
+        assert "example.com" not in value, f"contact.{field_name} is a placeholder: {value}"
+        assert "555-555-5555" not in value, f"contact.{field_name} is a placeholder: {value}"
