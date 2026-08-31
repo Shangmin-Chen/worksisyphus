@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +20,15 @@ from .profile import Profile
 # Available budget for Experience + Projects = 32 to 36 lines.
 MAX_EXPERIENCE_PROJECT_LINES = 35.0
 HEADER_LINE_COST = 1.5  # Header cost per experience / project entry
+
+
+class OptimizerError(RuntimeError):
+    """The optimizer could not produce a plan it actually scored and ranked.
+
+    Raised instead of returning an unranked candidate: a plan-less `apply` feeds the
+    optimizer's winner straight into a delivered resume, so "we could not rank anything"
+    must stop the pipeline rather than silently pick an arbitrary configuration.
+    """
 
 
 @dataclass(frozen=True)
@@ -303,16 +314,21 @@ def generate_candidate_plans(
         exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects[:2], max_lines=32.0)
         candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
-    # Fallback if profile has < 2 projects
+    # Degenerate profile (fewer than 2 selectable projects). This branch used to emit
+    # profile.experiences / profile.projects wholesale, which re-admitted every gated slug
+    # (fitness-tracker, spark-food-waste, ml-marketplace, personal-website, bu-engineering-it)
+    # through the one door the guardrails do not watch. Pack the SAME guardrailed lists the
+    # other strategies use, so there is no configuration in which a gated slug can reach a plan.
     if not candidates:
-        candidates.append(
-            {
-                "experiences": {exp_slug: "all" for exp_slug in profile.experiences},
-                "projects": {p_slug: "all" for p_slug in profile.projects},
-                "skills": "all",
-                "_lines": 35.0,
-            }
-        )
+        if not experiences and not projects:
+            raise OptimizerError(
+                f"No selectable entries remain for role {role_name!r} after the selection guardrails "
+                f"(profile has {len(profile.experiences)} experience(s) and {len(profile.projects)} "
+                "project(s)). Refusing to emit a plan that ignores the guardrails; "
+                "write the plan by hand and pass it with --plan."
+            )
+        exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects, max_lines=MAX_EXPERIENCE_PROJECT_LINES)
+        candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
     return candidates
 
@@ -322,18 +338,20 @@ def optimize_plan(
     jd_text: str,
     role_name: str = "software_engineer",
 ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
-    """Knapsack optimization search finding the highest-scoring plan within 1-page line budget."""
+    """Knapsack optimization search finding the highest-scoring plan within 1-page line budget.
+
+    Every returned plan has been scored and compared. If no candidate could be scored the
+    search has no winner, so this raises OptimizerError rather than handing back an
+    arbitrary unranked candidate -- `apply` without --plan turns this return value directly
+    into a delivered resume.
+    """
     agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
     candidates = generate_candidate_plans(profile, jd_text, role_name=role_name)
     results: list[dict[str, Any]] = []
+    failures: list[tuple[str, str]] = []
 
-    best_plan = candidates[0]
-    best_eval: dict[str, Any] = {
-        "role_title": agent.role.position_title,
-        "total_score": 0.0,
-        "max_possible": agent.role.max_final_score,
-        "scores": {},
-    }
+    best_plan: dict[str, Any] | None = None
+    best_eval: dict[str, Any] | None = None
     best_score = -1.0
 
     for cand in candidates:
@@ -367,11 +385,46 @@ def optimize_plan(
                 best_plan = cand_clean
                 best_eval = hr_eval
                 best_eval["lines_used"] = lines_used
-        except Exception:
-            continue
+        except Exception as exc:
+            # Recorded, then re-surfaced below (raise if total, warn if partial) -- never swallowed.
+            failures.append((type(exc).__name__, str(exc)))
+
+    if best_plan is None or best_eval is None:
+        raise OptimizerError(
+            f"Scored none of the {len(candidates)} candidate plan(s) for role {role_name!r}; "
+            f"refusing to return an unranked plan. Failures: {_describe_failures(failures)}"
+        )
+
+    if failures:
+        report = {
+            "failed": len(failures),
+            "total": len(candidates),
+            "errors": _failure_counts(failures),
+        }
+        best_eval["candidate_failures"] = report
+        print(
+            f"WARN: optimizer scored only {len(results)} of {len(candidates)} candidate plan(s) for "
+            f"role {role_name!r}; the search space shrank. Failures: {_describe_failures(failures)}",
+            file=sys.stderr,
+        )
 
     results.sort(key=lambda r: r["total_score"], reverse=True)
     return best_plan, best_eval, results
+
+
+def _failure_counts(failures: list[tuple[str, str]]) -> dict[str, dict[str, Any]]:
+    """Collapse candidate scoring failures to distinct error types, each with an example message."""
+    counts = Counter(name for name, _ in failures)
+    examples: dict[str, str] = {}
+    for name, message in failures:
+        examples.setdefault(name, message)
+    return {name: {"count": count, "example": examples[name]} for name, count in counts.items()}
+
+
+def _describe_failures(failures: list[tuple[str, str]]) -> str:
+    if not failures:
+        return "none recorded (no candidate plans were generated)"
+    return "; ".join(f"{name} x{data['count']}: {data['example']}" for name, data in _failure_counts(failures).items())
 
 
 def format_optimization_report(
@@ -392,9 +445,21 @@ def format_optimization_report(
         "Solved 1-page line knapsack across candidate configurations",
         f"Winning Plan Score: {total_score:.1f} / {max_possible} points",
         f"1-Page Line Budget:  {lines_used:.1f} / {MAX_EXPERIENCE_PROJECT_LINES:.0f} lines ({lines_used / MAX_EXPERIENCE_PROJECT_LINES * 100:.0f}% capacity)",
-        "-" * 68,
-        "CANDIDATE CONFIGURATIONS TESTED:",
     ]
+
+    # A shrunken search space changes what "winning" means, so it belongs above the results,
+    # not in a footnote under them.
+    failures = best_eval.get("candidate_failures")
+    if failures:
+        lines.append(
+            f"WARNING: {failures['failed']} of {failures['total']} candidate plan(s) failed to score "
+            "and were excluded from the search."
+        )
+        for name, data in failures.get("errors", {}).items():
+            lines.append(f"         {name} x{data['count']}: {data['example']}")
+
+    lines.append("-" * 68)
+    lines.append("CANDIDATE CONFIGURATIONS TESTED:")
 
     for rank, res in enumerate(results, start=1):
         marker = "🏆 [WINNER]" if rank == 1 else f"  #{rank}       "
