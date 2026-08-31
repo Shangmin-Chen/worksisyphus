@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 
@@ -123,6 +124,31 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     test_db = tmp_path / "test.db"
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
     monkeypatch.setattr(db, "sync_to_turso", lambda *args, **kwargs: True)
+
+    # `db init` and `db sync` read profile.json from the working directory. Run them against
+    # a profile this test owns: they used to silently seed from tests/fixtures/profile.json
+    # whenever profile.json was absent, so a test that depends on the ambient repository
+    # state is a test that passes for the wrong reason on CI.
+    monkeypatch.chdir(tmp_path)
+    Path("profile.json").write_text(
+        json.dumps(
+            {
+                "contact": {
+                    "name": "Real Person",
+                    "email": "real.person@fastmail.dev",
+                    "phone": "617-266-1810",
+                    "website": "",
+                    "github": "",
+                    "linkedin": "",
+                },
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
 
     # 1. Status before init
     assert cli.main(["db", "status"]) == 0

@@ -172,17 +172,20 @@ def test_application_tracking_in_db() -> None:
 def test_export_profile_json(tmp_path: Path) -> None:
     conn = get_connection(":memory:")
     init_schema(conn)
+    # A deliverable contact block: export refuses to write anything less (see the
+    # placeholder tests below), so the happy path needs real-shaped details.
     conn.execute(
-        "INSERT INTO contact (id, name, email, phone, website, github, linkedin) VALUES (1, 'Jane', 'j@e.com', '', '', '', '')"
+        "INSERT INTO contact (id, name, email, phone, website, github, linkedin) "
+        "VALUES (1, 'Jane Roe', 'jane.roe@fastmail.dev', '617-266-1810', '', '', '')"
     )
     conn.commit()
 
     export_path = tmp_path / "exported_profile.json"
     data = export_profile_json(conn, output_path=export_path)
-    assert data["contact"]["name"] == "Jane"
+    assert data["contact"]["name"] == "Jane Roe"
     assert export_path.is_file()
     loaded = json.loads(export_path.read_text(encoding="utf-8"))
-    assert loaded["contact"]["name"] == "Jane"
+    assert loaded["contact"]["name"] == "Jane Roe"
 
 
 def test_schema_indexes_created() -> None:
@@ -211,6 +214,15 @@ def test_get_audit_history_filtered() -> None:
 
 
 def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
+    """Everything profile.json holds must survive a trip through the database unchanged.
+
+    Read back with ``profile_to_dict`` rather than ``export_profile_json``: on CI there is no
+    profile.json, so this runs against the scrubbed fixture, and export deliberately refuses
+    to write a placeholder contact block. Export's own write path is covered by
+    ``test_export_profile_json``; what is under test here is fidelity, not writing.
+    """
+    from worksisyphus.profile import profile_to_dict
+
     real_profile_path = Path("profile.json")
     if not real_profile_path.is_file():
         real_profile_path = Path("tests/fixtures/profile.json")
@@ -219,8 +231,7 @@ def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
     conn = get_connection(":memory:")
     seed_database(conn, profile_path=real_profile_path, applications_dir=tmp_path / "apps")
 
-    export_path = tmp_path / "exported.json"
-    exported_data = export_profile_json(conn, output_path=export_path)
+    exported_data = profile_to_dict(load_profile_from_db(conn))
 
     assert exported_data["contact"] == real_data["contact"]
     assert exported_data["education"] == real_data["education"]
@@ -408,3 +419,163 @@ def test_evaluation_round_trips_through_seed(tmp_path: Path) -> None:
     seed_database(conn, profile_path=profile_file, applications_dir=apps)
     assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == before
     conn.close()
+
+
+def test_seed_database_refuses_to_fall_back_to_the_test_fixture(tmp_path: Path, monkeypatch) -> None:
+    """The regression test for the corruption loop.
+
+    seed_database used to substitute tests/fixtures/profile.json when profile.json was
+    missing -- the same silent fallback load_profile was hardened against, re-implemented
+    inline so an audit grepping for `load_profile(` never saw it. Seeding from the fixture
+    overwrites the database with example.com placeholders, sync_to_turso pushes them to the
+    cloud copy, the contact cross-check then trusts them as ground truth, and
+    `db export-profile` writes them back over the real profile.json. The database is the only
+    surviving copy of the real contact block, so it must never be seeded from a substitute.
+    """
+    from worksisyphus.db import seed_database
+
+    good_profile = tmp_path / "good_profile.json"
+    good_profile.write_text(
+        json.dumps(
+            {
+                "contact": {
+                    "name": "Real Person",
+                    "email": "real.person@fastmail.dev",
+                    "phone": "617-266-1810",
+                    "website": "",
+                    "github": "",
+                    "linkedin": "",
+                },
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    db_file = tmp_path / "worksisyphus.db"
+    conn = get_connection(db_file)
+    seed_database(conn, profile_path=good_profile, applications_dir=tmp_path / "apps")
+    assert load_profile_from_db(conn).contact.email == "real.person@fastmail.dev"
+
+    # Recreate the incident: a working directory with no profile.json but with the fixture
+    # sitting exactly where the old fallback looked for it.
+    workdir = tmp_path / "workdir"
+    (workdir / "tests" / "fixtures").mkdir(parents=True)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
+    (workdir / "tests" / "fixtures" / "profile.json").write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.chdir(workdir)
+    assert not Path("profile.json").exists()
+    assert Path("tests/fixtures/profile.json").is_file()
+
+    try:
+        seed_database(conn)
+    except FileNotFoundError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("seed_database seeded from the fixture instead of failing")
+
+    assert "profile.json" in message
+    # The error must send the user to the recovery command, not to `db sync` -- which is the
+    # very command that just failed, and would overwrite the database from the bad source.
+    assert "db export-profile" in message
+
+    # The database is untouched: the real contact block is still the one it holds.
+    contact = load_profile_from_db(conn).contact
+    assert contact.email == "real.person@fastmail.dev"
+    assert "example.com" not in contact.email
+    conn.close()
+
+
+def test_seed_database_leaves_a_fresh_database_empty_when_the_profile_is_missing(tmp_path: Path) -> None:
+    """Failing must happen before any write, so a failed seed creates no half-built state."""
+    from worksisyphus.db import seed_database
+
+    db_file = tmp_path / "fresh.db"
+    conn = get_connection(db_file)
+    try:
+        seed_database(conn, profile_path=tmp_path / "absent.json", applications_dir=tmp_path / "apps")
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("seed_database accepted a nonexistent profile path")
+
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "contact" not in tables, "schema was created before the profile was validated"
+    conn.close()
+
+
+def _seed_placeholder_contact(conn: Any) -> None:
+    """Put the scrubbed fixture's contact block into a database, as a bad `db sync` would."""
+    init_schema(conn)
+    conn.execute(
+        "INSERT INTO contact (id, name, email, phone, website, github, linkedin) "
+        "VALUES (1, 'Simon Chen', 'simon@example.com', '555-555-5555', '', '', '')"
+    )
+    conn.commit()
+
+
+def test_export_profile_json_refuses_a_placeholder_database(tmp_path: Path) -> None:
+    """The recovery tool must not be able to destroy the artifact it recovers.
+
+    export_profile_json is the documented way back from a lost profile.json. If the database
+    has itself been corrupted -- which is exactly what the seed_database fallback did -- then
+    exporting writes example.com placeholders over the real profile and closes the loop.
+    """
+    conn = get_connection(":memory:")
+    _seed_placeholder_contact(conn)
+
+    destination = tmp_path / "profile.json"
+    try:
+        export_profile_json(conn, output_path=destination)
+    except ValueError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("export_profile_json wrote a placeholder contact block")
+
+    assert not destination.exists(), "the destination was written before validation"
+    assert "example.com" in message
+    # The advice must not point back at export-profile: that is the command that just failed,
+    # and re-running it would repeat the corruption rather than repair it.
+    assert "db export-profile" not in message
+    conn.close()
+
+
+def test_export_profile_json_does_not_overwrite_a_real_profile_with_placeholders(tmp_path: Path) -> None:
+    """The destructive case: a good profile.json on disk and a corrupted database."""
+    conn = get_connection(":memory:")
+    _seed_placeholder_contact(conn)
+
+    destination = tmp_path / "profile.json"
+    original = json.dumps({"contact": {"name": "Real Person", "email": "real.person@fastmail.dev"}})
+    destination.write_text(original, encoding="utf-8")
+
+    try:
+        export_profile_json(conn, output_path=destination)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("export_profile_json overwrote a real profile with placeholders")
+
+    assert destination.read_text(encoding="utf-8") == original
+    conn.close()
+
+
+def test_export_profile_force_does_not_bypass_the_placeholder_check(tmp_path: Path, monkeypatch) -> None:
+    """--force means 'overwrite an existing file', never 'write known-bad data'."""
+    from worksisyphus import cli, db
+
+    db_file = tmp_path / "corrupt.db"
+    conn = get_connection(db_file)
+    _seed_placeholder_contact(conn)
+    conn.close()
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_file)
+
+    destination = tmp_path / "profile.json"
+    original = json.dumps({"contact": {"name": "Real Person", "email": "real.person@fastmail.dev"}})
+    destination.write_text(original, encoding="utf-8")
+
+    assert cli.main(["db", "export-profile", "--output", str(destination), "--force"]) == 1
+    assert destination.read_text(encoding="utf-8") == original

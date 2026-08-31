@@ -6,6 +6,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 DEFAULT_PROFILE_PATH = Path("profile.json")
 
@@ -148,7 +149,7 @@ def _is_fictional_phone(value: str) -> bool:
     return bool(PLACEHOLDER_PHONE_RE.search(value))
 
 
-def validate_contact(contact: Contact, source: str = "profile.json") -> None:
+def validate_contact(contact: Contact, source: str = "profile.json", recovery_hint: str = _RECOVERY_HINT) -> None:
     """Fail closed on contact details that cannot reach a human.
 
     Two rules, both structural:
@@ -162,11 +163,17 @@ def validate_contact(contact: Contact, source: str = "profile.json") -> None:
     rendered PDF against the same profile that rendered it, so a resume addressed to
     simon@example.com passes every one of them. Four were sent that way. Validate the
     profile against the rules, not against itself.
+
+    ``recovery_hint`` overrides the closing sentence for callers validating something other
+    than profile.json. The default hint points at the database, which is only sound advice
+    while the database is the good copy: a caller checking the *database* must pass its own
+    hint, or the error would tell the user to repair a bad profile from the very copy that
+    just failed.
     """
     for field_name in REQUIRED_CONTACT_FIELDS:
         if not getattr(contact, field_name, "").strip():
             raise ValueError(
-                f"contact.{field_name} is empty in {source}; a resume without it cannot be answered. {_RECOVERY_HINT}"
+                f"contact.{field_name} is empty in {source}; a resume without it cannot be answered. {recovery_hint}"
             )
 
     for field_name in ("name", "email", "phone", "website", "github", "linkedin"):
@@ -181,8 +188,59 @@ def validate_contact(contact: Contact, source: str = "profile.json") -> None:
             raise ValueError(
                 f"contact.{field_name} in {source} is a placeholder: {value!r} contains {hit!r}. "
                 f"This is what tests/fixtures/profile.json looks like, not a deliverable resume. "
-                f"{_RECOVERY_HINT}"
+                f"{recovery_hint}"
             )
+
+
+def profile_to_dict(profile: Profile) -> dict[str, Any]:
+    """Serialize a Profile back into the exact nested shape of profile.json.
+
+    The inverse of ``load_profile``'s parsing half, and the single place that shape is
+    written down. Both the database seeder and ``db export-profile`` go through it, so
+    neither has to re-implement "what profile.json looks like" -- re-implementing the
+    *reading* half is precisely how the fixture fallback survived in seed_database after
+    load_profile was hardened against it.
+    """
+    return {
+        "contact": {
+            "name": profile.contact.name,
+            "email": profile.contact.email,
+            "phone": profile.contact.phone,
+            "website": profile.contact.website,
+            "github": profile.contact.github,
+            "linkedin": profile.contact.linkedin,
+        },
+        "education": [
+            {
+                "institution": edu.institution,
+                "location": edu.location,
+                "degree": edu.degree,
+                "date": edu.date,
+                "coursework": list(edu.coursework),
+            }
+            for edu in profile.education
+        ],
+        "experiences": {
+            slug: {
+                "role": exp.role,
+                "org": exp.org,
+                "location": exp.location,
+                "date": exp.date,
+                "bullets": dict(exp.bullets),
+            }
+            for slug, exp in profile.experiences.items()
+        },
+        "projects": {
+            slug: {
+                "name": proj.name,
+                "tech": proj.tech,
+                "date": proj.date,
+                "bullets": dict(proj.bullets),
+            }
+            for slug, proj in profile.projects.items()
+        },
+        "skills": {group: list(items) for group, items in profile.skills.items()},
+    }
 
 
 def profile_index(profile: Profile) -> str:

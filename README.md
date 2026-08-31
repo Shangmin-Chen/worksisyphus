@@ -52,6 +52,7 @@ uv run worksisyphus backfill-evals                # score applications that pred
 uv run worksisyphus db status                     # show database stats and metrics
 uv run worksisyphus db history [--limit N]        # show timestamped append-only audit trail
 uv run worksisyphus db sync                       # load profile.json into SQLite and push to Turso cloud
+uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery)
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
 uv run --with pdfminer.six python scripts/ats_check.py applications/<app>/Simon_Chen_Resume.pdf  # ATS extraction check
 ```

@@ -78,6 +78,7 @@ uv run worksisyphus backfill-evals [--overwrite]  # score applications that pred
 uv run worksisyphus db status                    # show database overview, metrics, and connection status
 uv run worksisyphus db history [--limit N]       # show append-only timestamped audit trail
 uv run worksisyphus db sync                      # load profile.json into SQLite and push to Turso cloud
+uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery path for a lost profile; refuses to write a placeholder contact block, --force or not)
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
 ```
