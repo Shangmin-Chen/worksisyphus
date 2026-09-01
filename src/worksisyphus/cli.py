@@ -88,6 +88,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Path to a plan JSON file, or - for stdin. If omitted, uses the knapsack optimizer.",
     )
     apply_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
+    apply_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
+    apply_cmd.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
     validate_cmd = sub.add_parser("validate", help="Parse a plan and print the resolved selection; no LaTeX involved.")
     validate_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
     status_cmd = sub.add_parser("status", help="List all applications and their current statuses.")
@@ -104,6 +106,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     update_cmd.add_argument("--status", required=True, choices=STATUSES, help="New status value.")
     update_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
+    update_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
+    update_cmd.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
     backfill_cmd = sub.add_parser(
         "backfill-evals",
         help="Score applications that predate evaluation recording and sync them to the database.",
@@ -112,10 +116,18 @@ def main(argv: list[str] | None = None) -> int:
         "--overwrite", action="store_true", help="Re-score applications that already have an evaluation."
     )
     backfill_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
+    backfill_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
+    backfill_cmd.add_argument(
+        "--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync."
+    )
     db_cmd = sub.add_parser("db", help="Manage SQLite and Turso database layer.")
     db_sub = db_cmd.add_subparsers(dest="db_action", required=True)
-    db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
-    db_sub.add_parser("sync", help="Sync database: load profile.json into SQLite and push to Turso cloud.")
+    init_cmd = db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
+    init_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
+    init_cmd.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
+    sync_cmd = db_sub.add_parser("sync", help="Sync database: load profile.json into SQLite and push to Turso cloud.")
+    sync_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
+    sync_cmd.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
     db_sub.add_parser("status", help="Show database metrics and connection status.")
     export_cmd = db_sub.add_parser(
         "export-profile",
@@ -197,6 +209,8 @@ def main(argv: list[str] | None = None) -> int:
                 role=args.role,
                 source_url=args.url,
                 sync_cloud=not args.no_sync,
+                allow_branch=args.allow_branch,
+                no_git_check=args.no_git_check,
                 log=print,
             )
             print(f"Exported {folder / 'Simon_Chen_Resume.pdf'} (1 page).")
@@ -235,7 +249,12 @@ def main(argv: list[str] | None = None) -> int:
                     )
         elif args.command == "update-status":
             folder, old_status, new_status = update_application_status(
-                args.app, args.status, sync_cloud=not args.no_sync, log=print
+                args.app,
+                args.status,
+                sync_cloud=not args.no_sync,
+                allow_branch=args.allow_branch,
+                no_git_check=args.no_git_check,
+                log=print,
             )
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
         elif args.command == "backfill-evals":
@@ -252,7 +271,11 @@ def main(argv: list[str] | None = None) -> int:
                 finally:
                     conn.close()
                 if not args.no_sync:
-                    ok = sync_to_turso()
+                    ok = sync_to_turso(
+                        allow_branch=args.allow_branch,
+                        no_git_check=args.no_git_check,
+                        log=print,
+                    )
                     print(f"Turso cloud sync: {'synced' if ok else 'skipped / failed'}")
                 print(f"Scored {len(scored)} application(s).")
         elif args.command == "db":
@@ -271,11 +294,19 @@ def main(argv: list[str] | None = None) -> int:
                 if args.db_action == "init":
                     seed_database(conn)
                     print(f"Initialized and seeded {DEFAULT_DB_PATH}")
-                    turso_ok = sync_to_turso()
+                    turso_ok = sync_to_turso(
+                        allow_branch=args.allow_branch,
+                        no_git_check=args.no_git_check,
+                        log=print,
+                    )
                     print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
                 elif args.db_action == "sync":
                     seed_database(conn)
-                    turso_ok = sync_to_turso()
+                    turso_ok = sync_to_turso(
+                        allow_branch=args.allow_branch,
+                        no_git_check=args.no_git_check,
+                        log=print,
+                    )
                     print(
                         f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
                     )
