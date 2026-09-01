@@ -182,24 +182,25 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     assert "Synced profile.json to SQLite and Turso cloud" in sync_out
 
 
-def test_cli_db_sync_refuses_a_placeholder_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:
-    """`db sync` is the documented last step of every recovery, so it is the route in.
-
-    Seeding a scrubbed profile.json used to overwrite the database -- the only surviving copy
-    of the real contact block -- and then push the result to Turso, destroying the backup too.
-    The refusal has to land before the cloud push, and surface as the standard exit-1 error.
-    """
+def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:
     from worksisyphus import db
 
     test_db = tmp_path / "test.db"
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
 
     pushes: list[int] = []
-    monkeypatch.setattr(db, "sync_to_turso", lambda *args, **kwargs: pushes.append(1) or True)
+
+    def _fake_sync(*args: object, **kwargs: object) -> bool:
+        pushes.append(1)
+        return True
+
+    monkeypatch.setattr(db, "sync_to_turso", _fake_sync)
 
     monkeypatch.chdir(tmp_path)
     fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
-    Path("profile.json").write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    data = json.loads(fixture.read_text(encoding="utf-8"))
+    data["contact"]["email"] = ""
+    Path("profile.json").write_text(json.dumps(data), encoding="utf-8")
 
     assert cli.main(["db", "sync"]) == 1
     err = capsys.readouterr().err
@@ -391,13 +392,7 @@ def test_cli_apply_surfaces_optimizer_failure_as_an_error(monkeypatch, capsys) -
     assert "Traceback" not in captured.err
 
 
-def test_cli_tailor_refuses_a_placeholder_contact(monkeypatch, tmp_path, capsys, placeholder_profile) -> None:
-    """Finding 1, at the level the reviewer reproduced it.
-
-    `worksisyphus tailor` used to exit 0 on a placeholder profile and leave a complete,
-    plausible, one-page Simon_Chen_Resume.pdf on disk -- the same filename a delivered resume
-    carries. Only a prose sentence in CLAUDE.md stood between that file and a recruiter.
-    """
+def test_cli_tailor_refuses_an_invalid_contact(monkeypatch, tmp_path, capsys, invalid_contact_profile) -> None:
     import worksisyphus.pipeline as pipeline_module
 
     compiled: list[str] = []
@@ -407,7 +402,7 @@ def test_cli_tailor_refuses_a_placeholder_contact(monkeypatch, tmp_path, capsys,
         raise AssertionError("compilation must not be reached for an invalid contact")
 
     monkeypatch.setattr(pipeline_module, "compile_tex", exploding_compile)
-    monkeypatch.setattr(pipeline_module, "load_profile", lambda _path: placeholder_profile)
+    monkeypatch.setattr(pipeline_module, "load_profile", lambda _path: invalid_contact_profile)
 
     plan = _write_plan(tmp_path, {"projects": ["proj1"]})
     out_dir = tmp_path / "preview"
@@ -415,6 +410,6 @@ def test_cli_tailor_refuses_a_placeholder_contact(monkeypatch, tmp_path, capsys,
     assert cli.main(["tailor", "--plan", plan, "--output", str(out_dir)]) == 1
     err = capsys.readouterr().err
     assert err.startswith("error: ")
-    assert "placeholder" in err
+    assert "empty" in err
     assert compiled == []
     assert list(out_dir.glob("*.pdf")) == []

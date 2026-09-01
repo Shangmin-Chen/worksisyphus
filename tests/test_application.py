@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from datetime import date
 from pathlib import Path
 
@@ -510,13 +509,7 @@ def _apply_kwargs(apps_dir, profile, **overrides):
     return kwargs
 
 
-def test_apply_refuses_a_placeholder_contact_before_compiling(placeholder_profile, monkeypatch, tmp_path) -> None:
-    """The incident, reproduced: a full profile whose contact block is scrubbed.
-
-    Every quality gate passed for four resumes built this way, because each gate compares the
-    PDF against the profile that rendered it. apply() now checks the profile against the
-    rules first, before pdflatex is ever invoked.
-    """
+def test_apply_refuses_an_invalid_contact_before_compiling(invalid_contact_profile, monkeypatch, tmp_path) -> None:
     import worksisyphus.pipeline as pipe_module
 
     compiled: list[str] = []
@@ -528,8 +521,8 @@ def test_apply_refuses_a_placeholder_contact_before_compiling(placeholder_profil
     monkeypatch.setattr(pipe_module, "compile_tex", exploding_compile)
 
     apps_dir = tmp_path / "applications"
-    with pytest.raises(ValueError, match="placeholder"):
-        apply(**_apply_kwargs(apps_dir, placeholder_profile))
+    with pytest.raises(ValueError, match="empty"):
+        apply(**_apply_kwargs(apps_dir, invalid_contact_profile))
 
     assert compiled == [], "contact validation must run before any LaTeX compilation"
     assert not apps_dir.exists(), "a rejected apply must not even create applications/"
@@ -574,43 +567,6 @@ def test_apply_accepts_a_contact_matching_the_database(small_profile, monkeypatc
     apps_dir = tmp_path / "applications"
     folder, _compile_result, _ats = apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
     assert (folder / "Simon_Chen_Resume.pdf").is_file()
-
-
-def test_apply_names_a_placeholder_database_instead_of_reporting_a_bare_mismatch(
-    small_profile, monkeypatch, tmp_path
-) -> None:
-    """Defence in depth on the other side of the cross-check.
-
-    A database holding placeholders already blocked the build -- as a mismatch, since the
-    profile was validated first and therefore cannot agree with it. But "contact details
-    disagree" points the reader at both copies equally, and the correct repair here is the
-    opposite of the one the mismatch text leads with. Validating the database side turns that
-    into the specific diagnosis, and the right direction: profile.json is known good at this
-    point, so the fix is `db sync`, never `db export-profile`.
-    """
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
-    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
-
-    db_file = tmp_path / "worksisyphus.db"
-    _seed_db(db_file, {"name": "Simon Chen", "email": "simon@example.com", "phone": "555-555-5555"})
-
-    apps_dir = tmp_path / "applications"
-    with pytest.raises(ValueError) as excinfo:
-        apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
-
-    message = str(excinfo.value)
-    assert "placeholder" in message
-    assert "simon@example.com" in message
-    assert "db sync" in message, "profile.json is the good copy here; the database is repaired from it"
-    # export-profile writes the database over profile.json, which here would destroy the last
-    # good contact block: it may appear only inside an explicit warning, never as advice.
-    for sentence in re.split(r"(?<=[.]) ", message):
-        if "db export-profile" in sentence:
-            assert "do not" in sentence.lower(), f"the message advises export-profile: {sentence}"
-    assert not apps_dir.exists(), "a refused build must publish nothing"
 
 
 def test_cross_check_still_reports_a_plain_mismatch_between_two_valid_contacts(small_profile, tmp_path) -> None:

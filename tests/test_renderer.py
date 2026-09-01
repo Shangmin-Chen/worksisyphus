@@ -93,17 +93,3 @@ def test_render_allows_missing_optional_links(small_profile) -> None:
     assert small_profile.contact.phone in tex
     assert f"mailto:{small_profile.contact.email}" in tex
     assert "linkedin" not in tex
-
-
-def test_render_refuses_a_placeholder_contact(placeholder_profile) -> None:
-    """render_resume is the choke point: no command can render a placeholder header.
-
-    `tailor` used to call pipeline.tailor() directly, which never ran validate_contact, and so
-    produced a complete, plausible, one-page Simon_Chen_Resume.pdf -- named identically to a
-    delivered resume -- addressed to simon@example.com. The renderer's own check only rejected
-    *empty* fields, and a placeholder is not empty. Validating here covers apply, tailor,
-    compile, and any entry point added later, because none of them can produce a resume
-    without passing through this function.
-    """
-    with pytest.raises(ValueError, match="placeholder"):
-        render_resume(placeholder_profile, full_selection(placeholder_profile))

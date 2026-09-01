@@ -237,50 +237,12 @@ def _log_change(
 #: presumed *good* here -- it is the copy this refusal protects -- so the direction of repair
 #: is DB -> profile, the opposite of `_DB_CONTACT_RECOVERY_HINT`. Naming `db sync` here would
 #: be actively destructive: it is the command that just failed, and re-running it is exactly
-#: how the last good copy of the contact block gets overwritten.
-_SEED_PROFILE_RECOVERY_HINT = (
-    "Nothing has been written, so the database still holds the last good contact block. Do NOT "
-    "re-run `uv run worksisyphus db sync` or `db init`: both seed from this same profile, and "
-    "would overwrite the database and then push the result to Turso. Repair profile.json from "
-    "the database instead with `uv run worksisyphus db export-profile --force`, confirm the "
-    "contact block it writes is really yours, and only then seed again."
-)
-
-
 def seed_database(
     conn: sqlite3.Connection,
     profile_path: Path = Path("profile.json"),
     applications_dir: Path = Path("applications"),
 ) -> None:
-    """Populate database from profile.json and applications/, auditing only genuine changes.
-
-    The profile is read through ``load_profile`` and re-serialized with ``profile_to_dict``
-    rather than parsed here a second time. That is deliberate: this function used to open
-    profile.json itself, and it carried its own copy of the silent
-    ``tests/fixtures/profile.json`` fallback that ``load_profile`` was hardened against --
-    an audit for the bug grepped for ``load_profile(`` and never found this one. Duplicated
-    reading is how a fixed bug stays alive in a second place.
-
-    A missing profile is a hard error, raised before a single row is touched. Seeding from a
-    substitute here is strictly worse than the original incident: the database is the only
-    surviving copy of the real contact block, it is what ``db export-profile`` restores from,
-    and it is the independent copy ``cross_check_contact_against_db`` compares the profile
-    against. Overwriting it with placeholders corrupts the recovery path itself, and
-    ``sync_to_turso`` then pushes that corruption to the last remaining backup.
-
-    A *present but scrubbed* profile is refused on the same terms. Hardening this seam against
-    a missing file alone left the hole half-closed: ``load_profile`` raises only when the file
-    is absent, so a profile.json that exists and holds ``simon@example.com`` / ``555-555-5555``
-    seeded straight through and destroyed the one surviving copy of the real contact block.
-    That route is the documented one, not a hypothetical: the recovery advice everywhere else
-    in this module ends in "write profile.json by hand, then run `db sync`", so a restore from
-    the wrong backup -- or a re-copy of tests/fixtures/profile.json, which is how the original
-    incident started -- arrives here holding placeholders. Validating the *content*, not just
-    the file's existence, is what makes this seam fail closed.
-
-    Both refusals happen before ``init_schema`` and before any write, so a rejected seed leaves
-    the database exactly as it found it -- including creating no tables at all in a fresh one.
-    """
+    """Populate database from profile.json and applications/, auditing only genuine changes."""
     profile_path = Path(profile_path)
     try:
         loaded = load_profile(profile_path)
@@ -288,16 +250,11 @@ def seed_database(
         raise FileNotFoundError(
             f"Refusing to seed the database: {exc} Nothing has been written, so the database "
             f"still holds the last good profile -- restore profile.json from it first, then "
-            f"seed. Seeding from a substitute would overwrite the database, which is both the "
-            f"copy export-profile reads back and the copy the contact cross-check trusts."
+            f"seed."
         ) from exc
 
     try:
-        validate_contact(
-            loaded.contact,
-            source=str(profile_path),
-            recovery_hint=_SEED_PROFILE_RECOVERY_HINT,
-        )
+        validate_contact(loaded.contact, source=str(profile_path))
     except ValueError as exc:
         raise ValueError(f"Refusing to seed the database: {exc}") from exc
 
@@ -625,39 +582,11 @@ def load_profile_from_db(conn: sqlite3.Connection) -> Profile:
     )
 
 
-#: What to do when the database itself -- the copy every other recovery path trusts -- turns
-#: out to hold placeholders. Deliberately never says "db export-profile": that is the command
-#: raising this, and pointing back at it is the loop this guard exists to break.
-_DB_CONTACT_RECOVERY_HINT = (
-    "The database is supposed to be the surviving good copy, so this means the corruption has "
-    "already reached it -- most likely a `db sync` that seeded from a scrubbed profile. Do not "
-    "run `db sync` again; that would overwrite the database from the same bad source. Recover "
-    "the real contact block from the Turso cloud copy (`turso db shell worksisyphus`), a "
-    "backup, or the header of an already-delivered applications/*/Simon_Chen_Resume.pdf, "
-    "write it into profile.json by hand, and only then run `uv run worksisyphus db sync` to "
-    "repair the database from it."
-)
-
-
 def export_profile_json(conn: sqlite3.Connection, output_path: Path = Path("profile.json")) -> dict[str, Any]:
-    """Materialize database profile state into profile.json format.
-
-    This is the documented recovery path for a lost profile.json, which makes writing
-    unvalidated data out of here the most destructive thing in the codebase: it would
-    overwrite the real profile with whatever the database happens to hold. So the contact
-    block is validated with the same rules that guard a build, *before* anything is written.
-
-    The check is inside this function rather than in the CLI on purpose. ``--force`` means
-    "overwrite an existing destination", never "write known-bad data", and it is handled a
-    level up -- so no flag can reach past this guard.
-    """
+    """Materialize database profile state into profile.json format."""
     profile = load_profile_from_db(conn)
     try:
-        validate_contact(
-            profile.contact,
-            source="the database",
-            recovery_hint=_DB_CONTACT_RECOVERY_HINT,
-        )
+        validate_contact(profile.contact, source="the database")
     except ValueError as exc:
         raise ValueError(f"Refusing to write {output_path}: {exc}") from exc
 

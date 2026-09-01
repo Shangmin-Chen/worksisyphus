@@ -69,18 +69,6 @@ def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | Non
     return DEFAULT_DB_PATH if _is_default_applications_dir(applications_dir) else None
 
 
-#: What to do when the *database* side of the cross-check turns out to be placeholders.
-#: Direction of repair is the opposite of db.py's `_DB_CONTACT_RECOVERY_HINT`, and that is not
-#: an inconsistency: by the time this runs, apply() has already put the profile through
-#: validate_contact, so the profile is known good and the database is the corrupted copy.
-_DB_PLACEHOLDER_HINT = (
-    "profile.json already passed the placeholder rules in this run, so it is the good copy and "
-    "the database is the corrupted one. Republish it with `uv run worksisyphus db sync`. Do NOT "
-    "run `uv run worksisyphus db export-profile`: that writes the database over profile.json "
-    "and would destroy the last good contact block."
-)
-
-
 @dataclass(frozen=True)
 class ContactCrossCheck:
     """Whether the contact block was verified against the independent copy in the database.
@@ -164,7 +152,7 @@ def cross_check_contact_against_db(
     # apply() before this function was called. All it changes is the diagnosis, from "contact
     # details disagree" to the specific, actionable "your database holds placeholder data".
     try:
-        validate_contact(db_contact, source=str(db_path), recovery_hint=_DB_PLACEHOLDER_HINT)
+        validate_contact(db_contact, source=str(db_path))
     except ValueError as exc:
         raise ValueError(f"Refusing to build a resume: {exc}") from exc
 
