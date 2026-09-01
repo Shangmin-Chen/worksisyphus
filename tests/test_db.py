@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from worksisyphus.db import (
     export_profile_json,
     get_audit_history,
@@ -470,16 +472,6 @@ def test_evaluation_round_trips_through_seed(tmp_path: Path) -> None:
 
 
 def test_seed_database_refuses_to_fall_back_to_the_test_fixture(tmp_path: Path, monkeypatch) -> None:
-    """The regression test for the corruption loop.
-
-    seed_database used to substitute tests/fixtures/profile.json when profile.json was
-    missing -- the same silent fallback load_profile was hardened against, re-implemented
-    inline so an audit grepping for `load_profile(` never saw it. Seeding from the fixture
-    overwrites the database with example.com placeholders, sync_to_turso pushes them to the
-    cloud copy, the contact cross-check then trusts them as ground truth, and
-    `db export-profile` writes them back over the real profile.json. The database is the only
-    surviving copy of the real contact block, so it must never be seeded from a substitute.
-    """
     from worksisyphus.db import seed_database
 
     good_profile = tmp_path / "good_profile.json"
@@ -526,8 +518,6 @@ def test_seed_database_refuses_to_fall_back_to_the_test_fixture(tmp_path: Path, 
         raise AssertionError("seed_database seeded from the fixture instead of failing")
 
     assert "profile.json" in message
-    # The error must send the user to the recovery command, not to `db sync` -- which is the
-    # very command that just failed, and would overwrite the database from the bad source.
     assert "db export-profile" in message
 
     # The database is untouched: the real contact block is still the one it holds.
@@ -538,7 +528,6 @@ def test_seed_database_refuses_to_fall_back_to_the_test_fixture(tmp_path: Path, 
 
 
 def test_seed_database_leaves_a_fresh_database_empty_when_the_profile_is_missing(tmp_path: Path) -> None:
-    """Failing must happen before any write, so a failed seed creates no half-built state."""
     from worksisyphus.db import seed_database
 
     db_file = tmp_path / "fresh.db"
@@ -672,3 +661,108 @@ def test_export_profile_force_does_not_bypass_the_validation_check(tmp_path: Pat
 
     assert cli.main(["db", "export-profile", "--output", str(destination), "--force"]) == 1
     assert destination.read_text(encoding="utf-8") == original
+
+
+def _insert_app_row(conn, app_id: str, company: str = "Acme", status: str = "applied") -> None:
+    conn.execute(
+        """
+        INSERT INTO applications (id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json)
+        VALUES (?, ?, '', ?, '', ?, '', '{}', '')
+        """,
+        (app_id, company, app_id.split("_", 1)[0], status),
+    )
+
+
+def test_db_status_update_matches_the_filesystem_resolver() -> None:
+    """The old SQL LIKE treated '_' as a wildcard; resolution must mirror the FS grammar exactly."""
+    from worksisyphus.db import update_application_status_in_db
+
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    _insert_app_row(conn, "2026-08-01_acme_swe")
+    _insert_app_row(conn, "2026-08-01_acme_xswe")
+
+    # "swe" stem-matches only acme_swe on disk; LIKE would also have matched acme_xswe.
+    app_id, _, new_status = update_application_status_in_db(conn, "swe", "phone_screen")
+    assert (app_id, new_status) == ("2026-08-01_acme_swe", "phone_screen")
+
+    # LIKE metacharacters in identifiers are literal text and match nothing.
+    with pytest.raises(FileNotFoundError):
+        update_application_status_in_db(conn, "%", "phone_screen")
+    conn.close()
+
+
+def test_db_status_update_lists_ambiguous_matches_multi_line() -> None:
+    from worksisyphus.db import update_application_status_in_db
+
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    _insert_app_row(conn, "2026-08-02_google_data-engineer", company="Google", status="rejected")
+    _insert_app_row(conn, "2026-08-08_google_data-engineer", company="Google", status="applied")
+
+    with pytest.raises(ValueError, match="ambiguous") as excinfo:
+        update_application_status_in_db(conn, "google_data-engineer", "phone_screen")
+    message = excinfo.value.args[0]
+    assert "  2026-08-02_google_data-engineer" in message
+    assert "  2026-08-08_google_data-engineer" in message
+    conn.close()
+
+
+def test_db_listing_orders_retry_ordinals_numerically() -> None:
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    _insert_app_row(conn, "2026-08-24_google_swe", company="Google")
+    _insert_app_row(conn, "2026-08-24_google_swe_10", company="Google")
+    _insert_app_row(conn, "2026-08-24_google_swe_2", company="Google")
+    _insert_app_row(conn, "2026-07-01_google_swe", company="Google")
+
+    order = [app["folder"] for app in list_applications_from_db(conn)]
+    assert order == [
+        "2026-08-24_google_swe",
+        "2026-08-24_google_swe_2",
+        "2026-08-24_google_swe_10",
+        "2026-07-01_google_swe",
+    ]
+    conn.close()
+
+
+def test_seed_deletes_ghost_application_rows_with_audit(tmp_path: Path) -> None:
+    """A DB row whose folder vanished must not survive reseed (partial-restore recovery)."""
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    ghost = apps / "2026-08-01_ghost_swe"
+    ghost.mkdir(parents=True)
+    (ghost / "meta.json").write_text(json.dumps({"company": "Ghost", "status": "applied"}), encoding="utf-8")
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 1
+
+    import shutil
+
+    shutil.rmtree(ghost)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 0
+    deletions = conn.execute("SELECT entity_type, entity_id FROM audit_events WHERE action = 'DELETE'").fetchall()
+    assert ("application", "2026-08-01_ghost_swe") in deletions
+
+    # Reseeding unchanged data reports nothing further.
+    before = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == before
+    conn.close()
+
+
+def test_seed_skips_dot_directories_even_with_meta(tmp_path: Path) -> None:
+    """Staging residue that died after meta-write must never become an application row."""
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    residue = apps / ".staging-abc123"
+    residue.mkdir(parents=True)
+    (residue / "meta.json").write_text(json.dumps({"company": "HalfBuilt", "status": "applied"}), encoding="utf-8")
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 0
+    conn.close()

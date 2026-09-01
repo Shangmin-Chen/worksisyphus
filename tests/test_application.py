@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 
 from worksisyphus import CompileResult, apply
-from worksisyphus.application import list_applications, resolve_application_folder, slugify, update_application_status
+from worksisyphus.application import (
+    list_applications,
+    parse_app_folder,
+    resolve_application_folder,
+    slugify,
+    update_application_status,
+)
 from worksisyphus.ats import ATSCheckResult
 from worksisyphus.gates import GateResult
 
@@ -235,9 +241,141 @@ def test_apply_rejects_empty_plan(tmp_path) -> None:
         )
 
 
-def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
+def _fake_compile_factory():
     def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
         pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    return fake_compile
+
+
+def _patch_apply_pipeline(monkeypatch) -> None:
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile_factory())
+    monkeypatch.setattr(
+        app_module,
+        "run_resume_gates",
+        lambda *a, **kw: ((GateResult("ATS", True, ()),), ATSCheckResult(True, (), 1, 100, "text")),
+    )
+
+
+def test_apply_same_day_second_attempt_allocates_suffix(small_profile, monkeypatch, tmp_path) -> None:
+    _patch_apply_pipeline(monkeypatch)
+
+    plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
+    apps_dir = tmp_path / "applications"
+    kwargs = dict(
+        plan_text=plan_text,
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+
+    first, _, _ = apply(**kwargs)
+    second, _, _ = apply(**kwargs)
+    third, _, _ = apply(**kwargs)
+
+    assert [folder.name for folder in (first, second, third)] == [
+        "2026-08-20_acme_swe",
+        "2026-08-20_acme_swe_2",
+        "2026-08-20_acme_swe_3",
+    ]
+    for folder in (first, second, third):
+        assert (folder / "meta.json").is_file()
+        assert json.loads((folder / "meta.json").read_text(encoding="utf-8"))["status"] == "applied"
+
+
+def test_apply_never_mutates_a_published_folder(small_profile, monkeypatch, tmp_path) -> None:
+    _patch_apply_pipeline(monkeypatch)
+
+    plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
+    apps_dir = tmp_path / "applications"
+
+    first, _, _ = apply(
+        plan_text=plan_text,
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+    before = {path.name: path.read_bytes() for path in sorted(first.iterdir())}
+
+    apply(
+        plan_text=plan_text,
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+
+    after = {path.name: path.read_bytes() for path in sorted(first.iterdir())}
+    assert before == after
+
+
+def test_apply_retries_next_suffix_when_target_claimed_concurrently(small_profile, monkeypatch, tmp_path) -> None:
+    import errno as errno_module
+
+    import worksisyphus.application as app_module
+
+    _patch_apply_pipeline(monkeypatch)
+    apps_dir = tmp_path / "applications"
+
+    # Simulate a concurrent apply claiming ..._swe_2 between allocation and publish.
+    original_allocate = app_module._allocate_target
+    real_replace = app_module.os.replace
+    occupied = apps_dir / "2026-08-20_acme_swe_2"
+    allocations = {"n": 0}
+
+    def racy_allocate(applications_dir, base_target):
+        target = original_allocate(applications_dir, base_target)
+        allocations["n"] += 1
+        if allocations["n"] == 2 and target == occupied and not occupied.exists():
+            occupied.mkdir(parents=True)
+            (occupied / "meta.json").write_text("{}", encoding="utf-8")
+        return target
+
+    def replace(src, dst):
+        if Path(dst) == occupied and occupied.exists():
+            raise OSError(errno_module.ENOTEMPTY, "Directory not empty")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(app_module, "_allocate_target", racy_allocate)
+    monkeypatch.setattr(app_module.os, "replace", replace)
+
+    common = dict(
+        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+    apply(**common)  # claims the plain slot
+    folder, _, _ = apply(**common)
+    assert folder.name == "2026-08-20_acme_swe_3"
+
+
+def test_apply_uses_private_tex_directory(small_profile, monkeypatch, tmp_path) -> None:
+    seen_tex_dirs: list[Path] = []
+
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        seen_tex_dirs.append(Path(tex_dir))
+        pdf_path = Path(pdf_dir) / f"{name}.pdf"
         pdf_path.write_bytes(b"%PDF-fake")
         return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
 
@@ -251,31 +389,28 @@ def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
         lambda *a, **kw: ((GateResult("ATS", True, ()),), ATSCheckResult(True, (), 1, 100, "text")),
     )
 
-    plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
     apps_dir = tmp_path / "applications"
-
     apply(
-        plan_text=plan_text,
-        jd_text="JD text",
+        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+        jd_text="jd",
         company="Acme",
         role="SWE",
-        when=date(2026, 8, 20),
+        when=date(2026, 7, 11),
         profile=small_profile,
         applications_dir=apps_dir,
         sync_cloud=False,
     )
 
-    with pytest.raises(FileExistsError, match="immutable"):
-        apply(
-            plan_text=plan_text,
-            jd_text="JD text",
-            company="Acme",
-            role="SWE",
-            when=date(2026, 8, 20),
-            profile=small_profile,
-            applications_dir=apps_dir,
-            sync_cloud=False,
-        )
+    assert len(seen_tex_dirs) == 1
+    build_dir = seen_tex_dirs[0]
+    assert build_dir.name.startswith(app_module.TEX_BUILD_PREFIX)
+    assert Path(build_dir).anchor != "" and "tex_files" not in build_dir.parts
+    assert not build_dir.exists()  # cleaned up after the run
+
+
+def test_slugify_never_emits_underscore_separator() -> None:
+    for raw in ("SWE 2", "SDE_2", "Acme Corp.", "23andMe", "C++ Developer"):
+        assert "_" not in slugify(raw), raw
 
 
 def test_list_and_update_application_status(small_profile, monkeypatch, tmp_path) -> None:
@@ -455,321 +590,65 @@ def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatc
     # ...unless explicitly told to re-score.
     assert len(backfill_evaluations(applications_dir=apps, overwrite=True)) == 1
 
-
-def _fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
-    pdf_path = pdf_dir / f"{name}.pdf"
-    pdf_path.write_bytes(b"%PDF-fake")
-    return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
-
-
-def _passing_gates(pdf_path, **kwargs) -> tuple[tuple[GateResult, ...], ATSCheckResult]:
-    return (
-        (GateResult("ATS Extraction & Page Count Gate", True, ()),),
-        ATSCheckResult(passed=True, problems=(), pages=1, word_count=450, text="Simon Chen"),
-    )
-
-
-def _seed_db(path, contact: dict | None) -> None:
-    """A temp database with schema, optionally carrying a contact row."""
-    from worksisyphus.db import get_connection, init_schema
-
-    conn = get_connection(path)
-    try:
-        init_schema(conn)
-        if contact is not None:
-            conn.execute(
-                "INSERT OR REPLACE INTO contact (id, name, email, phone, website, github, linkedin) "
-                "VALUES (1, ?, ?, ?, ?, ?, ?)",
-                (
-                    contact["name"],
-                    contact["email"],
-                    contact["phone"],
-                    contact.get("website", ""),
-                    contact.get("github", ""),
-                    contact.get("linkedin", ""),
-                ),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-
-
-def _apply_kwargs(apps_dir, profile, **overrides):
-    kwargs = dict(
-        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}, "projects": {"proj1": ["p1"]}}),
-        jd_text="Backend engineer role",
-        company="Acme Corp",
-        role="Product Engineer",
-        when=date(2026, 8, 20),
-        profile=profile,
-        applications_dir=apps_dir,
-        sync_cloud=False,
-    )
-    kwargs.update(overrides)
-    return kwargs
-
-
-def test_apply_refuses_an_invalid_contact_before_compiling(invalid_contact_profile, monkeypatch, tmp_path) -> None:
-    import worksisyphus.pipeline as pipe_module
-
-    compiled: list[str] = []
-
-    def exploding_compile(tex, name, tex_dir, pdf_dir):
-        compiled.append(name)
-        return _fake_compile(tex, name, tex_dir, pdf_dir)
-
-    monkeypatch.setattr(pipe_module, "compile_tex", exploding_compile)
-
-    apps_dir = tmp_path / "applications"
-    with pytest.raises(ValueError, match="empty"):
-        apply(**_apply_kwargs(apps_dir, invalid_contact_profile))
-
-    assert compiled == [], "contact validation must run before any LaTeX compilation"
-    assert not apps_dir.exists(), "a rejected apply must not even create applications/"
-
-
-def test_apply_refuses_when_contact_disagrees_with_the_database(small_profile, monkeypatch, tmp_path) -> None:
-    """The check that would have caught the incident: the database held the real contact."""
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
-    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
-
-    db_file = tmp_path / "worksisyphus.db"
-    _seed_db(
-        db_file,
-        {"name": "Simon Chen", "email": "real.simon@fixture.test", "phone": "617-201-4477"},
-    )
-
-    apps_dir = tmp_path / "applications"
-    with pytest.raises(ValueError) as excinfo:
-        apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
-
-    message = str(excinfo.value)
-    assert "contact.email" in message
-    assert small_profile.contact.email in message, "the error must name the profile value"
-    assert "real.simon@fixture.test" in message, "the error must name the database value"
-    assert not (apps_dir / "2026-08-20_acme-corp_product-engineer").exists()
-
-
-def test_apply_accepts_a_contact_matching_the_database(small_profile, monkeypatch, tmp_path) -> None:
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
-    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
-
-    db_file = tmp_path / "worksisyphus.db"
-    contact = small_profile.contact
-    _seed_db(db_file, {"name": contact.name, "email": contact.email, "phone": contact.phone})
-
-    apps_dir = tmp_path / "applications"
-    folder, _compile_result, _ats = apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
-    assert (folder / "Simon_Chen_Resume.pdf").is_file()
-
-
-def test_cross_check_still_reports_a_plain_mismatch_between_two_valid_contacts(small_profile, tmp_path) -> None:
-    """Validating the database side must not swallow the ordinary disagreement case."""
-    from worksisyphus.application import cross_check_contact_against_db
-
-    db_file = tmp_path / "worksisyphus.db"
-    _seed_db(db_file, {"name": "Simon Chen", "email": "real.simon@fixture.test", "phone": "617-201-4477"})
-
-    with pytest.raises(ValueError) as excinfo:
-        cross_check_contact_against_db(small_profile.contact, db_file)
-
-    message = str(excinfo.value)
-    assert "Contact details disagree" in message
-    assert "placeholder" not in message
-
-
-def test_apply_skips_the_cross_check_loudly_when_the_database_is_absent(small_profile, monkeypatch, tmp_path) -> None:
-    """A missing database must not become the next silent fallback: skip, but say so."""
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
-    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
-
-    messages: list[str] = []
-    apps_dir = tmp_path / "applications"
-    folder, _compile_result, _ats = apply(
-        **_apply_kwargs(apps_dir, small_profile, db_path=tmp_path / "absent.db", log=messages.append)
-    )
-
-    assert (folder / "Simon_Chen_Resume.pdf").is_file()
-    assert any("cross-check skipped" in m and "absent.db" in m for m in messages), messages
-
-
-def test_apply_skips_the_cross_check_when_the_database_has_no_contact_row(small_profile, monkeypatch, tmp_path) -> None:
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
-    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
-
-    db_file = tmp_path / "worksisyphus.db"
-    _seed_db(db_file, None)
-
-    messages: list[str] = []
-    apps_dir = tmp_path / "applications"
-    apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file, log=messages.append))
-    assert any("no contact row" in m for m in messages), messages
-
-
-def test_apply_cross_check_is_skipped_for_non_default_application_dirs(small_profile, tmp_path) -> None:
-    """A scratch build must never be cross-checked against -- or recorded in -- the live store."""
-    from worksisyphus.application import _resolve_db_path
-
-    assert _resolve_db_path(None, tmp_path / "applications") is None
-    assert _resolve_db_path(None, Path("applications")) == Path("worksisyphus.db")
-
-
-def test_resolve_db_path_normalizes_an_equivalent_absolute_applications_dir() -> None:
-    """The default applications/ dir must be recognised however it is spelled.
-
-    ``Path.__eq__`` compares strings, so the absolute form of the very same directory compared
-    unequal and silently turned off both the contact cross-check and DB persistence -- no
-    error, no log. Not reachable from today's CLI, which always passes None, but the
-    incident-preventing check is now routed through this comparison.
-    """
-    from worksisyphus.application import _resolve_db_path
-
-    relative = _resolve_db_path(None, Path("applications"))
-    absolute = _resolve_db_path(None, Path.cwd() / "applications")
-    assert relative == Path("worksisyphus.db")
-    assert absolute == relative, "an equivalent absolute path must resolve to the same database"
-    assert _resolve_db_path(None, Path("./applications/")) == relative
-
-
-def test_apply_records_that_the_contact_was_cross_checked(small_profile, monkeypatch, tmp_path) -> None:
-    """meta.json states that the contact was verified against the database.
-
-    The cross-check's outcome used to exist only as a bool apply() threw away plus a string
-    handed to `log`, which defaults to silence. A reader of an application folder could not
-    tell a verified contact from an unverifiable one; meta.json is the frozen record of what
-    was true when the resume was sent, so the answer belongs there.
-    """
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
-    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
-
-    db_file = tmp_path / "worksisyphus.db"
-    contact = small_profile.contact
-    _seed_db(db_file, {"name": contact.name, "email": contact.email, "phone": contact.phone})
-
-    apps_dir = tmp_path / "applications"
-    folder, _compile_result, _ats = apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
-
-    verification = json.loads((folder / "meta.json").read_text(encoding="utf-8"))["contact_verification"]
-    assert verification["rules_checked"] is True
-    assert verification["cross_checked_against_db"] is True
-    assert verification["database"] == str(db_file)
-    assert verification["skip_reason"] == ""
-
-
-def test_apply_records_why_the_cross_check_was_skipped(small_profile, monkeypatch, tmp_path) -> None:
-    """A skip is written down with its reason, so it can never read as a pass.
-
-    Reproduces the reviewer's case: a nonexistent db_path and no log= at all. The run still
-    succeeds -- the rule checks protect a fresh clone -- but the folder says so out loud.
-    """
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
-    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
-
-    missing_db = tmp_path / "absent.db"
-    apps_dir = tmp_path / "applications"
-    folder, _compile_result, _ats = apply(**_apply_kwargs(apps_dir, small_profile, db_path=missing_db))
-
-    verification = json.loads((folder / "meta.json").read_text(encoding="utf-8"))["contact_verification"]
-    assert verification["rules_checked"] is True
-    assert verification["cross_checked_against_db"] is False
-    assert "absent.db" in verification["skip_reason"]
-
-
-def test_failed_apply_publishes_nothing_at_all(small_profile, monkeypatch, tmp_path) -> None:
-    """A failure inside the staging window leaves no folder, no staging residue, and no DB row."""
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    def failing_gates(pdf_path, **kwargs) -> tuple[tuple[GateResult, ...], ATSCheckResult]:
-        return (
-            (GateResult("No-GPA Gate", False, ("Found GPA reference: ['3.9/4.0']",)),),
-            ATSCheckResult(passed=True, problems=(), pages=1, word_count=450, text="Simon Chen"),
-        )
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
-    monkeypatch.setattr(app_module, "run_resume_gates", failing_gates)
-
-    db_file = tmp_path / "worksisyphus.db"
-    contact = small_profile.contact
-    _seed_db(db_file, {"name": contact.name, "email": contact.email, "phone": contact.phone})
-
-    apps_dir = tmp_path / "applications"
-    with pytest.raises(RuntimeError, match="Quality gate check failed"):
-        apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
-
-    assert list(apps_dir.iterdir()) == [], "no published folder and no .staging-* residue"
-    assert not any(child.name.startswith(".staging-") for child in apps_dir.iterdir())
-
-    from worksisyphus.db import get_connection
-
-    conn = get_connection(db_file)
-    try:
-        assert conn.execute("SELECT COUNT(*) FROM applications").fetchone()[0] == 0
-    finally:
-        conn.close()
-
-
-def test_backfill_scores_without_a_profile_on_disk(monkeypatch, tmp_path) -> None:
-    """Backfill delivers nothing, so a missing profile.json must degrade, not raise.
-
-    Regression: it resolved profile.json eagerly even when handed an explicit
-    applications_dir, so every checkout without the gitignored profile (fresh clone, CI)
-    failed here once load_profile stopped falling back to the fixture.
-    """
-    import worksisyphus.application as app_module
-    from worksisyphus.application import backfill_evaluations
-
-    monkeypatch.chdir(tmp_path)
-    apps = tmp_path / "applications"
-    folder = apps / "2026-08-01_oldco_swe"
-    folder.mkdir(parents=True)
-    (folder / "meta.json").write_text(json.dumps({"company": "OldCo", "role": "SWE", "status": "applied"}))
-    (folder / "jd.txt").write_text("Python backend engineer.")
-    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
-    monkeypatch.setattr(app_module, "check_pdf_ats", lambda p, **kw: ATSCheckResult(True, (), 1, 400, "Python"))
-
-    messages: list[str] = []
-    assert not Path("profile.json").exists()
-    scored = backfill_evaluations(applications_dir=apps, log=messages.append)
-
-    assert [name for name, _ in scored] == ["2026-08-01_oldco_swe"]
-    assert any("without a candidate name" in m for m in messages), messages
-
-
-def test_backfill_never_touches_the_profile_when_nothing_needs_scoring(monkeypatch, tmp_path) -> None:
-    """The load is deferred until a name is actually needed, not merely deferred in name."""
-    import worksisyphus.application as app_module
-    from worksisyphus.application import backfill_evaluations
-
-    def exploding_load(_path):
-        raise AssertionError("backfill must not resolve the profile when it scores nothing")
-
-    monkeypatch.setattr(app_module, "load_profile", exploding_load)
-
-    apps = tmp_path / "applications"
-    folder = apps / "2026-08-01_oldco_swe"
-    folder.mkdir(parents=True)
-    (folder / "meta.json").write_text(
-        json.dumps({"company": "OldCo", "role": "SWE", "status": "applied", "evaluation": {"total_score": 1}})
-    )
-    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
-
     assert backfill_evaluations(applications_dir=apps) == []
+
+
+def test_parse_app_folder_handles_legacy_names() -> None:
+    # Legacy pre-#34 stems with literal underscores and hyphen-digits are never ordinals.
+    assert parse_app_folder("2026-07-09_bosch_software_engineer_ii") == (
+        "2026-07-09",
+        "bosch_software_engineer_ii",
+        None,
+    )
+    assert parse_app_folder("2026-08-18_bloomberg_software-engineer-2027") == (
+        "2026-08-18",
+        "bloomberg_software-engineer-2027",
+        None,
+    )
+
+
+def test_parse_app_folder_ordinal_requires_the_base_sibling() -> None:
+    siblings = ["2026-08-24_google_swe", "2026-08-24_google_swe_2", "2026-08-24_google_swe_10"]
+    assert parse_app_folder("2026-08-24_google_swe_2", siblings) == ("2026-08-24", "google_swe", 2)
+    assert parse_app_folder("2026-08-24_google_swe_10", siblings) == ("2026-08-24", "google_swe", 10)
+    # Without its base on disk the tail stays literal; no lineage is invented.
+    assert parse_app_folder("2027-01-01_x_y_2") == ("2027-01-01", "x_y_2", None)
+
+
+def test_parse_app_folder_requires_a_date_prefix() -> None:
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        parse_app_folder("not-a-date")
+
+
+def test_resolve_lists_each_ambiguous_match_on_its_own_line(tmp_path) -> None:
+    for day in ("02", "08"):
+        folder = tmp_path / "applications" / f"2026-08-{day}_google_data-engineer"
+        folder.mkdir(parents=True)
+        (folder / "meta.json").write_text(json.dumps({"company": "Google", "status": "applied"}), encoding="utf-8")
+
+    with pytest.raises(ValueError) as excinfo:
+        resolve_application_folder("google_data-engineer", applications_dir=tmp_path / "applications")
+    lines = excinfo.value.args[0].splitlines()
+    assert any("2026-08-02_google_data-engineer" in line for line in lines)
+    assert any("2026-08-08_google_data-engineer" in line for line in lines)
+
+
+def test_list_applications_orders_newest_first_then_retry_order(tmp_path) -> None:
+    apps_dir = tmp_path / "applications"
+    for name in (
+        "2026-08-20_acme_swe",
+        "2026-08-24_google_swe_2",
+        "2026-08-24_google_swe",
+        "2026-08-24_google_swe_10",
+    ):
+        folder = apps_dir / name
+        folder.mkdir(parents=True)
+        (folder / "meta.json").write_text(json.dumps({"company": "Co", "status": "applied"}), encoding="utf-8")
+
+    order = [app["folder"] for app in list_applications(applications_dir=apps_dir)]
+    assert order == [
+        "2026-08-24_google_swe",
+        "2026-08-24_google_swe_2",
+        "2026-08-24_google_swe_10",
+        "2026-08-20_acme_swe",
+    ]

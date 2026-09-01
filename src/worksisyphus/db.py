@@ -472,9 +472,10 @@ def seed_database(
             log_audit_event(conn, entity_type, entity_id, ACTION_DELETE, commit=False)
 
     # 6. Applications (merge from applications_dir without clobbering existing DB records)
+    seen_applications: set[str] = set()
     if applications_dir.is_dir():
         for d in sorted(applications_dir.iterdir()):
-            if not d.is_dir():
+            if not d.is_dir() or d.name.startswith("."):
                 continue
             meta_file = d / "meta.json"
             jd_file = d / "jd.txt"
@@ -507,6 +508,7 @@ def seed_database(
                     evaluation_json,
                 ),
             )
+            seen_applications.add(d.name)
             _log_change(
                 conn,
                 prior_applications,
@@ -526,6 +528,13 @@ def seed_database(
                 action_new=ACTION_APPLY,
                 metadata=meta,
             )
+
+    # 6b. Ghost rows. A DB application whose folder no longer exists on disk (partial restore,
+    #     manual removal) would otherwise survive every reseed and trip the FS<->DB consistency
+    #     test; delete it inside the same transaction, with an audit event like other removals.
+    for removed_id in sorted(set(prior_applications) - seen_applications):
+        conn.execute("DELETE FROM applications WHERE id = ?", (removed_id,))
+        log_audit_event(conn, "application", removed_id, ACTION_DELETE, commit=False)
 
     conn.commit()
 
@@ -628,11 +637,14 @@ def save_application_to_db(
 
 def list_applications_from_db(conn: sqlite3.Connection) -> list[dict[str, str]]:
     """Return all applications from DB ordered by date descending."""
-    cur = conn.execute(
-        "SELECT id, company, role, date, source_url, status FROM applications ORDER BY date DESC, id DESC"
-    )
+    from .application import sorted_application_names
+
+    cur = conn.execute("SELECT id, company, role, date, source_url, status FROM applications")
+    rows = cur.fetchall()
+    order = {name: index for index, name in enumerate(sorted_application_names([row[0] for row in rows]))}
+    rows.sort(key=lambda row: order[row[0]])
     results: list[dict[str, str]] = []
-    for app_id, company, role, dt, url, status in cur.fetchall():
+    for app_id, company, role, dt, url, status in rows:
         results.append(
             {
                 "folder": app_id,
@@ -650,16 +662,23 @@ def update_application_status_in_db(
     conn: sqlite3.Connection, app_identifier: str, new_status: str
 ) -> tuple[str, str, str]:
     """Update status in DB and record an append-only audit event."""
-    cur = conn.execute(
-        "SELECT id, status FROM applications WHERE id = ? OR id LIKE ?", (app_identifier, f"%_{app_identifier}")
-    )
-    rows = cur.fetchall()
-    if not rows:
+    # Resolve with the exact same grammar as resolve_application_folder on disk (exact match,
+    # else unique stem suffix). SQL LIKE would treat _ and % in identifiers as wildcards and
+    # silently disagree with the filesystem resolver.
+    from .application import match_application_identifier
+
+    rows = conn.execute("SELECT id, status FROM applications").fetchall()
+    matches = match_application_identifier(app_identifier, [row[0] for row in rows])
+    if not matches:
         raise FileNotFoundError(f"No application found matching {app_identifier!r}.")
-    if len(rows) > 1:
-        names = ", ".join(r[0] for r in rows)
-        raise ValueError(f"Application identifier {app_identifier!r} is ambiguous; matches: {names}")
-    app_id, old_status = rows[0]
+    if len(matches) > 1:
+        listed = "\n".join(f"  {name}" for name in matches)
+        raise ValueError(
+            f"Application identifier {app_identifier!r} is ambiguous ({len(matches)} matches):\n{listed}\n"
+            "Re-run with one of the full folder names above."
+        )
+    app_id = matches[0]
+    old_status = next(status for row_id, status in rows if row_id == app_id)
     conn.execute(
         "UPDATE applications SET status = ?, updated_at = (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) WHERE id = ?",
         (new_status, app_id),

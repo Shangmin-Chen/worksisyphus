@@ -26,8 +26,14 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
 5. The delivered PDF lives only at `applications/<date>_<company>_<role>/Simon_Chen_Resume.pdf`. The 3-page canonical is a local build artifact and never goes out.
 6. The application is automatically tracked in SQLite and Turso cloud with full metadata, JD text, audit logs, and the HackerRank hiring-agent score for the resume as sent.
 
-List tracked applications with `worksisyphus status`. Update one with
-`worksisyphus update-status --app <folder-or-unique-plan-stem> --status <status>`.
+List tracked applications with `worksisyphus status` (grouped per company with `App#` for repeat
+applications; filter with `--company <name>`). Update one with
+`worksisyphus update-status --app <folder-or-unique-stem> --status <status>`; ambiguous stems are
+rejected with the list of matching full folder names. Re-applying to the same company/role on the
+same day automatically allocates the next free `_N` suffix (`2026-08-24_acme_swe_2`).
+Known limitation: a legacy folder name that already ends in `_<digits>` can be mistaken for a
+retry ordinal in status grouping if its unsuffixed base also exists — new folders are immune
+(slugs never contain `_`).
 
 Useful follow-up prompts: "swap hermes-letters for the home server", "make it lean more infra than frontend", "show me what the trim loop would cut first".
 
