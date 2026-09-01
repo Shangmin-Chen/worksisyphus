@@ -14,6 +14,7 @@ import json
 import shutil
 import sqlite3
 import subprocess
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -763,11 +764,29 @@ def build_sync_sql(dump_sql: str) -> str | None:
     return head + _TRANSACTION_MARKER + "\n" + DROP_ALL_SQL + tail
 
 
-def sync_to_turso(db_path: Path = DEFAULT_DB_PATH, turso_db_name: str = "worksisyphus") -> bool:
-    """Push local SQLite database state to Turso cloud via Turso CLI."""
+def sync_to_turso(
+    db_path: Path = DEFAULT_DB_PATH,
+    turso_db_name: str = "worksisyphus",
+    allow_branch: bool = False,
+    no_git_check: bool = False,
+    log: Callable[[str], None] = lambda _: None,
+) -> bool:
+    """Push local SQLite database state to Turso cloud via Turso CLI, protected by git freshness."""
+    if not no_git_check:
+        from .git_guard import check_git_freshness_for_sync
+
+        freshness = check_git_freshness_for_sync(allow_any_branch=allow_branch)
+        if not freshness.allowed:
+            log(f"Warning: Turso cloud sync skipped: {freshness.reason}")
+            return False
+
     home_turso = Path.home() / ".turso" / "turso"
     turso_bin = shutil.which("turso") or (str(home_turso) if home_turso.is_file() else None)
-    if not turso_bin or not db_path.is_file():
+    if not turso_bin:
+        log("Warning: Turso CLI not found; cloud sync skipped.")
+        return False
+    if not db_path.is_file():
+        log(f"Warning: Database file not found at {db_path}; cloud sync skipped.")
         return False
     try:
         dump_proc = subprocess.run(
@@ -778,6 +797,7 @@ def sync_to_turso(db_path: Path = DEFAULT_DB_PATH, turso_db_name: str = "worksis
         )
         full_sync_sql = build_sync_sql(dump_proc.stdout)
         if full_sync_sql is None:
+            log("Warning: Failed to construct valid sync SQL payload; cloud sync skipped.")
             return False
         proc = subprocess.run(
             [turso_bin, "db", "shell", turso_db_name],
@@ -786,6 +806,10 @@ def sync_to_turso(db_path: Path = DEFAULT_DB_PATH, turso_db_name: str = "worksis
             text=True,
             timeout=30,
         )
-        return proc.returncode == 0
-    except Exception:
+        if proc.returncode != 0:
+            log(f"Warning: Turso command exited with code {proc.returncode}: {proc.stderr.strip()}")
+            return False
+        return True
+    except Exception as exc:
+        log(f"Warning: Turso cloud sync failed with exception: {exc}")
         return False

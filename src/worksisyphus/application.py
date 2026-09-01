@@ -242,6 +242,8 @@ def apply(
     applications_dir: Path | None = None,
     db_path: Path | None = None,
     sync_cloud: bool = True,
+    allow_branch: bool = False,
+    no_git_check: bool = False,
     log: Log = _silent,
 ) -> tuple[Path, CompileResult, ATSCheckResult]:
     """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync."""
@@ -378,7 +380,7 @@ def apply(
             conn.close()
 
         if sync_cloud:
-            _sync_cloud(log)
+            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
 
     return target_folder, compile_result, ats_result
 
@@ -491,7 +493,7 @@ def backfill_evaluations(
     return scored
 
 
-def _sync_cloud(log: Log) -> bool:
+def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> bool:
     """Push local database state to Turso, reporting failure rather than swallowing it.
 
     sync_to_turso signals failure by returning False rather than raising, so the return
@@ -500,12 +502,10 @@ def _sync_cloud(log: Log) -> bool:
     from .db import sync_to_turso
 
     try:
-        synced = sync_to_turso()
+        synced = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
     except Exception as exc:
         log(f"Warning: Turso cloud sync failed: {exc}")
         return False
-    if not synced:
-        log("Warning: Turso cloud sync did not complete (CLI missing, auth expired, or push rejected).")
     return synced
 
 
@@ -568,6 +568,8 @@ def update_application_status(
     new_status: str,
     applications_dir: Path | None = None,
     sync_cloud: bool = True,
+    allow_branch: bool = False,
+    no_git_check: bool = False,
     log: Log = _silent,
 ) -> tuple[Path, str, str]:
     """Atomically update status in an application's meta.json.
@@ -603,6 +605,6 @@ def update_application_status(
             conn.close()
 
         if sync_cloud:
-            _sync_cloud(log)
+            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
 
     return target_folder, old_status, new_status
