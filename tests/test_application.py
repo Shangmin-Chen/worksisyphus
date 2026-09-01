@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -573,6 +574,58 @@ def test_apply_accepts_a_contact_matching_the_database(small_profile, monkeypatc
     apps_dir = tmp_path / "applications"
     folder, _compile_result, _ats = apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
     assert (folder / "Simon_Chen_Resume.pdf").is_file()
+
+
+def test_apply_names_a_placeholder_database_instead_of_reporting_a_bare_mismatch(
+    small_profile, monkeypatch, tmp_path
+) -> None:
+    """Defence in depth on the other side of the cross-check.
+
+    A database holding placeholders already blocked the build -- as a mismatch, since the
+    profile was validated first and therefore cannot agree with it. But "contact details
+    disagree" points the reader at both copies equally, and the correct repair here is the
+    opposite of the one the mismatch text leads with. Validating the database side turns that
+    into the specific diagnosis, and the right direction: profile.json is known good at this
+    point, so the fix is `db sync`, never `db export-profile`.
+    """
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _passing_gates)
+
+    db_file = tmp_path / "worksisyphus.db"
+    _seed_db(db_file, {"name": "Simon Chen", "email": "simon@example.com", "phone": "555-555-5555"})
+
+    apps_dir = tmp_path / "applications"
+    with pytest.raises(ValueError) as excinfo:
+        apply(**_apply_kwargs(apps_dir, small_profile, db_path=db_file))
+
+    message = str(excinfo.value)
+    assert "placeholder" in message
+    assert "simon@example.com" in message
+    assert "db sync" in message, "profile.json is the good copy here; the database is repaired from it"
+    # export-profile writes the database over profile.json, which here would destroy the last
+    # good contact block: it may appear only inside an explicit warning, never as advice.
+    for sentence in re.split(r"(?<=[.]) ", message):
+        if "db export-profile" in sentence:
+            assert "do not" in sentence.lower(), f"the message advises export-profile: {sentence}"
+    assert not apps_dir.exists(), "a refused build must publish nothing"
+
+
+def test_cross_check_still_reports_a_plain_mismatch_between_two_valid_contacts(small_profile, tmp_path) -> None:
+    """Validating the database side must not swallow the ordinary disagreement case."""
+    from worksisyphus.application import cross_check_contact_against_db
+
+    db_file = tmp_path / "worksisyphus.db"
+    _seed_db(db_file, {"name": "Simon Chen", "email": "real.simon@fixture.test", "phone": "617-201-4477"})
+
+    with pytest.raises(ValueError) as excinfo:
+        cross_check_contact_against_db(small_profile.contact, db_file)
+
+    message = str(excinfo.value)
+    assert "Contact details disagree" in message
+    assert "placeholder" not in message
 
 
 def test_apply_skips_the_cross_check_loudly_when_the_database_is_absent(small_profile, monkeypatch, tmp_path) -> None:

@@ -182,6 +182,37 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     assert "Synced profile.json to SQLite and Turso cloud" in sync_out
 
 
+def test_cli_db_sync_refuses_a_placeholder_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:
+    """`db sync` is the documented last step of every recovery, so it is the route in.
+
+    Seeding a scrubbed profile.json used to overwrite the database -- the only surviving copy
+    of the real contact block -- and then push the result to Turso, destroying the backup too.
+    The refusal has to land before the cloud push, and surface as the standard exit-1 error.
+    """
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+
+    pushes: list[int] = []
+    monkeypatch.setattr(db, "sync_to_turso", lambda *args, **kwargs: pushes.append(1) or True)
+
+    monkeypatch.chdir(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
+    Path("profile.json").write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+
+    assert cli.main(["db", "sync"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ")
+    assert "Refusing to seed the database" in err
+    assert pushes == [], "the corruption must not reach the cloud copy"
+
+    conn = db.get_connection(test_db)
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    conn.close()
+    assert "contact" not in tables, "a refused seed must not leave a half-built database behind"
+
+
 def test_cli_evaluate_with_stdin_and_resume(capsys, monkeypatch, delivered_pdf) -> None:
     jd_content = "Looking for a C++ software engineer with Python and low-latency systems experience."
     monkeypatch.setattr("sys.stdin", io.StringIO(jd_content))
