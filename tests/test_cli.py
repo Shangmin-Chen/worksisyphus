@@ -195,7 +195,8 @@ def test_cli_evaluate_with_app(tmp_path, capsys, monkeypatch, delivered_pdf) -> 
     ret = cli.main(["evaluate", "--app", "testco_swe"])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "RESUME EVALUATION REPORT: TESTCO_SWE" in out
+    # The report is labeled with the resolved folder name, not the raw identifier.
+    assert "RESUME EVALUATION REPORT: 2026-08-18_TESTCO_SWE" in out
 
 
 def test_cli_evaluate_missing_jd_error(capsys, delivered_pdf) -> None:
@@ -304,3 +305,54 @@ def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
     assert "ATS check: passed" in out
     assert recorded["company"] == "Primitive"
     assert "projects" in recorded["plan_text"]
+
+
+def _write_app_folder(apps_dir, name, company, status="applied"):
+    folder = apps_dir / name
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(json.dumps({"company": company, "status": status}), encoding="utf-8")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
+    return folder
+
+
+def test_status_numbers_repeat_companies_and_filters_by_company(tmp_path, capsys, monkeypatch) -> None:
+    from worksisyphus import application
+
+    apps_dir = tmp_path / "applications"
+    _write_app_folder(apps_dir, "2026-08-18_bloomberg_swe", "Bloomberg", status="rejected")
+    _write_app_folder(apps_dir, "2027-01-10_bloomberg_swe", "Bloomberg")
+    _write_app_folder(apps_dir, "2026-07-19_dirac_full-stack-engineer", "Dirac")
+
+    monkeypatch.setattr(application, "APPLICATIONS_DIR", apps_dir)
+
+    assert cli.main(["status"]) == 0
+    out = capsys.readouterr().out
+    assert "#1" in out and "#2" in out
+    # Singleton companies carry no attempt noise; the retry story reads top-to-bottom per day.
+    bloomberg_rows = [line for line in out.splitlines() if "bloomberg" in line]
+    assert len(bloomberg_rows) == 2
+    assert bloomberg_rows[0].index("#2") < bloomberg_rows[0].index("2027-01-10_bloomberg_swe")
+    dirac_line = next(line for line in out.splitlines() if "dirac" in line)
+    assert "#" not in dirac_line.split("Application")[0]
+
+    capsys.readouterr()
+    assert cli.main(["status", "--company", "bloom"]) == 0
+    filtered = capsys.readouterr().out
+    assert "dirac" not in filtered and filtered.count("bloomberg") == 2
+
+    capsys.readouterr()
+    assert cli.main(["status", "--company", "zzz"]) == 0
+    assert "No applications found." in capsys.readouterr().out
+
+
+def test_latest_application_pdf_picks_the_true_latest(tmp_path, monkeypatch) -> None:
+    from worksisyphus import application
+
+    apps_dir = tmp_path / "applications"
+    _write_app_folder(apps_dir, "2026-08-24_google_swe", "Google")
+    latest = _write_app_folder(apps_dir, "2026-08-24_google_swe_2", "Google")
+    _write_app_folder(apps_dir, "2026-08-20_acme_swe", "Acme")
+
+    monkeypatch.setattr(application, "APPLICATIONS_DIR", apps_dir)
+
+    assert cli._latest_application_pdf() == latest / "Simon_Chen_Resume.pdf"

@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from worksisyphus.db import (
     export_profile_json,
     get_audit_history,
@@ -407,4 +409,109 @@ def test_evaluation_round_trips_through_seed(tmp_path: Path) -> None:
     before = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
     seed_database(conn, profile_path=profile_file, applications_dir=apps)
     assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == before
+    conn.close()
+
+
+def _insert_app_row(conn, app_id: str, company: str = "Acme", status: str = "applied") -> None:
+    conn.execute(
+        """
+        INSERT INTO applications (id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json)
+        VALUES (?, ?, '', ?, '', ?, '', '{}', '')
+        """,
+        (app_id, company, app_id.split("_", 1)[0], status),
+    )
+
+
+def test_db_status_update_matches_the_filesystem_resolver() -> None:
+    """The old SQL LIKE treated '_' as a wildcard; resolution must mirror the FS grammar exactly."""
+    from worksisyphus.db import update_application_status_in_db
+
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    _insert_app_row(conn, "2026-08-01_acme_swe")
+    _insert_app_row(conn, "2026-08-01_acme_xswe")
+
+    # "swe" stem-matches only acme_swe on disk; LIKE would also have matched acme_xswe.
+    app_id, _, new_status = update_application_status_in_db(conn, "swe", "phone_screen")
+    assert (app_id, new_status) == ("2026-08-01_acme_swe", "phone_screen")
+
+    # LIKE metacharacters in identifiers are literal text and match nothing.
+    with pytest.raises(FileNotFoundError):
+        update_application_status_in_db(conn, "%", "phone_screen")
+    conn.close()
+
+
+def test_db_status_update_lists_ambiguous_matches_multi_line() -> None:
+    from worksisyphus.db import update_application_status_in_db
+
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    _insert_app_row(conn, "2026-08-02_google_data-engineer", company="Google", status="rejected")
+    _insert_app_row(conn, "2026-08-08_google_data-engineer", company="Google", status="applied")
+
+    with pytest.raises(ValueError, match="ambiguous") as excinfo:
+        update_application_status_in_db(conn, "google_data-engineer", "phone_screen")
+    message = excinfo.value.args[0]
+    assert "  2026-08-02_google_data-engineer" in message
+    assert "  2026-08-08_google_data-engineer" in message
+    conn.close()
+
+
+def test_db_listing_orders_retry_ordinals_numerically() -> None:
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    _insert_app_row(conn, "2026-08-24_google_swe", company="Google")
+    _insert_app_row(conn, "2026-08-24_google_swe_10", company="Google")
+    _insert_app_row(conn, "2026-08-24_google_swe_2", company="Google")
+    _insert_app_row(conn, "2026-07-01_google_swe", company="Google")
+
+    order = [app["folder"] for app in list_applications_from_db(conn)]
+    assert order == [
+        "2026-08-24_google_swe",
+        "2026-08-24_google_swe_2",
+        "2026-08-24_google_swe_10",
+        "2026-07-01_google_swe",
+    ]
+    conn.close()
+
+
+def test_seed_deletes_ghost_application_rows_with_audit(tmp_path: Path) -> None:
+    """A DB row whose folder vanished must not survive reseed (partial-restore recovery)."""
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    ghost = apps / "2026-08-01_ghost_swe"
+    ghost.mkdir(parents=True)
+    (ghost / "meta.json").write_text(json.dumps({"company": "Ghost", "status": "applied"}), encoding="utf-8")
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 1
+
+    import shutil
+
+    shutil.rmtree(ghost)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 0
+    deletions = conn.execute("SELECT entity_type, entity_id FROM audit_events WHERE action = 'DELETE'").fetchall()
+    assert ("application", "2026-08-01_ghost_swe") in deletions
+
+    # Reseeding unchanged data reports nothing further.
+    before = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == before
+    conn.close()
+
+
+def test_seed_skips_dot_directories_even_with_meta(tmp_path: Path) -> None:
+    """Staging residue that died after meta-write must never become an application row."""
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    residue = apps / ".staging-abc123"
+    residue.mkdir(parents=True)
+    (residue / "meta.json").write_text(json.dumps({"company": "HalfBuilt", "status": "applied"}), encoding="utf-8")
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 0
     conn.close()

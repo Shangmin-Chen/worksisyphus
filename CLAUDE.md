@@ -49,7 +49,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 
 5. **Deliver.** The resume is done when `apply` succeeds (compiles to exactly 1 page AND has no horizontal overflow AND passes all quality gates: ATS, No-GPA, Banned Content, LaTeX Leaks, Content Density) — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
 
-   Application folders are immutable history: never modify an application's `Simon_Chen_Resume.pdf` or `plan.json` — a re-application to the same company gets a new dated folder (the command refuses to overwrite). Update only `meta.json.status` (and `meta.json.evaluation`, via `backfill-evals`) when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json` or `uv run worksisyphus status`.
+   Application folders are immutable history: never modify an application's `Simon_Chen_Resume.pdf` or `plan.json` — re-applying to the same company/role on the same day automatically allocates the next free `_N` suffix (`2026-08-24_google_swe_2`), never overwriting or mutating a published folder. Update only `meta.json.status` (and `meta.json.evaluation`, via `backfill-evals`) when the user reports progress (`applied` → `phone_screen` / `onsite` / `offer` / `rejected`). Questions like "which applications are still open?" are answered by reading `applications/*/meta.json` or `uv run worksisyphus status`.
 
 ## Editing profile.json (only with approval)
 

@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 
 from worksisyphus import CompileResult, apply
-from worksisyphus.application import list_applications, resolve_application_folder, slugify, update_application_status
+from worksisyphus.application import (
+    list_applications,
+    parse_app_folder,
+    resolve_application_folder,
+    slugify,
+    update_application_status,
+)
 from worksisyphus.ats import ATSCheckResult
 from worksisyphus.gates import GateResult
 
@@ -234,9 +241,141 @@ def test_apply_rejects_empty_plan(tmp_path) -> None:
         )
 
 
-def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
+def _fake_compile_factory():
     def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
         pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    return fake_compile
+
+
+def _patch_apply_pipeline(monkeypatch) -> None:
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile_factory())
+    monkeypatch.setattr(
+        app_module,
+        "run_resume_gates",
+        lambda *a, **kw: ((GateResult("ATS", True, ()),), ATSCheckResult(True, (), 1, 100, "text")),
+    )
+
+
+def test_apply_same_day_second_attempt_allocates_suffix(small_profile, monkeypatch, tmp_path) -> None:
+    _patch_apply_pipeline(monkeypatch)
+
+    plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
+    apps_dir = tmp_path / "applications"
+    kwargs = dict(
+        plan_text=plan_text,
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+
+    first, _, _ = apply(**kwargs)
+    second, _, _ = apply(**kwargs)
+    third, _, _ = apply(**kwargs)
+
+    assert [folder.name for folder in (first, second, third)] == [
+        "2026-08-20_acme_swe",
+        "2026-08-20_acme_swe_2",
+        "2026-08-20_acme_swe_3",
+    ]
+    for folder in (first, second, third):
+        assert (folder / "meta.json").is_file()
+        assert json.loads((folder / "meta.json").read_text(encoding="utf-8"))["status"] == "applied"
+
+
+def test_apply_never_mutates_a_published_folder(small_profile, monkeypatch, tmp_path) -> None:
+    _patch_apply_pipeline(monkeypatch)
+
+    plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
+    apps_dir = tmp_path / "applications"
+
+    first, _, _ = apply(
+        plan_text=plan_text,
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+    before = {path.name: path.read_bytes() for path in sorted(first.iterdir())}
+
+    apply(
+        plan_text=plan_text,
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+
+    after = {path.name: path.read_bytes() for path in sorted(first.iterdir())}
+    assert before == after
+
+
+def test_apply_retries_next_suffix_when_target_claimed_concurrently(small_profile, monkeypatch, tmp_path) -> None:
+    import errno as errno_module
+
+    import worksisyphus.application as app_module
+
+    _patch_apply_pipeline(monkeypatch)
+    apps_dir = tmp_path / "applications"
+
+    # Simulate a concurrent apply claiming ..._swe_2 between allocation and publish.
+    original_allocate = app_module._allocate_target
+    real_replace = app_module.os.replace
+    occupied = apps_dir / "2026-08-20_acme_swe_2"
+    allocations = {"n": 0}
+
+    def racy_allocate(applications_dir, base_target):
+        target = original_allocate(applications_dir, base_target)
+        allocations["n"] += 1
+        if allocations["n"] == 2 and target == occupied and not occupied.exists():
+            occupied.mkdir(parents=True)
+            (occupied / "meta.json").write_text("{}", encoding="utf-8")
+        return target
+
+    def replace(src, dst):
+        if Path(dst) == occupied and occupied.exists():
+            raise OSError(errno_module.ENOTEMPTY, "Directory not empty")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(app_module, "_allocate_target", racy_allocate)
+    monkeypatch.setattr(app_module.os, "replace", replace)
+
+    common = dict(
+        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+        jd_text="JD text",
+        company="Acme",
+        role="SWE",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=apps_dir,
+        sync_cloud=False,
+    )
+    apply(**common)  # claims the plain slot
+    folder, _, _ = apply(**common)
+    assert folder.name == "2026-08-20_acme_swe_3"
+
+
+def test_apply_uses_private_tex_directory(small_profile, monkeypatch, tmp_path) -> None:
+    seen_tex_dirs: list[Path] = []
+
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        seen_tex_dirs.append(Path(tex_dir))
+        pdf_path = Path(pdf_dir) / f"{name}.pdf"
         pdf_path.write_bytes(b"%PDF-fake")
         return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
 
@@ -250,31 +389,28 @@ def test_apply_is_immutable(small_profile, monkeypatch, tmp_path) -> None:
         lambda *a, **kw: ((GateResult("ATS", True, ()),), ATSCheckResult(True, (), 1, 100, "text")),
     )
 
-    plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
     apps_dir = tmp_path / "applications"
-
     apply(
-        plan_text=plan_text,
-        jd_text="JD text",
+        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+        jd_text="jd",
         company="Acme",
         role="SWE",
-        when=date(2026, 8, 20),
+        when=date(2026, 7, 11),
         profile=small_profile,
         applications_dir=apps_dir,
         sync_cloud=False,
     )
 
-    with pytest.raises(FileExistsError, match="immutable"):
-        apply(
-            plan_text=plan_text,
-            jd_text="JD text",
-            company="Acme",
-            role="SWE",
-            when=date(2026, 8, 20),
-            profile=small_profile,
-            applications_dir=apps_dir,
-            sync_cloud=False,
-        )
+    assert len(seen_tex_dirs) == 1
+    build_dir = seen_tex_dirs[0]
+    assert build_dir.name.startswith(app_module.TEX_BUILD_PREFIX)
+    assert Path(build_dir).anchor != "" and "tex_files" not in build_dir.parts
+    assert not build_dir.exists()  # cleaned up after the run
+
+
+def test_slugify_never_emits_underscore_separator() -> None:
+    for raw in ("SWE 2", "SDE_2", "Acme Corp.", "23andMe", "C++ Developer"):
+        assert "_" not in slugify(raw), raw
 
 
 def test_list_and_update_application_status(small_profile, monkeypatch, tmp_path) -> None:
@@ -453,3 +589,64 @@ def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatc
 
     # ...unless explicitly told to re-score.
     assert len(backfill_evaluations(applications_dir=apps, overwrite=True)) == 1
+
+
+def test_parse_app_folder_handles_legacy_names() -> None:
+    # Legacy pre-#34 stems with literal underscores and hyphen-digits are never ordinals.
+    assert parse_app_folder("2026-07-09_bosch_software_engineer_ii") == (
+        "2026-07-09",
+        "bosch_software_engineer_ii",
+        None,
+    )
+    assert parse_app_folder("2026-08-18_bloomberg_software-engineer-2027") == (
+        "2026-08-18",
+        "bloomberg_software-engineer-2027",
+        None,
+    )
+
+
+def test_parse_app_folder_ordinal_requires_the_base_sibling() -> None:
+    siblings = ["2026-08-24_google_swe", "2026-08-24_google_swe_2", "2026-08-24_google_swe_10"]
+    assert parse_app_folder("2026-08-24_google_swe_2", siblings) == ("2026-08-24", "google_swe", 2)
+    assert parse_app_folder("2026-08-24_google_swe_10", siblings) == ("2026-08-24", "google_swe", 10)
+    # Without its base on disk the tail stays literal; no lineage is invented.
+    assert parse_app_folder("2027-01-01_x_y_2") == ("2027-01-01", "x_y_2", None)
+
+
+def test_parse_app_folder_requires_a_date_prefix() -> None:
+    with pytest.raises(ValueError, match="YYYY-MM-DD"):
+        parse_app_folder("not-a-date")
+
+
+def test_resolve_lists_each_ambiguous_match_on_its_own_line(tmp_path) -> None:
+    for day in ("02", "08"):
+        folder = tmp_path / "applications" / f"2026-08-{day}_google_data-engineer"
+        folder.mkdir(parents=True)
+        (folder / "meta.json").write_text(json.dumps({"company": "Google", "status": "applied"}), encoding="utf-8")
+
+    with pytest.raises(ValueError) as excinfo:
+        resolve_application_folder("google_data-engineer", applications_dir=tmp_path / "applications")
+    lines = excinfo.value.args[0].splitlines()
+    assert any("2026-08-02_google_data-engineer" in line for line in lines)
+    assert any("2026-08-08_google_data-engineer" in line for line in lines)
+
+
+def test_list_applications_orders_newest_first_then_retry_order(tmp_path) -> None:
+    apps_dir = tmp_path / "applications"
+    for name in (
+        "2026-08-20_acme_swe",
+        "2026-08-24_google_swe_2",
+        "2026-08-24_google_swe",
+        "2026-08-24_google_swe_10",
+    ):
+        folder = apps_dir / name
+        folder.mkdir(parents=True)
+        (folder / "meta.json").write_text(json.dumps({"company": "Co", "status": "applied"}), encoding="utf-8")
+
+    order = [app["folder"] for app in list_applications(applications_dir=apps_dir)]
+    assert order == [
+        "2026-08-24_google_swe",
+        "2026-08-24_google_swe_2",
+        "2026-08-24_google_swe_10",
+        "2026-08-20_acme_swe",
+    ]

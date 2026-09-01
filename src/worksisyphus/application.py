@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
 import shutil
 import tempfile
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -22,8 +23,12 @@ from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
 APPLICATIONS_DIR = Path("applications")
 STATUSES = ("applied", "phone_screen", "onsite", "offer", "rejected")
 STAGING_PREFIX = ".staging-"
+TEX_BUILD_PREFIX = "worksisyphus-tex-"
 
 Log = Callable[[str], None]
+
+_APP_FOLDER_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})_(?P<body>.+)$")
+_ORDINAL_TAIL_RE = re.compile(r"^(?P<base>.+)_(?P<n>\d+)$")
 
 
 def _silent(_: str) -> None:
@@ -35,6 +40,59 @@ def slugify(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)
     return re.sub(r"[\s_-]+", "-", text).strip("-")
+
+
+def parse_app_folder(name: str, siblings: Collection[str] = ()) -> tuple[str, str, int | None]:
+    """Split an application folder name into (date, stem, ordinal).
+
+    A trailing ``_N`` tail counts as the retry ordinal written by apply() only when N >= 2 and
+    the unsuffixed base folder exists among siblings; anything else keeps the whole body as a
+    literal stem, so legacy names that happen to end in digits stay intact.
+    """
+    match = _APP_FOLDER_RE.match(name)
+    if not match:
+        raise ValueError(f"Application folder {name!r} lacks a <YYYY-MM-DD>_ prefix.")
+    date_str, body = match["date"], match["body"]
+    tail = _ORDINAL_TAIL_RE.match(body)
+    if tail and int(tail["n"]) >= 2 and f"{date_str}_{tail['base']}" in siblings:
+        return date_str, tail["base"], int(tail["n"])
+    return date_str, body, None
+
+
+def application_sort_key(name: str, siblings: Collection[str] = ()) -> tuple[int, int, str, int]:
+    """Listing order: newest date first, then retry order within a day reads top-to-bottom."""
+    try:
+        date_str, stem, ordinal = parse_app_folder(name, siblings)
+        day = -date.fromisoformat(date_str).toordinal()
+    except ValueError:
+        # Unparsable names sink below every dated entry instead of crashing listings.
+        return (1, 0, name, 0)
+    return (0, day, stem, ordinal or 0)
+
+
+def sorted_application_names(names: Collection[str]) -> list[str]:
+    """Order application folder names newest-first; retry ordinals compare numerically."""
+    return sorted(names, key=lambda name: application_sort_key(name, siblings=names))
+
+
+def match_application_identifier(identifier: str, names: Iterable[str]) -> list[str]:
+    """Resolve an identifier against candidate names: exact match first, else unique stem match."""
+    all_names = list(names)
+    exact = [name for name in all_names if name == identifier]
+    if exact:
+        return exact
+    return [name for name in all_names if name.endswith(f"_{identifier}")]
+
+
+def _allocate_target(applications_dir: Path, base_target: Path) -> Path:
+    """Lowest free slot for a publish: the plain name first, then _2, _3, ..."""
+    taken = {entry.name for entry in applications_dir.iterdir()}
+    target = base_target
+    ordinal = 1
+    while target.name in taken:
+        ordinal += 1
+        target = base_target.parent / f"{base_target.name}_{ordinal}"
+    return target
 
 
 def apply(
@@ -61,22 +119,26 @@ def apply(
     applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     when = when or date.today()
 
-    # Deterministic naming strictly derived from company and role (#34)
+    # Deterministic naming strictly derived from company and role (#34). The underscore is the
+    # folder grammar's structural separator (it delimits the retry ordinal), so slugify must
+    # never emit one; this fails loudly instead of corrupting the namespace if that ever changes.
     comp_slug = slugify(company)
     role_slug = slugify(role) if role.strip() else "swe"
+    if "_" in comp_slug or "_" in role_slug:
+        raise ValueError(f"Slug for {company!r}/{role!r} contains '_': {comp_slug}_{role_slug}")
     app_stem = f"{comp_slug}_{role_slug}"
 
-    target_folder = applications_dir / f"{when.isoformat()}_{app_stem}"
-    if target_folder.exists():
-        raise FileExistsError(f"{target_folder} already exists; applications are immutable, use a new date or role.")
+    base_target = applications_dir / f"{when.isoformat()}_{app_stem}"
 
     active_profile = profile if profile is not None else load_profile(profile_path)
     normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
 
     # Atomic publication: stage inside applications_dir so the final publish is a same-filesystem
     # os.replace rather than a file-by-file copy that can fail halfway and leave a partial folder.
+    # LaTeX intermediates get their own temp dir so concurrent applies never clobber tex_files/.
     applications_dir.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix=STAGING_PREFIX, dir=applications_dir))
+    tex_build_dir = Path(tempfile.mkdtemp(prefix=TEX_BUILD_PREFIX))
     try:
         # 1. Compile directly into the isolated staging dir
         compile_result = tailor(
@@ -85,6 +147,7 @@ def apply(
             profile_path=profile_path,
             plan_name=app_stem,
             pdf_dir=staging_dir,
+            tex_dir=tex_build_dir,
             log=log,
         )
 
@@ -110,7 +173,7 @@ def apply(
         failed_gates = [g for g in gate_results if not g.passed]
         if failed_gates:
             reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
-            raise RuntimeError(f"Quality gate check failed for {target_folder.name}:\n{reasons}")
+            raise RuntimeError(f"Quality gate check failed for {base_target.name}:\n{reasons}")
 
         # 3b. Score the delivered resume against this JD and record it alongside the application,
         #     so every application carries the evaluation that was true when it was sent.
@@ -123,19 +186,25 @@ def apply(
         meta["evaluation"] = evaluation
         (staging_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
-        # 4. Atomic publish. Re-check the target: compilation is slow enough that a concurrent
-        #    apply could have claimed the slot since the check above, and os.replace would
-        #    silently consume an empty directory.
-        if target_folder.exists():
-            raise FileExistsError(
-                f"{target_folder} already exists; applications are immutable, use a new date or role."
-            )
-        # mkdtemp is 0700; widen to match a normally-created directory.
-        os.chmod(staging_dir, 0o755)
-        os.replace(staging_dir, target_folder)
+        # 4. Atomic publish with retry allocation. Compilation is slow enough that a concurrent
+        #    apply could claim the plain slot first; os.replace onto a non-empty directory fails
+        #    with ENOTEMPTY, so the loser re-allocates the next free suffix and retries with the
+        #    staged content it already paid for. Published folders are never mutated or consumed.
+        while True:
+            target_folder = _allocate_target(applications_dir, base_target)
+            # mkdtemp is 0700; widen to match a normally-created directory.
+            os.chmod(staging_dir, 0o755)
+            try:
+                os.replace(staging_dir, target_folder)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                    raise
     except BaseException:
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise
+    finally:
+        shutil.rmtree(tex_build_dir, ignore_errors=True)
 
     compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
@@ -265,14 +334,16 @@ def _sync_cloud(log: Log) -> bool:
 
 
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
-    """List all applications with metadata, sorted by date descending."""
+    """List all applications with metadata, newest date first (retry order within a day)."""
     applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     apps: list[dict[str, str]] = []
     if not applications_dir.is_dir():
         return apps
-    for folder in sorted(applications_dir.iterdir(), reverse=True):
-        if not folder.is_dir() or folder.name.startswith("."):
-            continue
+    entries = [entry for entry in applications_dir.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
+    names = sorted_application_names([entry.name for entry in entries])
+    by_name = {entry.name: entry for entry in entries}
+    for name in names:
+        folder = by_name[name]
         meta_file = folder / "meta.json"
         if not meta_file.is_file():
             raise ValueError(f"Missing meta.json in {folder}; the application folder is incomplete.")
@@ -299,18 +370,21 @@ def resolve_application_folder(
     if not applications_dir.is_dir():
         raise FileNotFoundError(f"No application folder found matching {app_identifier!r} in {applications_dir}.")
 
-    folders = [
-        folder for folder in sorted(applications_dir.iterdir()) if folder.is_dir() and not folder.name.startswith(".")
+    names = [
+        folder.name
+        for folder in sorted(applications_dir.iterdir())
+        if folder.is_dir() and not folder.name.startswith(".")
     ]
-    exact_matches = [folder for folder in folders if folder.name == app_identifier]
-    stem_matches = [folder for folder in folders if folder.name.endswith(f"_{app_identifier}")]
-    matches = exact_matches or stem_matches
+    matches = match_application_identifier(app_identifier, names)
     if not matches:
         raise FileNotFoundError(f"No application folder found matching {app_identifier!r} in {applications_dir}.")
     if len(matches) > 1:
-        names = ", ".join(folder.name for folder in matches)
-        raise ValueError(f"Application identifier {app_identifier!r} is ambiguous; use one of: {names}")
-    return matches[0]
+        listed = "\n".join(f"  {name}" for name in matches)
+        raise ValueError(
+            f"Application identifier {app_identifier!r} is ambiguous ({len(matches)} matches):\n{listed}\n"
+            "Re-run with one of the full folder names above."
+        )
+    return applications_dir / matches[0]
 
 
 def update_application_status(
