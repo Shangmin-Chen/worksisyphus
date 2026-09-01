@@ -233,6 +233,20 @@ def _log_change(
         log_audit_event(conn, entity_type, entity_id, ACTION_UPDATE, commit=False, **kwargs)
 
 
+#: What to do when profile.json exists but its contact block is scrubbed. The database is
+#: presumed *good* here -- it is the copy this refusal protects -- so the direction of repair
+#: is DB -> profile, the opposite of `_DB_CONTACT_RECOVERY_HINT`. Naming `db sync` here would
+#: be actively destructive: it is the command that just failed, and re-running it is exactly
+#: how the last good copy of the contact block gets overwritten.
+_SEED_PROFILE_RECOVERY_HINT = (
+    "Nothing has been written, so the database still holds the last good contact block. Do NOT "
+    "re-run `uv run worksisyphus db sync` or `db init`: both seed from this same profile, and "
+    "would overwrite the database and then push the result to Turso. Repair profile.json from "
+    "the database instead with `uv run worksisyphus db export-profile --force`, confirm the "
+    "contact block it writes is really yours, and only then seed again."
+)
+
+
 def seed_database(
     conn: sqlite3.Connection,
     profile_path: Path = Path("profile.json"),
@@ -253,10 +267,23 @@ def seed_database(
     and it is the independent copy ``cross_check_contact_against_db`` compares the profile
     against. Overwriting it with placeholders corrupts the recovery path itself, and
     ``sync_to_turso`` then pushes that corruption to the last remaining backup.
+
+    A *present but scrubbed* profile is refused on the same terms. Hardening this seam against
+    a missing file alone left the hole half-closed: ``load_profile`` raises only when the file
+    is absent, so a profile.json that exists and holds ``simon@example.com`` / ``555-555-5555``
+    seeded straight through and destroyed the one surviving copy of the real contact block.
+    That route is the documented one, not a hypothetical: the recovery advice everywhere else
+    in this module ends in "write profile.json by hand, then run `db sync`", so a restore from
+    the wrong backup -- or a re-copy of tests/fixtures/profile.json, which is how the original
+    incident started -- arrives here holding placeholders. Validating the *content*, not just
+    the file's existence, is what makes this seam fail closed.
+
+    Both refusals happen before ``init_schema`` and before any write, so a rejected seed leaves
+    the database exactly as it found it -- including creating no tables at all in a fresh one.
     """
     profile_path = Path(profile_path)
     try:
-        data = profile_to_dict(load_profile(profile_path))
+        loaded = load_profile(profile_path)
     except FileNotFoundError as exc:
         raise FileNotFoundError(
             f"Refusing to seed the database: {exc} Nothing has been written, so the database "
@@ -264,6 +291,17 @@ def seed_database(
             f"seed. Seeding from a substitute would overwrite the database, which is both the "
             f"copy export-profile reads back and the copy the contact cross-check trusts."
         ) from exc
+
+    try:
+        validate_contact(
+            loaded.contact,
+            source=str(profile_path),
+            recovery_hint=_SEED_PROFILE_RECOVERY_HINT,
+        )
+    except ValueError as exc:
+        raise ValueError(f"Refusing to seed the database: {exc}") from exc
+
+    data = profile_to_dict(loaded)
 
     init_schema(conn)
 

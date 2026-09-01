@@ -69,6 +69,18 @@ def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | Non
     return DEFAULT_DB_PATH if _is_default_applications_dir(applications_dir) else None
 
 
+#: What to do when the *database* side of the cross-check turns out to be placeholders.
+#: Direction of repair is the opposite of db.py's `_DB_CONTACT_RECOVERY_HINT`, and that is not
+#: an inconsistency: by the time this runs, apply() has already put the profile through
+#: validate_contact, so the profile is known good and the database is the corrupted copy.
+_DB_PLACEHOLDER_HINT = (
+    "profile.json already passed the placeholder rules in this run, so it is the good copy and "
+    "the database is the corrupted one. Republish it with `uv run worksisyphus db sync`. Do NOT "
+    "run `uv run worksisyphus db export-profile`: that writes the database over profile.json "
+    "and would destroy the last good contact block."
+)
+
+
 @dataclass(frozen=True)
 class ContactCrossCheck:
     """Whether the contact block was verified against the independent copy in the database.
@@ -139,6 +151,22 @@ def cross_check_contact_against_db(
 
     if not any((db_contact.name, db_contact.email, db_contact.phone)):
         return skipped(f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.")
+
+    # The database side gets the same rules as the profile side. The previous round left this
+    # unchecked on the argument that "seeding can no longer corrupt the database" -- an
+    # argument that was false at the time (seed_database validated only that profile.json
+    # *existed*, not what it held) and is only now true. Defence in depth is still worth its
+    # two lines: corruption can arrive by routes that never touch seed_database -- a hand-run
+    # UPDATE, a restore of a Turso copy poisoned before this fix, a database that predates it
+    # -- and this check cannot block a build that the mismatch list below would have let
+    # through. A placeholder in the database either differs from the profile (mismatch, blocked
+    # either way) or matches it, which is unreachable: validate_contact ran over the profile in
+    # apply() before this function was called. All it changes is the diagnosis, from "contact
+    # details disagree" to the specific, actionable "your database holds placeholder data".
+    try:
+        validate_contact(db_contact, source=str(db_path), recovery_hint=_DB_PLACEHOLDER_HINT)
+    except ValueError as exc:
+        raise ValueError(f"Refusing to build a resume: {exc}") from exc
 
     mismatches = [
         f"contact.{field_name}: profile has {getattr(contact, field_name)!r}, database has {getattr(db_contact, field_name)!r}"
