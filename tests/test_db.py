@@ -21,6 +21,35 @@ from worksisyphus.db import (
     update_application_status_in_db,
 )
 
+#: A contact block that passes validate_contact: a real-looking name, a deliverable address
+#: and a number outside the reserved 555 exchange.
+DELIVERABLE_CONTACT = {
+    "name": "Simon Chen",
+    "email": "simon.chen@fixture.test",
+    "phone": "617-266-1810",
+    "website": "https://simonchen.dev",
+    "github": "https://github.com/fixture-user",
+    "linkedin": "https://linkedin.com/in/fixture-user",
+}
+
+
+def _fixture_data_with_deliverable_contact(source: Path | None = None) -> dict[str, Any]:
+    """The full test fixture, with its scrubbed contact block swapped for a deliverable one.
+
+    tests/fixtures/profile.json must keep its example.com / 555-555-5555 contact: several
+    tests exist precisely to prove that block is rejected, and one of them recreates the
+    original incident by planting the fixture where the old fallback looked for it. But
+    seed_database now validates the contact of whatever it loads, so the seeding tests -- all
+    of which are about audit events, deletions and round-trip fidelity, never about the
+    header -- can no longer feed it the fixture verbatim. Swapping only the contact keeps the
+    rest of the fixture (its education, experiences, bullets, projects and skills) exactly as
+    those tests have always exercised it.
+    """
+    source = source or Path(__file__).resolve().parent / "fixtures" / "profile.json"
+    data = json.loads(source.read_text(encoding="utf-8"))
+    data["contact"] = dict(DELIVERABLE_CONTACT)
+    return data
+
 
 def test_init_schema_creates_tables() -> None:
     conn = get_connection(":memory:")
@@ -42,13 +71,23 @@ def test_init_schema_creates_tables() -> None:
 
 
 def test_seed_and_load_profile(tmp_path: Path) -> None:
+    """Structural round-trip: everything written by a seed comes back out of the database.
+
+    The contact block here is deliberately *not* a placeholder. It used to read
+    ``candidate@example.com`` / ``555-1234``, which was harmless when seed_database only
+    checked that profile.json existed, but seeding now validates what it loaded and would
+    reject that block before writing a row. What this test was written to cover is shape --
+    education, experiences, bullets, projects, skills surviving the trip -- so swapping in a
+    deliverable contact keeps every one of those assertions intact and adds one: that a good
+    contact block still seeds. The placeholder path has its own tests below.
+    """
     profile_file = tmp_path / "profile.json"
     profile_data = {
         "contact": {
             "name": "Test Candidate",
-            "email": "candidate@example.com",
-            "phone": "555-1234",
-            "website": "https://candidate.com",
+            "email": "candidate@fixture.test",
+            "phone": "617-266-1810",
+            "website": "https://candidate.dev",
             "github": "https://github.com/candidate",
             "linkedin": "https://linkedin.com/in/candidate",
         },
@@ -95,7 +134,7 @@ def test_seed_and_load_profile(tmp_path: Path) -> None:
 
     profile = load_profile_from_db(conn)
     assert profile.contact.name == "Test Candidate"
-    assert profile.contact.email == "candidate@example.com"
+    assert profile.contact.email == "candidate@fixture.test"
     assert len(profile.education) == 1
     assert profile.education[0].institution == "Tech University"
     assert profile.education[0].coursework == ("Algorithms", "OS")
@@ -174,17 +213,20 @@ def test_application_tracking_in_db() -> None:
 def test_export_profile_json(tmp_path: Path) -> None:
     conn = get_connection(":memory:")
     init_schema(conn)
+    # A deliverable contact block: export refuses to write anything less (see the
+    # placeholder tests below), so the happy path needs real-shaped details.
     conn.execute(
-        "INSERT INTO contact (id, name, email, phone, website, github, linkedin) VALUES (1, 'Jane', 'j@e.com', '', '', '', '')"
+        "INSERT INTO contact (id, name, email, phone, website, github, linkedin) "
+        "VALUES (1, 'Jane Roe', 'jane.roe@fastmail.dev', '617-266-1810', '', '', '')"
     )
     conn.commit()
 
     export_path = tmp_path / "exported_profile.json"
     data = export_profile_json(conn, output_path=export_path)
-    assert data["contact"]["name"] == "Jane"
+    assert data["contact"]["name"] == "Jane Roe"
     assert export_path.is_file()
     loaded = json.loads(export_path.read_text(encoding="utf-8"))
-    assert loaded["contact"]["name"] == "Jane"
+    assert loaded["contact"]["name"] == "Jane Roe"
 
 
 def test_schema_indexes_created() -> None:
@@ -213,16 +255,34 @@ def test_get_audit_history_filtered() -> None:
 
 
 def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
+    """Everything profile.json holds must survive a trip through the database unchanged.
+
+    Read back with ``profile_to_dict`` rather than ``export_profile_json``: on CI there is no
+    profile.json, so this runs against the scrubbed fixture, and export deliberately refuses
+    to write a placeholder contact block. Export's own write path is covered by
+    ``test_export_profile_json``; what is under test here is fidelity, not writing.
+
+    Seeding now validates the contact of what it loads, so the fixture's scrubbed block is
+    swapped for a deliverable one before seeding -- and only when the real profile is absent.
+    On a developer machine this still runs against the genuine profile.json unchanged, which
+    is the case worth having: the fixture is small, the real profile is where an unhandled
+    field would actually hide.
+    """
+    from worksisyphus.profile import profile_to_dict
+
     real_profile_path = Path("profile.json")
     if not real_profile_path.is_file():
-        real_profile_path = Path("tests/fixtures/profile.json")
+        real_profile_path = tmp_path / "fixture_profile.json"
+        real_profile_path.write_text(
+            json.dumps(_fixture_data_with_deliverable_contact(Path("tests/fixtures/profile.json"))),
+            encoding="utf-8",
+        )
     real_data = json.loads(real_profile_path.read_text(encoding="utf-8"))
 
     conn = get_connection(":memory:")
     seed_database(conn, profile_path=real_profile_path, applications_dir=tmp_path / "apps")
 
-    export_path = tmp_path / "exported.json"
-    exported_data = export_profile_json(conn, output_path=export_path)
+    exported_data = profile_to_dict(load_profile_from_db(conn))
 
     assert exported_data["contact"] == real_data["contact"]
     assert exported_data["education"] == real_data["education"]
@@ -262,8 +322,7 @@ def _seed_fixture(tmp_path: Path) -> tuple[Any, Path]:
     from worksisyphus.db import get_connection
 
     profile_file = tmp_path / "profile.json"
-    fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
-    profile_file.write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
     return get_connection(":memory:"), profile_file
 
 
@@ -410,6 +469,198 @@ def test_evaluation_round_trips_through_seed(tmp_path: Path) -> None:
     seed_database(conn, profile_path=profile_file, applications_dir=apps)
     assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == before
     conn.close()
+
+
+def test_seed_database_refuses_to_fall_back_to_the_test_fixture(tmp_path: Path, monkeypatch) -> None:
+    from worksisyphus.db import seed_database
+
+    good_profile = tmp_path / "good_profile.json"
+    good_profile.write_text(
+        json.dumps(
+            {
+                "contact": {
+                    "name": "Real Person",
+                    "email": "real.person@fastmail.dev",
+                    "phone": "617-266-1810",
+                    "website": "",
+                    "github": "",
+                    "linkedin": "",
+                },
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    db_file = tmp_path / "worksisyphus.db"
+    conn = get_connection(db_file)
+    seed_database(conn, profile_path=good_profile, applications_dir=tmp_path / "apps")
+    assert load_profile_from_db(conn).contact.email == "real.person@fastmail.dev"
+
+    # Recreate the incident: a working directory with no profile.json but with the fixture
+    # sitting exactly where the old fallback looked for it.
+    workdir = tmp_path / "workdir"
+    (workdir / "tests" / "fixtures").mkdir(parents=True)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
+    (workdir / "tests" / "fixtures" / "profile.json").write_text(fixture.read_text(encoding="utf-8"), encoding="utf-8")
+    monkeypatch.chdir(workdir)
+    assert not Path("profile.json").exists()
+    assert Path("tests/fixtures/profile.json").is_file()
+
+    try:
+        seed_database(conn)
+    except FileNotFoundError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("seed_database seeded from the fixture instead of failing")
+
+    assert "profile.json" in message
+    assert "db export-profile" in message
+
+    # The database is untouched: the real contact block is still the one it holds.
+    contact = load_profile_from_db(conn).contact
+    assert contact.email == "real.person@fastmail.dev"
+    assert "example.com" not in contact.email
+    conn.close()
+
+
+def test_seed_database_leaves_a_fresh_database_empty_when_the_profile_is_missing(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    db_file = tmp_path / "fresh.db"
+    conn = get_connection(db_file)
+    try:
+        seed_database(conn, profile_path=tmp_path / "absent.json", applications_dir=tmp_path / "apps")
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("seed_database accepted a nonexistent profile path")
+
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "contact" not in tables, "schema was created before the profile was validated"
+    conn.close()
+
+
+def test_seed_database_refuses_a_profile_missing_a_required_contact_field(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "Real Person", "email": "real.person@fastmail.dev", "phone": ""},
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    conn = get_connection(":memory:")
+    try:
+        seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    except ValueError as exc:
+        assert "contact.phone" in str(exc)
+    else:
+        raise AssertionError("seed_database accepted a profile with no phone number")
+    conn.close()
+
+
+def test_seed_database_leaves_a_fresh_database_empty_when_the_profile_is_invalid(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    invalid = tmp_path / "profile.json"
+    invalid.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "", "email": "", "phone": ""},
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    db_file = tmp_path / "fresh.db"
+    conn = get_connection(db_file)
+    try:
+        seed_database(conn, profile_path=invalid, applications_dir=tmp_path / "apps")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("seed_database accepted an invalid profile")
+
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "contact" not in tables, "schema was created before the profile was validated"
+    conn.close()
+
+
+def _seed_invalid_contact(conn: Any) -> None:
+    init_schema(conn)
+    conn.execute(
+        "INSERT INTO contact (id, name, email, phone, website, github, linkedin) "
+        "VALUES (1, 'Simon Chen', '', '', '', '', '')"
+    )
+    conn.commit()
+
+
+def test_export_profile_json_refuses_an_invalid_database(tmp_path: Path) -> None:
+    conn = get_connection(":memory:")
+    _seed_invalid_contact(conn)
+
+    destination = tmp_path / "profile.json"
+    try:
+        export_profile_json(conn, output_path=destination)
+    except ValueError as exc:
+        assert "contact.email is empty" in str(exc)
+    else:
+        raise AssertionError("export_profile_json wrote an invalid contact block")
+
+    assert not destination.exists(), "the destination was written before validation"
+    conn.close()
+
+
+def test_export_profile_json_does_not_overwrite_a_real_profile_with_invalid_data(tmp_path: Path) -> None:
+    conn = get_connection(":memory:")
+    _seed_invalid_contact(conn)
+
+    destination = tmp_path / "profile.json"
+    original = json.dumps({"contact": {"name": "Real Person", "email": "real.person@fastmail.dev"}})
+    destination.write_text(original, encoding="utf-8")
+
+    try:
+        export_profile_json(conn, output_path=destination)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("export_profile_json overwrote a real profile with invalid data")
+
+    assert destination.read_text(encoding="utf-8") == original
+    conn.close()
+
+
+def test_export_profile_force_does_not_bypass_the_validation_check(tmp_path: Path, monkeypatch) -> None:
+    from worksisyphus import cli, db
+
+    db_file = tmp_path / "corrupt.db"
+    conn = get_connection(db_file)
+    _seed_invalid_contact(conn)
+    conn.close()
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", db_file)
+
+    destination = tmp_path / "profile.json"
+    original = json.dumps({"contact": {"name": "Real Person", "email": "real.person@fastmail.dev"}})
+    destination.write_text(original, encoding="utf-8")
+
+    assert cli.main(["db", "export-profile", "--output", str(destination), "--force"]) == 1
+    assert destination.read_text(encoding="utf-8") == original
 
 
 def _insert_app_row(conn, app_id: str, company: str = "Acme", status: str = "applied") -> None:

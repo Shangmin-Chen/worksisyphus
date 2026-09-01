@@ -86,3 +86,32 @@ def test_tailor_accepts_one_page_without_horizontal_overflow(small_profile, monk
     monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
 
     assert tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=tmp_path).overfull == ()
+
+
+def test_tailor_refuses_an_invalid_contact_without_compiling(invalid_contact_profile, monkeypatch, tmp_path) -> None:
+    compiled: list[str] = []
+
+    def exploding_compile(tex, name, tex_dir, pdf_dir):
+        compiled.append(name)
+        raise AssertionError("compilation must not be reached for an invalid contact")
+
+    monkeypatch.setattr(pipeline, "compile_tex", exploding_compile)
+    monkeypatch.setattr(pipeline, "load_profile", lambda _path: invalid_contact_profile)
+
+    out_dir = tmp_path / "preview"
+    with pytest.raises(ValueError, match="empty"):
+        tailor(json.dumps({"projects": ["proj1"]}), tex_dir=tmp_path, pdf_dir=out_dir)
+
+    assert compiled == []
+    assert list(out_dir.glob("*.pdf")) == []
+
+
+def test_build_canonical_refuses_an_invalid_contact(invalid_contact_profile, monkeypatch) -> None:
+    def exploding_compile(tex, name, tex_dir, pdf_dir):
+        raise AssertionError("compilation must not be reached for an invalid contact")
+
+    monkeypatch.setattr(pipeline, "compile_tex", exploding_compile)
+    monkeypatch.setattr(pipeline, "load_profile", lambda _path: invalid_contact_profile)
+
+    with pytest.raises(ValueError, match="empty"):
+        pipeline.build_canonical()

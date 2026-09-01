@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+from pathlib import Path
 
 import pytest
 
@@ -124,6 +125,31 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
     monkeypatch.setattr(db, "sync_to_turso", lambda *args, **kwargs: True)
 
+    # `db init` and `db sync` read profile.json from the working directory. Run them against
+    # a profile this test owns: they used to silently seed from tests/fixtures/profile.json
+    # whenever profile.json was absent, so a test that depends on the ambient repository
+    # state is a test that passes for the wrong reason on CI.
+    monkeypatch.chdir(tmp_path)
+    Path("profile.json").write_text(
+        json.dumps(
+            {
+                "contact": {
+                    "name": "Real Person",
+                    "email": "real.person@fastmail.dev",
+                    "phone": "617-266-1810",
+                    "website": "",
+                    "github": "",
+                    "linkedin": "",
+                },
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
     # 1. Status before init
     assert cli.main(["db", "status"]) == 0
     assert "Database not initialized" in capsys.readouterr().out
@@ -154,6 +180,38 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     assert cli.main(["db", "sync"]) == 0
     sync_out = capsys.readouterr().out
     assert "Synced profile.json to SQLite and Turso cloud" in sync_out
+
+
+def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+
+    pushes: list[int] = []
+
+    def _fake_sync(*args: object, **kwargs: object) -> bool:
+        pushes.append(1)
+        return True
+
+    monkeypatch.setattr(db, "sync_to_turso", _fake_sync)
+
+    monkeypatch.chdir(tmp_path)
+    fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
+    data = json.loads(fixture.read_text(encoding="utf-8"))
+    data["contact"]["email"] = ""
+    Path("profile.json").write_text(json.dumps(data), encoding="utf-8")
+
+    assert cli.main(["db", "sync"]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ")
+    assert "Refusing to seed the database" in err
+    assert pushes == [], "the corruption must not reach the cloud copy"
+
+    conn = db.get_connection(test_db)
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    conn.close()
+    assert "contact" not in tables, "a refused seed must not leave a half-built database behind"
 
 
 def test_cli_evaluate_with_stdin_and_resume(capsys, monkeypatch, delivered_pdf) -> None:
@@ -305,6 +363,57 @@ def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
     assert "ATS check: passed" in out
     assert recorded["company"] == "Primitive"
     assert "projects" in recorded["plan_text"]
+
+
+def test_cli_apply_surfaces_optimizer_failure_as_an_error(monkeypatch, capsys) -> None:
+    """Plan-less apply must report an optimizer failure, not spill a traceback.
+
+    `apply` without --plan runs the optimizer, which raises OptimizerError rather than handing
+    back an unscored plan. The CLI contract is exit code 1 and a single `error: ...` line on
+    stderr; nothing covered that path.
+    """
+    import io
+
+    import worksisyphus.optimizer as optimizer_module
+
+    def failing_optimize(profile, jd_text, role_name="software_engineer"):
+        raise optimizer_module.OptimizerError("no candidate plan could be scored")
+
+    def unreachable_apply(*args, **kwargs):
+        raise AssertionError("apply must not run when the optimizer produced no plan")
+
+    monkeypatch.setattr(optimizer_module, "optimize_plan", failing_optimize)
+    monkeypatch.setattr(cli, "apply_app", unreachable_apply)
+    monkeypatch.setattr("sys.stdin", io.StringIO("Backend engineer, distributed systems."))
+
+    assert cli.main(["apply", "--company", "Primitive", "--jd", "-", "--no-sync"]) == 1
+    captured = capsys.readouterr()
+    assert captured.err.startswith("error: ")
+    assert "no candidate plan could be scored" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_cli_tailor_refuses_an_invalid_contact(monkeypatch, tmp_path, capsys, invalid_contact_profile) -> None:
+    import worksisyphus.pipeline as pipeline_module
+
+    compiled: list[str] = []
+
+    def exploding_compile(tex, name, tex_dir, pdf_dir):
+        compiled.append(name)
+        raise AssertionError("compilation must not be reached for an invalid contact")
+
+    monkeypatch.setattr(pipeline_module, "compile_tex", exploding_compile)
+    monkeypatch.setattr(pipeline_module, "load_profile", lambda _path: invalid_contact_profile)
+
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+    out_dir = tmp_path / "preview"
+
+    assert cli.main(["tailor", "--plan", plan, "--output", str(out_dir)]) == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ")
+    assert "empty" in err
+    assert compiled == []
+    assert list(out_dir.glob("*.pdf")) == []
 
 
 def _write_app_folder(apps_dir, name, company, status="applied"):

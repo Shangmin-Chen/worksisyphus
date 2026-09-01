@@ -1,6 +1,12 @@
 from __future__ import annotations
 
-from worksisyphus import profile_index
+import dataclasses
+import json
+
+import pytest
+
+from worksisyphus import load_profile, profile_index, validate_contact
+from worksisyphus.profile import Contact
 
 
 def test_real_profile_loads_expected_shape(real_profile) -> None:
@@ -34,3 +40,44 @@ def test_values_stay_verbatim_tex(real_profile) -> None:
     joined = profile_index(real_profile)
     assert r"\$8K" in joined
     assert r"$\sim$20$\mu$s" in joined
+
+
+def test_missing_profile_raises_instead_of_falling_back(tmp_path, monkeypatch) -> None:
+    """A missing profile.json must fail loudly, never silently load another profile."""
+    monkeypatch.chdir(tmp_path)
+    fixtures = tmp_path / "tests" / "fixtures"
+    fixtures.mkdir(parents=True)
+    (fixtures / "profile.json").write_text(
+        json.dumps({"contact": {"name": "Simon Chen", "email": "simon@example.com"}}), encoding="utf-8"
+    )
+
+    with pytest.raises(FileNotFoundError) as excinfo:
+        load_profile()
+    assert "db export-profile" in str(excinfo.value)
+
+
+VALID_CONTACT = Contact(
+    name="Simon Chen",
+    email="simon.chen@fixture.test",
+    phone="617-201-4477",
+    website="https://simonchen.dev",
+    github="https://github.com/Shangmin-Chen",
+    linkedin="https://linkedin.com/in/shangmin-chen",
+)
+
+
+def test_validate_contact_accepts_valid_contact() -> None:
+    validate_contact(VALID_CONTACT)
+
+
+def test_validate_contact_accepts_missing_optional_links() -> None:
+    """website/github/linkedin are optional."""
+    validate_contact(Contact(name="Simon Chen", email="simon.chen@fixture.test", phone="617-201-4477"))
+
+
+@pytest.mark.parametrize("field_name", ["name", "email", "phone"])
+def test_validate_contact_rejects_empty_required_fields(field_name) -> None:
+    contact = dataclasses.replace(VALID_CONTACT, **{field_name: "   "})
+    with pytest.raises(ValueError) as excinfo:
+        validate_contact(contact)
+    assert f"contact.{field_name} is empty" in str(excinfo.value)

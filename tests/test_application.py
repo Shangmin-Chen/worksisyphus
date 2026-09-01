@@ -590,6 +590,8 @@ def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatc
     # ...unless explicitly told to re-score.
     assert len(backfill_evaluations(applications_dir=apps, overwrite=True)) == 1
 
+    assert backfill_evaluations(applications_dir=apps) == []
+
 
 def test_parse_app_folder_handles_legacy_names() -> None:
     # Legacy pre-#34 stems with literal underscores and hyphen-digits are never ordinals.

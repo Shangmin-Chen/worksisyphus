@@ -117,6 +117,19 @@ def main(argv: list[str] | None = None) -> int:
     db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
     db_sub.add_parser("sync", help="Sync database: load profile.json into SQLite and push to Turso cloud.")
     db_sub.add_parser("status", help="Show database metrics and connection status.")
+    export_cmd = db_sub.add_parser(
+        "export-profile",
+        help="Rebuild profile.json from the database. Recovery path when the gitignored profile is lost.",
+    )
+    export_cmd.add_argument("--output", default="profile.json", help="Destination path (default: profile.json).")
+    export_cmd.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Overwrite the destination if it already exists. Does not bypass the placeholder "
+            "check: a database holding scrubbed contact details is never exported."
+        ),
+    )
     history_cmd = db_sub.add_parser("history", help="Show append-only audit trail.")
     history_cmd.add_argument("--limit", type=int, default=20, help="Number of audit events to display.")
     history_cmd.add_argument("--type", dest="entity_type", default=None, help="Filter by entity type.")
@@ -245,6 +258,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "db":
             from .db import (
                 DEFAULT_DB_PATH,
+                export_profile_json,
                 get_audit_history,
                 get_connection,
                 load_profile_from_db,
@@ -265,6 +279,17 @@ def main(argv: list[str] | None = None) -> int:
                     print(
                         f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
                     )
+                elif args.db_action == "export-profile":
+                    destination = Path(args.output)
+                    if destination.exists() and not args.force:
+                        print(f"error: {destination} already exists; pass --force to overwrite.", file=sys.stderr)
+                        return 1
+                    # --force governs only the line above: it permits clobbering an existing
+                    # destination. It is not a licence to write bad data, so the placeholder
+                    # check lives inside export_profile_json where no flag can reach past it.
+                    export_profile_json(conn, destination)
+                    contact = load_profile_from_db(conn).contact
+                    print(f"Wrote {destination} from {DEFAULT_DB_PATH} ({contact.name} <{contact.email}>)")
                 elif args.db_action == "status":
                     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
                     if not cur.fetchone():

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .profile import Contact, Profile
+from .profile import REQUIRED_CONTACT_FIELDS, Contact, Profile, validate_contact
 from .selection import Selection
 
 SKILL_GROUP_LABELS = {
@@ -23,6 +23,26 @@ def render_resume(
     selection: Selection,
     template_path: Path = DEFAULT_TEMPLATE_PATH,
 ) -> str:
+    """Render a selection into LaTeX, refusing outright to render an undeliverable contact.
+
+    This is the single choke point every PDF in the repository passes through: `apply`'s
+    delivered one-pager, `tailor`'s preview, and `compile`'s canonical 3-page view all funnel
+    here, and any future entry point must too in order to produce a resume at all. The check
+    lives here rather than in each command because `tailor` proved the point -- it called
+    pipeline.tailor() directly, skipped validate_contact entirely, and happily emitted a
+    complete one-page `Simon_Chen_Resume.pdf` addressed to simon@example.com, named
+    identically to a delivered resume. The only thing standing between that file and a
+    recruiter was a sentence of prose in CLAUDE.md.
+
+    The canonical build is deliberately included: it carries the same contact header, and
+    "never send it to an employer" is a separate rule that has nothing to do with whether its
+    header can be answered.
+
+    apply() validates again, earlier, before anything is staged -- so a bad profile fails
+    before any filesystem artifact exists. That duplication is intentional; validating twice
+    costs microseconds and neither check subsumes the other's position in the flow.
+    """
+    validate_contact(profile.contact)
     template_path = Path(template_path)
     if not template_path.is_file():
         raise FileNotFoundError(f"Resume template not found: {template_path}")
@@ -53,9 +73,26 @@ def _href(url: str, label: str) -> str:
 
 
 def _heading(contact: Contact) -> list[str]:
-    links = [contact.phone] if contact.phone else []
-    if contact.email:
-        links.append(_href(f"mailto:{contact.email}", contact.email))
+    """Render the contact header.
+
+    ``name``, ``email`` and ``phone`` are mandatory and a missing one is a hard error:
+    dropping a field silently produced a header a recruiter cannot answer, and no downstream
+    gate could tell, because every gate compares the PDF against the profile that rendered
+    it. ``website``, ``linkedin`` and ``github`` stay optional and are simply omitted.
+
+    render_resume already ran the stricter validate_contact over the same fields; this loop
+    stays as a backstop so the rendering primitive is safe on its own terms.
+    """
+    for field_name in REQUIRED_CONTACT_FIELDS:
+        if not getattr(contact, field_name, "").strip():
+            raise ValueError(
+                f"Cannot render a resume header: contact.{field_name} is empty. A resume "
+                f"missing it cannot be answered; fix profile.json (recover it with "
+                f"`uv run worksisyphus db export-profile --force`) rather than shipping "
+                f"a header without it."
+            )
+
+    links = [contact.phone, _href(f"mailto:{contact.email}", contact.email)]
     for url in (contact.website, contact.linkedin, contact.github):
         if url:
             links.append(_href(url, _display_url(url)))

@@ -16,15 +16,14 @@ from worksisyphus.selection import TAILORED_NAME
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_tailored_resume_passes_all_gates(real_profile, delivered_pdf) -> None:
+def test_tailored_resume_passes_all_gates(deliverable_contact, delivered_pdf) -> None:
     """Every delivered resume lives in applications/; gate the most recent one."""
 
-    has_real_profile = (ROOT / "profile.json").is_file()
     gates = check_resume_gates(
         pdf_path=delivered_pdf,
-        candidate_name=real_profile.contact.name,
-        candidate_email=real_profile.contact.email if has_real_profile else "",
-        candidate_phone=real_profile.contact.phone if has_real_profile else "",
+        candidate_name=deliverable_contact.name,
+        candidate_email=deliverable_contact.email,
+        candidate_phone=deliverable_contact.phone,
         expected_pages=1,
     )
 
@@ -32,13 +31,12 @@ def test_tailored_resume_passes_all_gates(real_profile, delivered_pdf) -> None:
     assert not failed_gates, f"Gates failed: {[(g.gate_name, g.diagnostics) for g in failed_gates]}"
 
 
-def test_compiled_resume_passes_all_gates(real_profile, canonical_pdf) -> None:
-    has_real_profile = (ROOT / "profile.json").is_file()
+def test_compiled_resume_passes_all_gates(deliverable_contact, canonical_pdf) -> None:
     gates = check_resume_gates(
         pdf_path=canonical_pdf,
-        candidate_name=real_profile.contact.name,
-        candidate_email=real_profile.contact.email if has_real_profile else "",
-        candidate_phone=real_profile.contact.phone if has_real_profile else "",
+        candidate_name=deliverable_contact.name,
+        candidate_email=deliverable_contact.email,
+        candidate_phone=deliverable_contact.phone,
         expected_pages=3,
     )
 
@@ -109,3 +107,33 @@ def test_run_resume_gates_extracts_the_pdf_only_once(tmp_path, monkeypatch) -> N
     # The extraction is handed back so callers get the warnings without re-parsing.
     assert ats_res.warnings == ("merged date",)
     assert ats_res.word_count == 500
+
+
+def test_gates_fail_closed_when_contact_cannot_be_verified(tmp_path, monkeypatch) -> None:
+    """The proven bug: run_resume_gates(candidate_email="") once returned ALL GATES PASS.
+
+    The PDF's header says simon@example.com. Nothing was passed to contradict it, so every
+    gate agreed the resume was deliverable. run_resume_gates is the delivery path, so it now
+    requires the contact by default; a diagnostic caller opts out explicitly.
+    """
+    import worksisyphus.ats as ats_module
+    from worksisyphus.gates import run_resume_gates
+
+    pdf = tmp_path / "Simon_Chen_Resume.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+    text = (
+        "Simon Chen\nsimon@example.com $|$ 555-555-5555\n"
+        "Education\nBoston University\nExperience\nEngineer\nTechnical Skills\n" + "filler word " * 400
+    )
+    monkeypatch.setattr(ats_module, "extract_text", lambda _path: text)
+    monkeypatch.setattr(ats_module.PDFPage, "get_pages", lambda _fh: [object()])
+
+    strict, _ = run_resume_gates(pdf, candidate_name="Simon Chen", candidate_email="", expected_pages=1)
+    ats_gate = next(g for g in strict if g.gate_name.startswith("ATS"))
+    assert not ats_gate.passed
+    assert any("not provided" in d for d in ats_gate.diagnostics)
+
+    lenient, _ = run_resume_gates(
+        pdf, candidate_name="Simon Chen", candidate_email="", expected_pages=1, require_contact=False
+    )
+    assert all(g.passed for g in lenient), [(g.gate_name, g.diagnostics) for g in lenient]

@@ -9,6 +9,7 @@ import re
 import shutil
 import tempfile
 from collections.abc import Callable, Collection, Iterable
+from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -18,7 +19,7 @@ from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
 from .gates import run_resume_gates
 from .pipeline import tailor
-from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
+from .profile import DEFAULT_PROFILE_PATH, Contact, Profile, load_profile, validate_contact
 
 APPLICATIONS_DIR = Path("applications")
 STATUSES = ("applied", "phone_screen", "onsite", "offer", "rejected")
@@ -40,6 +41,140 @@ def slugify(text: str) -> str:
     text = text.lower().strip()
     text = re.sub(r"[^\w\s-]", "", text)
     return re.sub(r"[\s_-]+", "-", text).strip("-")
+
+
+def _is_default_applications_dir(applications_dir: Path) -> bool:
+    """Is this the live applications/ directory, however it was spelled?
+
+    A bare ``Path.__eq__`` compares strings, so ``Path.cwd() / "applications"`` did not equal
+    ``Path("applications")`` and an equivalent-but-absolute path silently switched off both the
+    contact cross-check and database persistence -- no error, no log. That is the same failure
+    shape as the incident: a safety check that disappears without saying so.
+
+    ``resolve()`` also follows symlinks, which is what we want here: a symlinked applications/
+    is still the live delivery directory, and a run into it must be cross-checked and recorded
+    like any other. It is used non-strictly, so a directory that does not exist yet (the first
+    apply in a fresh clone) still compares correctly.
+    """
+    return Path(applications_dir).resolve() == APPLICATIONS_DIR.resolve()
+
+
+def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | None:
+    """Which database this run should cross-check and record against, or None for neither.
+
+    An explicit db_path always wins. Otherwise the default database is used only for a real
+    delivery into applications/; a run staged into some other directory (tests, scratch
+    builds) must not touch the live store. Imported lazily: db.py is a store, not a source,
+    and the render path must not depend on it at import time.
+    """
+    if db_path is not None:
+        return Path(db_path)
+    from .db import DEFAULT_DB_PATH
+
+    return DEFAULT_DB_PATH if _is_default_applications_dir(applications_dir) else None
+
+
+@dataclass(frozen=True)
+class ContactCrossCheck:
+    """Whether the contact block was verified against the independent copy in the database.
+
+    A plain bool carried this too, but apply() discarded it and the reason for a skip existed
+    only as a string handed to ``log``, which defaults to ``_silent``. Nothing on disk recorded
+    it, so a reader of an application folder could not tell "contact was verified against the
+    database" from "contact could not be verified" -- precisely the ambiguity the incident
+    lived inside. ``as_meta()`` freezes the answer into meta.json, next to ``evaluation``,
+    which is there for the same reason: it records what was true when the resume was sent.
+    """
+
+    ran: bool
+    database: str = ""
+    reason: str = ""
+
+    def as_meta(self) -> dict[str, Any]:
+        return {
+            # validate_contact ran unconditionally before this point in apply(); had it failed,
+            # this folder would never have been published.
+            "rules_checked": True,
+            "cross_checked_against_db": self.ran,
+            "database": self.database,
+            "skip_reason": self.reason,
+        }
+
+
+def cross_check_contact_against_db(
+    contact: Contact,
+    db_path: Path | None,
+    log: Log = _silent,
+) -> ContactCrossCheck:
+    """Compare the profile's contact block against the independent copy in the database.
+
+    This is the check that would have caught the incident. profile.json vanished and a
+    fixture with a scrubbed contact block stood in for it; every quality gate passed,
+    because each one compares the rendered PDF against the very profile that rendered it.
+    The database still held the real name, email and phone the whole time -- so a second,
+    independent copy is the only thing that can contradict a wrong profile.
+
+    Returns a ContactCrossCheck saying whether the check actually ran and, when it did not,
+    why. A missing database or a database with no contact row is skipped and reported, never
+    treated as agreement: the rules in validate_contact still apply, so a fresh clone or CI is
+    protected but not silently "verified". The caller freezes that answer into meta.json --
+    the skip must survive somewhere a human can read it later, not only in a log line.
+    """
+    database = str(db_path) if db_path is not None else ""
+
+    def skipped(reason: str) -> ContactCrossCheck:
+        log(f"Contact cross-check skipped: {reason}")
+        return ContactCrossCheck(ran=False, database=database, reason=reason)
+
+    if db_path is None:
+        return skipped("this run is not writing to the default database.")
+    if not db_path.is_file():
+        return skipped(f"no database at {db_path} (fresh clone or CI). Rule checks still applied.")
+
+    from .db import get_connection, load_profile_from_db
+
+    conn = get_connection(db_path)
+    try:
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
+        if cur.fetchone() is None:
+            return skipped(f"{db_path} has no contact table. Run `uv run worksisyphus db sync`.")
+        db_contact = load_profile_from_db(conn).contact
+    finally:
+        conn.close()
+
+    if not any((db_contact.name, db_contact.email, db_contact.phone)):
+        return skipped(f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.")
+
+    # The database side gets the same rules as the profile side. The previous round left this
+    # unchecked on the argument that "seeding can no longer corrupt the database" -- an
+    # argument that was false at the time (seed_database validated only that profile.json
+    # *existed*, not what it held) and is only now true. Defence in depth is still worth its
+    # two lines: corruption can arrive by routes that never touch seed_database -- a hand-run
+    # UPDATE, a restore of a Turso copy poisoned before this fix, a database that predates it
+    # -- and this check cannot block a build that the mismatch list below would have let
+    # through. A placeholder in the database either differs from the profile (mismatch, blocked
+    # either way) or matches it, which is unreachable: validate_contact ran over the profile in
+    # apply() before this function was called. All it changes is the diagnosis, from "contact
+    # details disagree" to the specific, actionable "your database holds placeholder data".
+    try:
+        validate_contact(db_contact, source=str(db_path))
+    except ValueError as exc:
+        raise ValueError(f"Refusing to build a resume: {exc}") from exc
+
+    mismatches = [
+        f"contact.{field_name}: profile has {getattr(contact, field_name)!r}, database has {getattr(db_contact, field_name)!r}"
+        for field_name in ("name", "email", "phone", "website", "github", "linkedin")
+        if getattr(contact, field_name) != getattr(db_contact, field_name)
+    ]
+    if mismatches:
+        joined = "\n".join(f"- {m}" for m in mismatches)
+        raise ValueError(
+            f"Contact details disagree with {db_path}; refusing to build a resume until they match.\n{joined}\n"
+            f"The database is the surviving copy: if profile.json is the one that is wrong, restore it with "
+            f"`uv run worksisyphus db export-profile --force`. If profile.json is right, publish it with "
+            f"`uv run worksisyphus db sync`."
+        )
+    return ContactCrossCheck(ran=True, database=database)
 
 
 def parse_app_folder(name: str, siblings: Collection[str] = ()) -> tuple[str, str, int | None]:
@@ -105,6 +240,7 @@ def apply(
     profile: Profile | None = None,
     profile_path: Path = DEFAULT_PROFILE_PATH,
     applications_dir: Path | None = None,
+    db_path: Path | None = None,
     sync_cloud: bool = True,
     log: Log = _silent,
 ) -> tuple[Path, CompileResult, ATSCheckResult]:
@@ -119,6 +255,12 @@ def apply(
     applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     when = when or date.today()
 
+    # Contact validation runs before anything is compiled or staged.
+    active_profile = profile if profile is not None else load_profile(profile_path)
+    validate_contact(active_profile.contact, source=str(profile_path))
+    resolved_db_path = _resolve_db_path(db_path, applications_dir)
+    contact_cross_check = cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
+
     # Deterministic naming strictly derived from company and role (#34). The underscore is the
     # folder grammar's structural separator (it delimits the retry ordinal), so slugify must
     # never emit one; this fails loudly instead of corrupting the namespace if that ever changes.
@@ -130,7 +272,6 @@ def apply(
 
     base_target = applications_dir / f"{when.isoformat()}_{app_stem}"
 
-    active_profile = profile if profile is not None else load_profile(profile_path)
     normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
 
     # Atomic publication: stage inside applications_dir so the final publish is a same-filesystem
@@ -161,6 +302,11 @@ def apply(
             "date": when.isoformat(),
             "source_url": source_url,
             "status": STATUSES[0],
+            # Frozen alongside the resume: a folder must state whether its contact details were
+            # verified against the database, not leave a reader guessing. Absent on folders
+            # published before this field existed, which reads as "not recorded" -- distinct
+            # from both "verified" and "skipped", and honest, since it cannot be reconstructed.
+            "contact_verification": contact_cross_check.as_meta(),
         }
         # 3. Quality gates and ATS validation, reusing a single PDF extraction
         gate_results, ats_result = run_resume_gates(
@@ -209,10 +355,10 @@ def apply(
     compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
     # 5. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
-    from .db import DEFAULT_DB_PATH, get_connection, save_application_to_db
+    from .db import get_connection, save_application_to_db
 
-    if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
-        conn = get_connection(DEFAULT_DB_PATH)
+    if resolved_db_path is not None and resolved_db_path.is_file():
+        conn = get_connection(resolved_db_path)
         try:
             save_application_to_db(
                 conn=conn,
@@ -266,6 +412,30 @@ def evaluate_application(
     }
 
 
+def _lazy_candidate_name(profile: Profile | None, profile_path: Path, log: Log) -> Callable[[], str]:
+    """Resolve the candidate name on first use, tolerating an absent profile.
+
+    Used only by the scoring path, which labels a report and delivers nothing. A missing
+    profile there is a degraded label, not a dead resume, so it is logged and the scoring
+    continues; the delivery path (apply) still refuses outright.
+    """
+    resolved: list[str] = []
+
+    def resolve() -> str:
+        if not resolved:
+            if profile is not None:
+                resolved.append(profile.contact.name)
+            else:
+                try:
+                    resolved.append(load_profile(profile_path).contact.name)
+                except FileNotFoundError:
+                    log(f"No {profile_path} on disk; scoring without a candidate name (nothing is delivered here).")
+                    resolved.append("")
+        return resolved[0]
+
+    return resolve
+
+
 def backfill_evaluations(
     applications_dir: Path | None = None,
     overwrite: bool = False,
@@ -277,12 +447,18 @@ def backfill_evaluations(
 
     Returns (application_id, total_score) for each one scored. Existing evaluations are kept
     unless overwrite is set, so re-running is safe and idempotent.
+
+    Backfill re-scores resumes that were already delivered; it publishes nothing, so it must
+    not require the live profile.json. The candidate name is resolved lazily and only if some
+    application actually needs scoring -- an eager load made a run over an explicitly named
+    applications_dir fail on any checkout without a profile (it is gitignored), which since
+    load_profile stopped falling back to the fixture means every fresh clone and CI.
     """
     applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
     scored: list[tuple[str, float | None]] = []
     if not applications_dir.is_dir():
         return scored
-    candidate_name = (profile if profile is not None else load_profile(profile_path)).contact.name
+    resolve_name = _lazy_candidate_name(profile, profile_path, log)
 
     for folder in sorted(applications_dir.iterdir()):
         if not folder.is_dir() or folder.name.startswith("."):
@@ -304,7 +480,7 @@ def backfill_evaluations(
             resume_text=resume_text,
             jd_text=jd_text,
             role=meta.get("role", ""),
-            candidate_name=candidate_name,
+            candidate_name=resolve_name(),
         )
         meta["evaluation"] = evaluation
         temporary = meta_file.with_name(f"{meta_file.name}.tmp")
@@ -419,7 +595,7 @@ def update_application_status(
 
     from .db import DEFAULT_DB_PATH, get_connection, update_application_status_in_db
 
-    if applications_dir == APPLICATIONS_DIR and DEFAULT_DB_PATH.is_file():
+    if _is_default_applications_dir(applications_dir) and DEFAULT_DB_PATH.is_file():
         conn = get_connection(DEFAULT_DB_PATH)
         try:
             update_application_status_in_db(conn, target_folder.name, new_status)

@@ -236,7 +236,7 @@ def evaluate_resume_text(
             gates = (
                 gate_results
                 if gate_results is not None
-                else check_resume_gates(pdf_path, candidate_name=candidate_name)  # type: ignore[arg-type]
+                else check_resume_gates(pdf_path, candidate_name=candidate_name, require_contact=False)  # type: ignore[arg-type]
             )
             failed_gates = [g for g in gates if not g.passed]
             if failed_gates:
@@ -280,7 +280,9 @@ def evaluate_resume_text(
 
 def evaluate_pdf_against_jd(pdf_path: Path, jd_text: str, candidate_name: str = "Simon Chen") -> EvaluationReport:
     """Evaluate a compiled PDF file directly against a job description."""
-    gates, ats_res = run_resume_gates(pdf_path, candidate_name=candidate_name)
+    # Diagnostic scoring, not delivery: only a name is available here, so an unverifiable
+    # email/phone must not be reported as a gate failure. apply() runs the strict form.
+    gates, ats_res = run_resume_gates(pdf_path, candidate_name=candidate_name, require_contact=False)
     return evaluate_resume_text(
         resume_text=ats_res.text,
         jd_text=jd_text,

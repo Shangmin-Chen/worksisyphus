@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -21,12 +22,13 @@ def real_profile() -> Profile:
 
 
 @pytest.fixture(scope="session")
-def delivered_pdf() -> Path:
-    """The newest delivered resume.
+def renderable_profile(real_profile) -> Profile:
+    return real_profile
 
-    applications/ is the only place a delivered PDF exists, and it is gitignored, so CI has
-    none and every test depending on a real PDF skips there.
-    """
+
+@pytest.fixture(scope="session")
+def delivered_pdf() -> Path:
+    """The newest delivered resume."""
     apps = ROOT / "applications"
     if apps.is_dir():
         for folder in sorted((d for d in apps.iterdir() if d.is_dir()), reverse=True):
@@ -45,10 +47,29 @@ def canonical_pdf() -> Path:
     return pdf
 
 
+@pytest.fixture(scope="session")
+def deliverable_contact(real_profile) -> Contact:
+    if not (ROOT / "profile.json").is_file():
+        pytest.skip("no profile.json on disk; contact extraction cannot be verified")
+    return real_profile.contact
+
+
+@pytest.fixture()
+def invalid_contact_profile(small_profile) -> Profile:
+    return dataclasses.replace(
+        small_profile,
+        contact=Contact(
+            name="Simon Chen",
+            email="",
+            phone="",
+        ),
+    )
+
+
 @pytest.fixture()
 def small_profile() -> Profile:
     return Profile(
-        contact=Contact(name="Simon Chen", email="s@example.com", phone="555-0100"),
+        contact=Contact(name="Simon Chen", email="simon.chen@fixture.test", phone="617-201-4477"),
         education=(Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),),
         experiences={
             "org-a": Experience(

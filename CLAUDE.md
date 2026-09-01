@@ -45,7 +45,7 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
    Only one of `--jd`/`--plan` may read stdin at a time: when the JD comes via `-`, pass the plan by file path (and vice versa).
 
-   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`, and `evaluation` — the HackerRank hiring-agent score for the resume as sent), runs the ATS extraction check, inserts into `worksisyphus.db` (including `evaluation_json`), and automatically syncs to Turso cloud. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
+   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`, `evaluation` — the HackerRank hiring-agent score for the resume as sent — and `contact_verification`, recording whether the contact block was cross-checked against the database and, if not, why; folders published before that field existed simply omit it, which reads as "not recorded"), runs the ATS extraction check, inserts into `worksisyphus.db` (including `evaluation_json`), and automatically syncs to Turso cloud. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
 
 5. **Deliver.** The resume is done when `apply` succeeds (compiles to exactly 1 page AND has no horizontal overflow AND passes all quality gates: ATS, No-GPA, Banned Content, LaTeX Leaks, Content Density) — no user sign-off is required. Send the PDF along with what was picked, why, and exactly what the trim loop cut (if anything).
 
@@ -78,6 +78,7 @@ uv run worksisyphus backfill-evals [--overwrite]  # score applications that pred
 uv run worksisyphus db status                    # show database overview, metrics, and connection status
 uv run worksisyphus db history [--limit N]       # show append-only timestamped audit trail
 uv run worksisyphus db sync                      # load profile.json into SQLite and push to Turso cloud
+uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery path for a lost profile; refuses to write a placeholder contact block, --force or not)
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
 ```
