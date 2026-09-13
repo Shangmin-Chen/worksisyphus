@@ -13,12 +13,11 @@ from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-from .db import TursoSyncResult
+from typing import Any
 
 from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
+from .db import TursoSyncResult
 from .gates import run_resume_gates
 from .pipeline import tailor
 from .profile import DEFAULT_PROFILE_PATH, Contact, Profile, load_profile, validate_contact

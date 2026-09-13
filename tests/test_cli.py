@@ -266,7 +266,6 @@ def test_cli_backfill_evals_reports_turso_sync_failure(monkeypatch, tmp_path, ca
 def test_cli_apply_returns_nonzero_on_turso_push_failure(monkeypatch, tmp_path, capsys) -> None:
     import io
 
-    from worksisyphus import db
     from worksisyphus.ats import ATSCheckResult
     from worksisyphus.compiler import CompileResult
     from worksisyphus.db import TursoSyncResult

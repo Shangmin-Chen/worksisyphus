@@ -99,6 +99,10 @@ def _turso_output_indicates_error(stdout: str, stderr: str) -> str | None:
 _SYNC_HEADER_SQL = """
 SELECT COALESCE((SELECT name FROM contact WHERE id = 1), '')
 || '|' || COALESCE((SELECT email FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT phone FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT website FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT github FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT linkedin FROM contact WHERE id = 1), '')
 || '|' || (SELECT COUNT(*) FROM applications)
 || '|' || (
     (SELECT COUNT(*) FROM experience_bullets)
@@ -109,12 +113,15 @@ SELECT COALESCE((SELECT name FROM contact WHERE id = 1), '')
 _SYNC_APPLICATIONS_CANONICAL_SQL = """
 SELECT COALESCE((
     SELECT GROUP_CONCAT(
-        id || char(31) || jd_text || char(31) || plan_json || char(31) || evaluation_json,
+        id || char(31) || company || char(31) || role || char(31) || date || char(31) || source_url
+            || char(31) || status || char(31) || jd_text || char(31) || plan_json || char(31) || evaluation_json,
         char(30) ORDER BY id
     )
     FROM applications
 ), '')
 """
+
+_TURSO_SPINNER_PREFIXES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
 _SYNC_PROFILE_CANONICAL_PARTS: tuple[str, ...] = (
     """
@@ -191,7 +198,7 @@ def _digest_payload(payload: str) -> str:
 
 def _fetch_sync_header(conn: sqlite3.Connection) -> str:
     row = conn.execute(_SYNC_HEADER_SQL).fetchone()
-    return row[0] if row else "||||0"
+    return row[0] if row else "|||||||0"
 
 
 def _fetch_applications_canonical(conn: sqlite3.Connection) -> str:
@@ -220,12 +227,28 @@ def _compute_sync_fingerprint(db_path: Path) -> SyncFingerprint:
         conn.close()
 
 
+def _is_turso_noise_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    if any(stripped.startswith(prefix) for prefix in _TURSO_SPINNER_PREFIXES):
+        return True
+    return stripped.lower().startswith("connecting")
+
+
 def _turso_shell_scalar(proc: subprocess.CompletedProcess) -> str:
     error = _turso_output_indicates_error(proc.stdout, proc.stderr)
     if proc.returncode != 0 or error:
         message = error or proc.stderr.strip() or proc.stdout.strip()
         raise RuntimeError(message or f"Turso command exited with code {proc.returncode}")
-    return proc.stdout.rstrip("\n")
+    lines = proc.stdout.splitlines()
+    while lines and _is_turso_noise_line(lines[0]):
+        lines.pop(0)
+    while lines and _is_turso_noise_line(lines[-1]):
+        lines.pop()
+    if not lines:
+        return ""
+    return "\n".join(lines)
 
 
 def _run_turso_query(

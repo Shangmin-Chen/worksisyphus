@@ -1130,6 +1130,79 @@ def test_sync_fingerprint_detects_jd_text_change_with_same_counts(tmp_path: Path
     assert first.applications_digest != second.applications_digest
 
 
+def test_sync_fingerprint_detects_status_change_with_same_counts(tmp_path: Path) -> None:
+    from worksisyphus.db import _compute_sync_fingerprint, seed_database
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    apps = tmp_path / "applications"
+    app = apps / "2026-08-01_acme_swe"
+    app.mkdir(parents=True)
+    (app / "meta.json").write_text(
+        json.dumps({"company": "Acme", "role": "SWE", "date": "2026-08-01", "status": "applied"}),
+        encoding="utf-8",
+    )
+    (app / "jd.txt").write_text("Stable JD text", encoding="utf-8")
+    (app / "plan.json").write_text("{}", encoding="utf-8")
+
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+    first = _compute_sync_fingerprint(fake_db)
+
+    (app / "meta.json").write_text(
+        json.dumps({"company": "Acme", "role": "SWE", "date": "2026-08-01", "status": "phone_screen"}),
+        encoding="utf-8",
+    )
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+    second = _compute_sync_fingerprint(fake_db)
+
+    assert first.header == second.header
+    assert first.applications_digest != second.applications_digest
+
+
+def test_sync_fingerprint_detects_contact_phone_change(tmp_path: Path) -> None:
+    from worksisyphus.db import _compute_sync_fingerprint, seed_database
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_data = _fixture_data_with_deliverable_contact()
+    profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
+
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    first = _compute_sync_fingerprint(fake_db)
+
+    profile_data["contact"]["phone"] = "617-555-0199"
+    profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    second = _compute_sync_fingerprint(fake_db)
+
+    assert first.header != second.header
+    assert first.applications_digest == second.applications_digest
+    assert first.profile_digest == second.profile_digest
+
+
+def test_turso_shell_scalar_strips_spinner_prefix() -> None:
+    import subprocess
+
+    from worksisyphus.db import _turso_shell_scalar
+
+    proc = subprocess.CompletedProcess(
+        [],
+        0,
+        "⠋ Connecting to Turso...\nSimon Chen|simon.chen@fixture.test|617-266-1810\n",
+        "",
+    )
+    assert _turso_shell_scalar(proc) == "Simon Chen|simon.chen@fixture.test|617-266-1810"
+
+
 def test_sync_to_turso_rejects_verify_when_jd_text_differs_but_counts_match(tmp_path: Path, monkeypatch) -> None:
     import subprocess
 
