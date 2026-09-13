@@ -263,18 +263,18 @@ def evaluate_resume_text(
 
     # Strengths & Suggestions
     strengths = []
-    if role_alignment_score >= 32:
+    if role_alignment_score >= int(ROLE_ALIGNMENT_MAX * 0.8):
         strengths.append(f"Strong tech stack alignment ({len(matched)} matched keywords: {', '.join(matched[:5])})")
-    if technical_depth_score >= 24:
+    if technical_depth_score >= int(TECHNICAL_DEPTH_MAX * 0.8):
         strengths.append("High engineering signal with low-level systems & concurrency experience")
-    if impact_metrics_score >= 15:
+    if impact_metrics_score >= int(IMPACT_METRICS_MAX * 0.75):
         strengths.append(f"Rich quantified metrics across experience and projects ({len(metrics)} distinct metrics)")
 
     suggestions = []
     if missing:
         prominent_missing = missing[:4]
         suggestions.append(f"Consider highlighting JD competencies if applicable: {', '.join(prominent_missing)}")
-    if impact_metrics_score < 12:
+    if impact_metrics_score < int(IMPACT_METRICS_MAX * 0.6):
         suggestions.append("Add more quantified impact and performance numbers to bullet points")
 
     return EvaluationReport(
@@ -317,10 +317,10 @@ def format_evaluation_report(report: EvaluationReport, target_role: str = "Targe
         f"Overall Match Score: {report.overall_score} / 100",
         "-" * 64,
         "SCORE BREAKDOWN:",
-        f"  • Role Alignment:       {report.role_alignment_score:>2} / 40  ({len(report.matched_keywords)} matched tech terms)",
-        f"  • Technical Depth:      {report.technical_depth_score:>2} / 30  (Architecture & systems density)",
-        f"  • Impact & Evidence:    {report.impact_metrics_score:>2} / 20  ({len(report.extracted_metrics)} quantified metrics)",
-        f"  • Gate Compliance:      {report.gate_compliance_score:>2} / 10  (Strict 1-page & ATS checks)",
+        f"  • Role Alignment:       {report.role_alignment_score:>2} / {ROLE_ALIGNMENT_MAX}  ({len(report.matched_keywords)} matched tech terms)",
+        f"  • Technical Depth:      {report.technical_depth_score:>2} / {TECHNICAL_DEPTH_MAX}  (Architecture & systems density)",
+        f"  • Impact & Evidence:    {report.impact_metrics_score:>2} / {IMPACT_METRICS_MAX}  ({len(report.extracted_metrics)} quantified metrics)",
+        f"  • Gate Compliance:      {report.gate_compliance_score:>2} / {GATE_COMPLIANCE_MAX}  (Strict 1-page & ATS checks)",
         "-" * 64,
     ]
 

@@ -92,6 +92,16 @@ def test_scoring_constants_match_the_reported_maxima() -> None:
     """A mechanical gate: a future constant edit that desyncs the report header must fail the build."""
     assert ROLE_ALIGNMENT_MAX + TECHNICAL_DEPTH_MAX + IMPACT_METRICS_MAX + GATE_COMPLIANCE_MAX == 100
 
+    report = evaluate_resume_text(
+        resume_text="C++ developer with 20µs latency optimizations.",
+        jd_text="C++ systems developer.",
+    )
+    formatted = format_evaluation_report(report)
+    assert f"/ {ROLE_ALIGNMENT_MAX}" in formatted
+    assert f"/ {TECHNICAL_DEPTH_MAX}" in formatted
+    assert f"/ {IMPACT_METRICS_MAX}" in formatted
+    assert f"/ {GATE_COMPLIANCE_MAX}" in formatted
+
 
 def test_evaluator_scores_are_unchanged_by_the_constant_extraction() -> None:
     """Characterization test: hoisting magic numbers to named constants must change no value.
