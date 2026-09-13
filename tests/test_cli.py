@@ -227,7 +227,7 @@ def test_cli_db_commands_report_turso_sync_failure(monkeypatch, tmp_path, capsys
     monkeypatch.chdir(tmp_path)
     _write_minimal_profile(tmp_path)
 
-    assert cli.main(command) == 0
+    assert cli.main(command) == 1
     out = capsys.readouterr().out
     assert "Turso cloud sync: failed (auth expired)" in out
     assert "Synced profile.json to SQLite and Turso cloud" not in out
@@ -251,7 +251,7 @@ def test_cli_backfill_evals_reports_turso_sync_failure(monkeypatch, tmp_path, ca
         lambda *args, **kwargs: [("2026-01-01_acme_swe", 82.0)],
     )
 
-    assert cli.main(["backfill-evals"]) == 0
+    assert cli.main(["backfill-evals"]) == 1
     out = capsys.readouterr().out
     assert "Turso cloud sync: failed (network timeout)" in out
     assert "Synced profile.json to SQLite and Turso cloud" not in out

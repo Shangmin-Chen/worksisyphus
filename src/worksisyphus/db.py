@@ -95,27 +95,34 @@ def _turso_output_indicates_error(stdout: str, stderr: str) -> str | None:
     return None
 
 
+_SYNC_FINGERPRINT_EXPR = """
+COALESCE((SELECT name FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT email FROM contact WHERE id = 1), '')
+|| '|' || (SELECT COUNT(*) FROM applications)
+|| '|' || (SELECT COUNT(*) FROM audit_events)
+|| '|' || (
+    (SELECT COUNT(*) FROM experience_bullets)
+    + (SELECT COUNT(*) FROM project_bullets)
+)
+|| '|' || COALESCE((
+    SELECT GROUP_CONCAT(jd_text || char(31) || plan_json, char(30) ORDER BY id)
+    FROM applications
+), '')
+"""
+
+
 def _compute_sync_fingerprint(db_path: Path) -> str:
     conn = sqlite3.connect(str(db_path))
     try:
-        row = conn.execute(
-            """
-            SELECT COALESCE((SELECT name FROM contact WHERE id = 1), '')
-                || '|' || (SELECT COUNT(*) FROM applications)
-                || '|' || (SELECT COUNT(*) FROM audit_events)
-            """
-        ).fetchone()
-        return row[0] if row else "||0|0"
+        row = conn.execute(f"SELECT {_SYNC_FINGERPRINT_EXPR}").fetchone()
+        return row[0] if row else "|||||0|0|"
     finally:
         conn.close()
 
 
 def _verify_sql_for_fingerprint(fingerprint: str) -> str:
-    return (
-        "SELECT COALESCE((SELECT name FROM contact WHERE id = 1), '') "
-        "|| '|' || (SELECT COUNT(*) FROM applications) "
-        f"|| '|' || (SELECT COUNT(*) FROM audit_events) = '{fingerprint.replace(chr(39), chr(39) * 2)}';"
-    )
+    escaped = fingerprint.replace("'", "''")
+    return f"SELECT {_SYNC_FINGERPRINT_EXPR} = '{escaped}';"
 
 
 ACTION_APPLY = "APPLY"
@@ -326,6 +333,7 @@ def _scan_application_folders(
     """Read application folders from disk, failing closed before any database writes."""
     application_rows: list[tuple[Path, dict[str, Any], str, str, str]] = []
     malformed_meta: list[str] = []
+    missing_meta: list[str] = []
     if not applications_dir.is_dir():
         return application_rows
 
@@ -336,6 +344,7 @@ def _scan_application_folders(
         jd_file = folder / "jd.txt"
         plan_file = folder / "plan.json"
         if not meta_file.is_file():
+            missing_meta.append(folder.name)
             continue
         try:
             meta = json.loads(meta_file.read_text(encoding="utf-8"))
@@ -350,8 +359,10 @@ def _scan_application_folders(
         evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
         application_rows.append((folder, meta, jd_text, plan_json, evaluation_json))
 
-    if malformed_meta:
-        details = "\n".join(f"  {entry}" for entry in malformed_meta)
+    if missing_meta or malformed_meta:
+        entries = [f"  {name}: missing meta.json" for name in missing_meta]
+        entries.extend(f"  {entry}" for entry in malformed_meta)
+        details = "\n".join(entries)
         raise ValueError("Refusing to seed the database: malformed application meta.json in:\n" + details)
     return application_rows
 
@@ -994,16 +1005,16 @@ def sync_to_turso(
             ["sqlite3", str(db_path), ".dump"],
             capture_output=True,
             text=True,
-            check=True,
         )
+        if dump_proc.returncode != 0 or not dump_proc.stdout.strip():
+            message = dump_proc.stderr.strip() or f"sqlite3 .dump exited with code {dump_proc.returncode}"
+            detail = f"failed ({message})"
+            log(f"Warning: Turso cloud sync failed: {message}")
+            return TursoSyncResult(synced=False, detail=detail)
         full_sync_sql = build_sync_sql(dump_proc.stdout)
         if full_sync_sql is None:
             detail = "failed (invalid sync SQL payload)"
-            log("Warning: Failed to construct valid sync SQL payload; cloud sync skipped.")
-            return TursoSyncResult(synced=False, detail=detail)
-        if "unistr(" in full_sync_sql:
-            detail = "failed (unistr() literals remain after decode)"
-            log("Warning: Sync SQL still contains unistr(); cloud sync skipped.")
+            log("Warning: Turso cloud sync failed: invalid sync SQL payload.")
             return TursoSyncResult(synced=False, detail=detail)
 
         fingerprint = _compute_sync_fingerprint(db_path)

@@ -59,6 +59,13 @@ def _fit_column(value: object, width: int) -> str:
     return text if len(text) <= width else f"{text[: width - 1]}…"
 
 
+def _turso_sync_exit_code(detail: str, synced: bool) -> int:
+    """Return 1 for real Turso push failures; expected skips stay exit 0."""
+    if synced:
+        return 0
+    return 1 if detail.startswith("failed") else 0
+
+
 def _add_git_sync_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
     parser.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
@@ -268,16 +275,21 @@ def main(argv: list[str] | None = None) -> int:
                     seed_database(conn)
                 finally:
                     conn.close()
+                sync_exit = 0
                 if not args.no_sync:
                     turso_result = sync_to_turso(
                         allow_branch=args.allow_branch,
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    print(
-                        f"Turso cloud sync: {turso_result.detail or ('synced' if turso_result.synced else 'skipped / failed')}"
+                    detail = turso_result.detail or (
+                        "synced" if turso_result.synced else "skipped / failed"
                     )
+                    print(f"Turso cloud sync: {detail}")
+                    sync_exit = _turso_sync_exit_code(detail, turso_result.synced)
                 print(f"Scored {len(scored)} application(s).")
+                if sync_exit:
+                    return 1
         elif args.command == "db":
             from .db import (
                 DEFAULT_DB_PATH,
@@ -301,9 +313,12 @@ def main(argv: list[str] | None = None) -> int:
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    print(
-                        f"Turso cloud sync: {turso_result.detail or ('synced' if turso_result.synced else 'skipped / failed')}"
+                    detail = turso_result.detail or (
+                        "synced" if turso_result.synced else "skipped / failed"
                     )
+                    print(f"Turso cloud sync: {detail}")
+                    if _turso_sync_exit_code(detail, turso_result.synced):
+                        return 1
                 elif args.db_action == "sync":
                     seed_database(conn)
                     print("Seeded SQLite from profile.json")
@@ -312,9 +327,12 @@ def main(argv: list[str] | None = None) -> int:
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    print(
-                        f"Turso cloud sync: {turso_result.detail or ('synced' if turso_result.synced else 'skipped / failed')}"
+                    detail = turso_result.detail or (
+                        "synced" if turso_result.synced else "skipped / failed"
                     )
+                    print(f"Turso cloud sync: {detail}")
+                    if _turso_sync_exit_code(detail, turso_result.synced):
+                        return 1
                 elif args.db_action == "export-profile":
                     destination = Path(args.output)
                     if destination.exists() and not args.force:
