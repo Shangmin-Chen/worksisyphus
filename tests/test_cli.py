@@ -400,6 +400,10 @@ def test_cli_evaluate_app_jd_threads_contact_into_gates(tmp_path, capsys, monkey
 
     monkeypatch.setattr(application, "APPLICATIONS_DIR", tmp_path / "applications")
     monkeypatch.setattr(cli, "load_profile", lambda: small_profile)
+    monkeypatch.setattr(
+        "worksisyphus.ats.check_pdf_ats",
+        lambda *args, **kwargs: ATSCheckResult(True, (), 1, 500, "Python backend developer"),
+    )
 
     captured: dict[str, str] = {}
 
@@ -428,6 +432,10 @@ def test_cli_evaluate_no_target_fallback_uses_latest_pdf(tmp_path, capsys, monke
 
     monkeypatch.setattr(cli, "_latest_application_pdf", lambda applications_dir=None: pdf)
     monkeypatch.setattr(
+        "worksisyphus.ats.check_pdf_ats",
+        lambda *args, **kwargs: ATSCheckResult(True, (), 1, 500, "Python backend developer"),
+    )
+    monkeypatch.setattr(
         "worksisyphus.evaluator.run_resume_gates",
         lambda pdf_path, **kwargs: ((), ATSCheckResult(True, (), 1, 500, "Python backend developer")),
     )
@@ -454,6 +462,40 @@ def test_cli_evaluate_missing_resume_hackerrank_raises(tmp_path, capsys) -> None
     assert str(missing) in captured.err
 
 
+def test_cli_evaluate_zero_byte_pdf_raises(tmp_path, capsys) -> None:
+    empty_pdf = tmp_path / "empty.pdf"
+    empty_pdf.write_bytes(b"")
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Python backend developer.", encoding="utf-8")
+
+    ret = cli.main(["evaluate", "--resume", str(empty_pdf), "--jd", str(jd_file)])
+    assert ret == 1
+    captured = capsys.readouterr()
+    assert "RESUME EVALUATION REPORT" not in captured.out
+    assert "error:" in captured.err
+    assert "no extractable text" in captured.err
+    assert str(empty_pdf) in captured.err
+
+
+def test_cli_evaluate_empty_pdf_hackerrank_raises(tmp_path, capsys, monkeypatch) -> None:
+    from worksisyphus.ats import ATSCheckResult
+
+    pdf = tmp_path / "empty.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr(
+        "worksisyphus.ats.check_pdf_ats",
+        lambda *args, **kwargs: ATSCheckResult(True, (), 1, 0, ""),
+    )
+
+    ret = cli.main(["evaluate", "--resume", str(pdf), "--hackerrank"])
+    assert ret == 1
+    captured = capsys.readouterr()
+    assert "HACKERRANK HIRING AGENT SCORECARD" not in captured.out
+    assert "error:" in captured.err
+    assert "no extractable text" in captured.err
+
+
 def test_cli_evaluate_resume_jd_does_not_load_profile(tmp_path, capsys, monkeypatch) -> None:
     from worksisyphus.ats import ATSCheckResult
 
@@ -466,6 +508,10 @@ def test_cli_evaluate_resume_jd_does_not_load_profile(tmp_path, capsys, monkeypa
         raise AssertionError("load_profile must not be called for --resume --jd")
 
     monkeypatch.setattr(cli, "load_profile", boom)
+    monkeypatch.setattr(
+        "worksisyphus.ats.check_pdf_ats",
+        lambda *args, **kwargs: ATSCheckResult(True, (), 1, 500, "Python backend developer"),
+    )
     monkeypatch.setattr(
         "worksisyphus.evaluator.run_resume_gates",
         lambda pdf_path, **kwargs: ((), ATSCheckResult(True, (), 1, 500, "Python backend developer")),

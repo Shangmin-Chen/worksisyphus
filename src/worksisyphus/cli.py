@@ -378,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
                 evaluate_pdf_against_jd,
                 evaluate_resume_text,
                 format_evaluation_report,
+                require_pdf_resume_text,
                 selection_to_plain_text,
             )
             from .hiring_agent import (
@@ -429,6 +430,12 @@ def main(argv: list[str] | None = None) -> int:
             def _require_readable_pdf(path: Path) -> None:
                 if not path.is_file():
                     raise FileNotFoundError(f"Resume PDF not found or not readable: {path}")
+                try:
+                    ats = check_pdf_ats(path)
+                except Exception as exc:
+                    raise ValueError(f"Resume PDF produced no extractable text: {path}") from exc
+                if ats.word_count == 0 or not ats.text.strip():
+                    raise ValueError(f"Resume PDF produced no extractable text: {path}")
 
             resume_text = ""
             pdf_path: Path | None = None
@@ -519,6 +526,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(fallback_notice)
 
             if args.hackerrank:
+                require_pdf_resume_text(pdf_path, resume_text)
                 display_name = candidate_name or "Simon Chen"
                 agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)
                 result = agent.evaluate(resume_text=resume_text, candidate_name=display_name)

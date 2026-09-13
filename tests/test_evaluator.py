@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from worksisyphus.evaluator import (
     evaluate_pdf_against_jd,
     evaluate_resume_text,
     format_evaluation_report,
+    require_pdf_resume_text,
     selection_to_plain_text,
 )
 from worksisyphus.plan import parse_plan
@@ -42,6 +45,34 @@ def test_evaluate_resume_text_missing_keywords() -> None:
     assert "rust" in report.missing_keywords
     assert "kubernetes" in report.missing_keywords
     assert any("Consider highlighting" in s for s in report.suggestions)
+
+
+def test_require_pdf_resume_text_raises_on_empty_extraction(delivered_pdf) -> None:
+    with pytest.raises(ValueError, match="no extractable text"):
+        require_pdf_resume_text(delivered_pdf, "")
+
+
+def test_evaluate_resume_text_raises_on_empty_pdf_extraction(delivered_pdf) -> None:
+    with pytest.raises(ValueError, match="no extractable text"):
+        evaluate_resume_text(
+            resume_text="",
+            jd_text="Python developer",
+            pdf_path=delivered_pdf,
+        )
+
+
+def test_evaluate_pdf_against_jd_raises_on_empty_extraction(monkeypatch, delivered_pdf) -> None:
+    from worksisyphus import evaluator
+    from worksisyphus.ats import ATSCheckResult
+
+    monkeypatch.setattr(
+        evaluator,
+        "run_resume_gates",
+        lambda pdf_path, **kwargs: ((), ATSCheckResult(True, (), 1, 0, "")),
+    )
+
+    with pytest.raises(ValueError, match="no extractable text"):
+        evaluate_pdf_against_jd(delivered_pdf, "Python developer")
 
 
 def test_evaluate_resume_missing_pdf_gate_failure() -> None:

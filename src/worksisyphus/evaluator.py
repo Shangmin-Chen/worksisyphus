@@ -138,6 +138,12 @@ def _extract_metrics(text: str) -> list[str]:
     return metrics
 
 
+def require_pdf_resume_text(pdf_path: Path | None, resume_text: str) -> None:
+    """Fail closed when a PDF target was named but extraction produced no text."""
+    if pdf_path is not None and not resume_text.strip():
+        raise ValueError(f"Resume PDF produced no extractable text: {pdf_path}")
+
+
 def selection_to_plain_text(selection: Selection, profile: Profile) -> str:
     """Build unformatted plain text directly from a Selection and Profile model."""
     chunks = [
@@ -190,6 +196,7 @@ def evaluate_resume_text(
     Pass gate_results when the caller has already run the gates, so the PDF text layer is
     extracted once per evaluation rather than once here and once in the caller.
     """
+    require_pdf_resume_text(pdf_path, resume_text)
     jd_keywords = _extract_technical_keywords(jd_text)
     resume_keywords = _extract_technical_keywords(resume_text)
 
