@@ -59,12 +59,26 @@ class Profile:
 
 
 def validate_contact(contact: Contact, source: str = "profile.json") -> None:
-    """Ensure required contact details (name, email, phone) are present and non-empty."""
+    """Ensure required contact details (name, email, phone) are present and non-empty.
+
+    Division of responsibility: the Contact dataclass defines the SHAPE (what a contact
+    may contain, with email/phone/website/github/linkedin optional at construction time
+    for partial-contact recovery paths); REQUIRED_CONTACT_FIELDS + this function define
+    DELIVERABILITY (what a contact must contain before a PDF is rendered).
+    """
     for field_name in REQUIRED_CONTACT_FIELDS:
-        if not getattr(contact, field_name, "").strip():
+        if not getattr(contact, field_name).strip():
             raise ValueError(
                 f"contact.{field_name} is empty in {source}; a resume cannot be rendered without contact info."
             )
+
+
+def _build(factory: Any, kwargs: dict[str, Any], what: str, path: Path) -> Any:
+    """Build a dataclass, naming the offending entry and file on a schema mismatch."""
+    try:
+        return factory(**kwargs)
+    except TypeError as exc:
+        raise ValueError(f"Invalid {what} in {path}: {exc}") from exc
 
 
 def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
@@ -76,14 +90,29 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
             f"`uv run worksisyphus db export-profile`."
         )
 
-    data = json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    if text.startswith("﻿"):
+        text = text[1:]
+    data = json.loads(text)
     return Profile(
-        contact=Contact(**data.get("contact", {"name": ""})),
+        contact=_build(Contact, data.get("contact", {"name": ""}), "contact", path),
         education=tuple(
-            Education(**{**e, "coursework": tuple(e.get("coursework", []))}) for e in data.get("education", [])
+            _build(
+                Education,
+                {**e, "coursework": tuple(e.get("coursework", []))},
+                f"education entry {i} ({e.get('institution', '?')})",
+                path,
+            )
+            for i, e in enumerate(data.get("education", []))
         ),
-        experiences={slug: Experience(id=slug, **e) for slug, e in data.get("experiences", {}).items()},
-        projects={slug: Project(id=slug, **p) for slug, p in data.get("projects", {}).items()},
+        experiences={
+            slug: _build(Experience, {"id": slug, **e}, f"experience '{slug}'", path)
+            for slug, e in data.get("experiences", {}).items()
+        },
+        projects={
+            slug: _build(Project, {"id": slug, **p}, f"project '{slug}'", path)
+            for slug, p in data.get("projects", {}).items()
+        },
         skills={group: tuple(items) for group, items in data.get("skills", {}).items()},
     )
 

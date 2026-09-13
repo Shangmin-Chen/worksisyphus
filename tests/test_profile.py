@@ -6,7 +6,18 @@ import json
 import pytest
 
 from worksisyphus import load_profile, profile_index, validate_contact
-from worksisyphus.profile import Contact
+from worksisyphus.profile import REQUIRED_CONTACT_FIELDS, Contact
+
+GATED_REAL_SLUGS = frozenset(
+    {
+        "persephone",
+        "fitness-tracker",
+        "spark-food-waste",
+        "ml-marketplace",
+        "personal-website",
+        "bu-engineering-it",
+    }
+)
 
 
 def test_real_profile_loads_expected_shape(real_profile) -> None:
@@ -81,3 +92,99 @@ def test_validate_contact_rejects_empty_required_fields(field_name) -> None:
     with pytest.raises(ValueError) as excinfo:
         validate_contact(contact)
     assert f"contact.{field_name} is empty" in str(excinfo.value)
+
+
+def test_required_contact_fields_are_real_contact_attributes() -> None:
+    """A renamed Contact field must break here, loudly, not degrade validate_contact into
+    a confusing unconditional failure via getattr's silent default."""
+    assert set(REQUIRED_CONTACT_FIELDS) <= {f.name for f in dataclasses.fields(Contact)}
+
+
+def test_fixture_skill_groups_exist_in_the_real_profile(small_profile, real_profile) -> None:
+    assert set(small_profile.skills) <= set(real_profile.skills)
+
+
+def test_fixture_slugs_do_not_collide_with_guarded_real_slugs(small_profile) -> None:
+    fixture_slugs = set(small_profile.experiences) | set(small_profile.projects)
+    assert fixture_slugs.isdisjoint(GATED_REAL_SLUGS)
+
+
+def test_load_profile_names_the_offending_experience(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "Simon Chen", "email": "simon@example.com", "phone": "617-000-0000"},
+                "experiences": {
+                    "acme-co": {
+                        "role": "Engineer",
+                        "org": "Acme Co",
+                        "location": "NY",
+                        "date": "2025",
+                        "bullets": {},
+                        "tech_stack": "x",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as excinfo:
+        load_profile(profile_path)
+    message = str(excinfo.value)
+    assert "acme-co" in message
+    assert str(profile_path) in message
+
+
+def test_load_profile_names_the_offending_project(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "Simon Chen", "email": "simon@example.com", "phone": "617-000-0000"},
+                "projects": {
+                    "widget": {
+                        "name": "Widget",
+                        "tech": "Python",
+                        "date": "2025",
+                        "bullets": {},
+                        "tech_stack": "x",
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as excinfo:
+        load_profile(profile_path)
+    message = str(excinfo.value)
+    assert "widget" in message
+    assert str(profile_path) in message
+
+
+def test_load_profile_names_a_bad_contact_key(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "contact": {
+                    "name": "Simon Chen",
+                    "email": "simon@example.com",
+                    "phone": "617-000-0000",
+                    "fax": "555-1234",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as excinfo:
+        load_profile(profile_path)
+    assert str(profile_path) in str(excinfo.value)
+
+
+def test_load_profile_strips_a_leading_bom(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    payload = json.dumps({"contact": {"name": "Simon Chen", "email": "s@example.com", "phone": "617-000-0000"}})
+    profile_path.write_text("﻿" + payload, encoding="utf-8")
+    profile = load_profile(profile_path)
+    assert profile.contact.name == "Simon Chen"
