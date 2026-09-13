@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from datetime import date
 from pathlib import Path
@@ -7,6 +8,8 @@ from pathlib import Path
 import pytest
 
 from worksisyphus import CompileResult, apply
+from worksisyphus.db import get_connection, seed_database
+from worksisyphus.profile import Experience, Project, profile_to_dict
 from worksisyphus.application import (
     list_applications,
     parse_app_folder,
@@ -631,6 +634,110 @@ def test_resolve_lists_each_ambiguous_match_on_its_own_line(tmp_path) -> None:
     lines = excinfo.value.args[0].splitlines()
     assert any("2026-08-02_google_data-engineer" in line for line in lines)
     assert any("2026-08-08_google_data-engineer" in line for line in lines)
+
+
+def _seed_db_profile(db_path: Path, profile, tmp_path: Path) -> None:
+    profile_file = tmp_path / "seed-profile.json"
+    profile_file.write_text(json.dumps(profile_to_dict(profile)), encoding="utf-8")
+    conn = get_connection(db_path)
+    try:
+        seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "seed-apps")
+    finally:
+        conn.close()
+
+
+def _patch_apply_pipeline(monkeypatch) -> None:
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile_factory())
+    monkeypatch.setattr(
+        app_module,
+        "run_resume_gates",
+        lambda *a, **kw: ((GateResult("ATS", True, ()),), ATSCheckResult(True, (), 1, 100, "text")),
+    )
+
+
+def test_apply_warns_and_records_profile_drift_for_missing_experience(small_profile, monkeypatch, tmp_path) -> None:
+    _patch_apply_pipeline(monkeypatch)
+
+    db_profile = dataclasses.replace(
+        small_profile,
+        experiences={
+            **small_profile.experiences,
+            "org-extra": Experience(
+                "org-extra",
+                "Lead",
+                "Extra Org",
+                "Remote",
+                "2026",
+                {"x1": "Extra bullet"},
+            ),
+        },
+    )
+    db_path = tmp_path / "worksisyphus.db"
+    _seed_db_profile(db_path, db_profile, tmp_path)
+
+    logs: list[str] = []
+
+    folder, _, _ = apply(
+        plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+        jd_text="Backend engineer role",
+        company="Acme Corp",
+        role="Product Engineer",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=tmp_path / "applications",
+        db_path=db_path,
+        sync_cloud=False,
+        log=logs.append,
+    )
+
+    assert any("Profile content drift detected" in line for line in logs)
+    assert any("'org-extra' missing from profile" in line for line in logs)
+
+    drift = json.loads((folder / "meta.json").read_text())["profile_drift"]
+    assert drift["checked"] is True
+    assert any("'org-extra' missing from profile" in diff for diff in drift["differences"])
+
+
+def test_apply_warns_and_records_profile_drift_for_truncated_bullets(small_profile, monkeypatch, tmp_path) -> None:
+    _patch_apply_pipeline(monkeypatch)
+
+    truncated_proj1 = Project(
+        "proj1",
+        "Proj1",
+        "Python",
+        "2025",
+        {"p1": "P1 one"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        projects={**small_profile.projects, "proj1": truncated_proj1},
+    )
+    db_path = tmp_path / "worksisyphus.db"
+    _seed_db_profile(db_path, small_profile, tmp_path)
+
+    logs: list[str] = []
+
+    folder, _, _ = apply(
+        plan_text=json.dumps({"projects": {"proj1": ["p1"]}}),
+        jd_text="Backend engineer role",
+        company="Acme Corp",
+        role="Product Engineer",
+        when=date(2026, 8, 20),
+        profile=profile,
+        applications_dir=tmp_path / "applications",
+        db_path=db_path,
+        sync_cloud=False,
+        log=logs.append,
+    )
+
+    assert any("project 'proj1' has 1 bullets in profile, 3 in database" in line for line in logs)
+
+    drift = json.loads((folder / "meta.json").read_text())["profile_drift"]
+    assert drift["checked"] is True
+    assert any("project 'proj1' has 1 bullets in profile, 3 in database" in diff for diff in drift["differences"])
 
 
 def test_list_applications_orders_newest_first_then_retry_order(tmp_path) -> None:

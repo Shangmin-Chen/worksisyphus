@@ -6,7 +6,7 @@ import json
 import pytest
 
 from worksisyphus import load_profile, profile_index, validate_contact
-from worksisyphus.profile import Contact
+from worksisyphus.profile import Contact, Experience, Project, profile_content_differences, profile_drift_summary
 
 
 def test_real_profile_loads_expected_shape(real_profile) -> None:
@@ -81,3 +81,60 @@ def test_validate_contact_rejects_empty_required_fields(field_name) -> None:
     with pytest.raises(ValueError) as excinfo:
         validate_contact(contact)
     assert f"contact.{field_name} is empty" in str(excinfo.value)
+
+
+def test_profile_content_differences_reports_missing_experience(small_profile) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        experiences={
+            **small_profile.experiences,
+            "org-extra": Experience(
+                "org-extra",
+                "Lead",
+                "Extra Org",
+                "Remote",
+                "2026",
+                {"x1": "Extra bullet"},
+            ),
+        },
+    )
+
+    differences = profile_content_differences(small_profile, db_profile)
+
+    assert any("profile has 2 experiences, database has 3" in diff for diff in differences)
+    assert any("'org-extra' missing from profile" in diff for diff in differences)
+
+
+def test_profile_content_differences_reports_truncated_project_bullets(small_profile) -> None:
+    truncated_proj1 = Project(
+        "proj1",
+        "Proj1",
+        "Python",
+        "2025",
+        {"p1": "P1 one"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        projects={**small_profile.projects, "proj1": truncated_proj1},
+    )
+
+    differences = profile_content_differences(profile, small_profile)
+
+    assert any("project 'proj1' has 1 bullets in profile, 3 in database" in diff for diff in differences)
+    assert any("'p2'" in diff and "'p3'" in diff for diff in differences)
+
+
+def test_profile_drift_summary_prefers_bullet_delta(small_profile) -> None:
+    truncated_proj1 = Project(
+        "proj1",
+        "Proj1",
+        "Python",
+        "2025",
+        {"p1": "P1 one"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        projects={**small_profile.projects, "proj1": truncated_proj1},
+    )
+
+    assert profile_drift_summary(profile, small_profile) == "profile.json is 2 bullets behind the database"

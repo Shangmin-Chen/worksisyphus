@@ -95,3 +95,30 @@ def test_contact_verification_blocks_are_well_formed() -> None:
         elif not verification["cross_checked_against_db"] and not verification.get("skip_reason"):
             invalid.append(f"{d.name}: the cross-check was skipped without recording a reason")
     assert invalid == [], f"Malformed contact_verification blocks: {invalid}"
+
+
+def test_profile_drift_blocks_are_well_formed() -> None:
+    """meta.json's profile_drift block, wherever present, is readable and complete."""
+    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
+        pytest.skip("Applications directory not present or empty")
+    invalid: list[str] = []
+    for d in sorted(APPLICATIONS_DIR.iterdir()):
+        meta_file = d / "meta.json"
+        if not d.is_dir() or not meta_file.is_file():
+            continue
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        drift = meta.get("profile_drift")
+        if drift is None:
+            continue
+        if not isinstance(drift, dict):
+            invalid.append(f"{d.name}: profile_drift is not an object")
+            continue
+        if not isinstance(drift.get("checked"), bool):
+            invalid.append(f"{d.name}: profile_drift.checked is not a bool")
+        elif drift["checked"]:
+            differences = drift.get("differences")
+            if not isinstance(differences, list) or not all(isinstance(item, str) for item in differences):
+                invalid.append(f"{d.name}: profile_drift.differences is not a list of strings")
+        elif not drift.get("skip_reason"):
+            invalid.append(f"{d.name}: profile drift check was skipped without recording a reason")
+    assert invalid == [], f"Malformed profile_drift blocks: {invalid}"

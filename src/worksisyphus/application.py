@@ -19,7 +19,14 @@ from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
 from .gates import run_resume_gates
 from .pipeline import tailor
-from .profile import DEFAULT_PROFILE_PATH, Contact, Profile, load_profile, validate_contact
+from .profile import (
+    DEFAULT_PROFILE_PATH,
+    Contact,
+    Profile,
+    load_profile,
+    profile_content_differences,
+    validate_contact,
+)
 
 APPLICATIONS_DIR = Path("applications")
 STATUSES = ("applied", "phone_screen", "onsite", "offer", "rejected")
@@ -177,6 +184,51 @@ def cross_check_contact_against_db(
     return ContactCrossCheck(ran=True, database=database)
 
 
+@dataclass(frozen=True)
+class ProfileDriftCheck:
+    """Whether non-contact profile content was compared against the database at apply time."""
+
+    checked: bool
+    differences: tuple[str, ...] = ()
+    skip_reason: str = ""
+
+    def as_meta(self) -> dict[str, Any]:
+        if self.checked:
+            return {"checked": True, "differences": list(self.differences)}
+        return {"checked": False, "skip_reason": self.skip_reason}
+
+
+def check_profile_drift_against_db(
+    profile: Profile,
+    db_path: Path | None,
+    contact_cross_check: ContactCrossCheck,
+    log: Log = _silent,
+) -> ProfileDriftCheck:
+    """Compare non-contact profile content against the database and warn without blocking."""
+    if not contact_cross_check.ran:
+        reason = contact_cross_check.reason or "contact cross-check did not run against the database."
+        return ProfileDriftCheck(checked=False, skip_reason=reason)
+
+    if db_path is None or not db_path.is_file():
+        return ProfileDriftCheck(checked=False, skip_reason="no database available for profile drift check.")
+
+    from .db import get_connection, load_profile_from_db
+
+    conn = get_connection(db_path)
+    try:
+        db_profile = load_profile_from_db(conn)
+    finally:
+        conn.close()
+
+    differences = profile_content_differences(profile, db_profile)
+    if differences:
+        log(f"Profile content drift detected ({len(differences)} difference(s) vs {db_path}):")
+        for difference in differences:
+            log(f"  - {difference}")
+
+    return ProfileDriftCheck(checked=True, differences=tuple(differences))
+
+
 def parse_app_folder(name: str, siblings: Collection[str] = ()) -> tuple[str, str, int | None]:
     """Split an application folder name into (date, stem, ordinal).
 
@@ -262,6 +314,12 @@ def apply(
     validate_contact(active_profile.contact, source=str(profile_path))
     resolved_db_path = _resolve_db_path(db_path, applications_dir)
     contact_cross_check = cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
+    profile_drift_check = check_profile_drift_against_db(
+        active_profile,
+        resolved_db_path,
+        contact_cross_check,
+        log=log,
+    )
 
     # Deterministic naming strictly derived from company and role (#34). The underscore is the
     # folder grammar's structural separator (it delimits the retry ordinal), so slugify must
@@ -309,6 +367,7 @@ def apply(
             # published before this field existed, which reads as "not recorded" -- distinct
             # from both "verified" and "skipped", and honest, since it cannot be reconstructed.
             "contact_verification": contact_cross_check.as_meta(),
+            "profile_drift": profile_drift_check.as_meta(),
         }
         # 3. Quality gates and ATS validation, reusing a single PDF extraction
         gate_results, ats_result = run_resume_gates(
