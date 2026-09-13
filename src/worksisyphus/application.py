@@ -130,9 +130,9 @@ def cross_check_contact_against_db(
     """
     database = str(db_path) if db_path is not None else ""
 
-    def skipped(reason: str) -> ContactCrossCheck:
+    def skipped(reason: str, *, db_profile: Profile | None = None) -> ContactCrossCheck:
         log(f"Contact cross-check skipped: {reason}")
-        return ContactCrossCheck(ran=False, database=database, reason=reason)
+        return ContactCrossCheck(ran=False, database=database, reason=reason, db_profile=db_profile)
 
     if db_path is None:
         return skipped("this run is not writing to the default database.")
@@ -152,7 +152,10 @@ def cross_check_contact_against_db(
         conn.close()
 
     if not any((db_contact.name, db_contact.email, db_contact.phone)):
-        return skipped(f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.")
+        return skipped(
+            f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.",
+            db_profile=db_profile,
+        )
 
     # The database side gets the same rules as the profile side. The previous round left this
     # unchecked on the argument that "seeding can no longer corrupt the database" -- an
@@ -206,16 +209,10 @@ def check_profile_drift_against_db(
     log: Log = _silent,
 ) -> ProfileDriftCheck:
     """Compare non-contact profile content against the database and warn without blocking."""
-    if not contact_cross_check.ran:
-        reason = contact_cross_check.reason or "contact cross-check did not run against the database."
-        return ProfileDriftCheck(checked=False, skip_reason=reason)
-
     db_profile = contact_cross_check.db_profile
     if db_profile is None:
-        return ProfileDriftCheck(
-            checked=False,
-            skip_reason="database profile was not loaded during contact cross-check.",
-        )
+        reason = contact_cross_check.reason or "contact cross-check did not run against the database."
+        return ProfileDriftCheck(checked=False, skip_reason=reason)
 
     differences = profile_content_differences(profile, db_profile)
     if differences:

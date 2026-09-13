@@ -158,9 +158,59 @@ def test_profile_content_differences_reports_education_degree_change(small_profi
     differences = profile_content_differences(small_profile, db_profile)
 
     assert any(
-        "education record 1 degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'" in diff
+        "education 'BU' ('2026') degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'"
+        in diff
         for diff in differences
     )
+
+
+def test_profile_content_differences_reports_education_reorder_without_field_corruption(small_profile) -> None:
+    profile = dataclasses.replace(
+        small_profile,
+        education=(
+            Education("MIT", "Cambridge, MA", "M.S. CS", "2028", ("ML",)),
+            Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),
+        ),
+    )
+    db_profile = dataclasses.replace(
+        small_profile,
+        education=(
+            Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),
+            Education("MIT", "Cambridge, MA", "M.S. CS", "2028", ("ML",)),
+        ),
+    )
+
+    differences = profile_content_differences(profile, db_profile)
+
+    assert any("education records are in a different order" in diff for diff in differences)
+    assert not any("institution:" in diff for diff in differences)
+    assert not any("degree:" in diff for diff in differences)
+
+
+def test_profile_content_differences_reports_education_field_change_with_stable_keys(small_profile) -> None:
+    profile = dataclasses.replace(
+        small_profile,
+        education=(
+            Education("MIT", "Cambridge, MA", "M.S. CS", "2028", ("ML",)),
+            Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),
+        ),
+    )
+    db_profile = dataclasses.replace(
+        small_profile,
+        education=(
+            Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),
+            Education("MIT", "Cambridge, MA", "M.Eng. CS", "2028", ("ML",)),
+        ),
+    )
+
+    differences = profile_content_differences(profile, db_profile)
+
+    assert any("education records are in a different order" in diff for diff in differences)
+    assert any(
+        "education 'MIT' ('2028') degree: profile has 'M.S. CS', database has 'M.Eng. CS'" in diff
+        for diff in differences
+    )
+    assert not any("'BU' ('2026') degree:" in diff for diff in differences)
 
 
 def test_profile_drift_summary_prefers_bullet_delta(small_profile) -> None:
@@ -217,5 +267,5 @@ def test_profile_drift_summary_falls_back_to_first_named_difference(small_profil
 
     assert (
         profile_drift_summary(small_profile, db_profile)
-        == "education record 1 degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'"
+        == "education 'BU' ('2026') degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'"
     )

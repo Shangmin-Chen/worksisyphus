@@ -9,6 +9,8 @@ import pytest
 
 from worksisyphus import CompileResult, apply
 from worksisyphus.application import (
+    check_profile_drift_against_db,
+    cross_check_contact_against_db,
     list_applications,
     parse_app_folder,
     resolve_application_folder,
@@ -687,6 +689,44 @@ def test_apply_warns_and_records_profile_drift_for_missing_experience(small_prof
     drift = json.loads((folder / "meta.json").read_text())["profile_drift"]
     assert drift["checked"] is True
     assert any("'org-extra' missing from profile" in diff for diff in drift["differences"])
+
+
+def test_profile_drift_runs_when_contact_cross_check_skips_after_db_load(small_profile, tmp_path) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        experiences={
+            **small_profile.experiences,
+            "org-extra": Experience(
+                "org-extra",
+                "Lead",
+                "Extra Org",
+                "Remote",
+                "2026",
+                {"x1": "Extra bullet"},
+            ),
+        },
+    )
+    db_path = tmp_path / "worksisyphus.db"
+    _seed_db_profile(db_path, db_profile, tmp_path)
+
+    conn = get_connection(db_path)
+    try:
+        conn.execute(
+            "UPDATE contact SET name = '', email = '', phone = '', website = '', github = '', linkedin = ''"
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    logs: list[str] = []
+    contact_cross_check = cross_check_contact_against_db(small_profile.contact, db_path, log=logs.append)
+    profile_drift_check = check_profile_drift_against_db(small_profile, contact_cross_check, log=logs.append)
+
+    assert contact_cross_check.ran is False
+    assert contact_cross_check.db_profile is not None
+    assert profile_drift_check.checked is True
+    assert any("'org-extra' missing from profile" in diff for diff in profile_drift_check.differences)
+    assert any("Profile content drift detected" in line for line in logs)
 
 
 def test_apply_warns_and_records_profile_drift_for_truncated_bullets(small_profile, monkeypatch, tmp_path) -> None:

@@ -149,24 +149,57 @@ def _append_field_difference(
         differences.append(f"{prefix} {field_name}: profile has {profile_value!r}, database has {db_value!r}")
 
 
+def _education_key(education: Education) -> tuple[str, str]:
+    return (education.institution, education.date)
+
+
+def _format_education_key(key: tuple[str, str]) -> str:
+    institution, date = key
+    return f"{institution!r} ({date!r})"
+
+
 def profile_content_differences(profile: Profile, db_profile: Profile) -> list[str]:
     """Compare non-contact profile content and return actionable difference strings."""
     differences: list[str] = []
 
-    if len(profile.education) != len(db_profile.education):
-        differences.append(
+    profile_education = {_education_key(edu): edu for edu in profile.education}
+    db_education = {_education_key(edu): edu for edu in db_profile.education}
+    profile_education_keys = [_education_key(edu) for edu in profile.education]
+    db_education_keys = [_education_key(edu) for edu in db_profile.education]
+    profile_education_key_set = set(profile_education)
+    db_education_key_set = set(db_education)
+
+    if profile_education_key_set != db_education_key_set:
+        parts = [
             f"profile has {len(profile.education)} education record(s), database has {len(db_profile.education)}"
+        ]
+        missing_from_profile = sorted(db_education_key_set - profile_education_key_set)
+        missing_from_db = sorted(profile_education_key_set - db_education_key_set)
+        if missing_from_profile:
+            parts.append(
+                f"{', '.join(_format_education_key(key) for key in missing_from_profile)} missing from profile"
+            )
+        if missing_from_db:
+            parts.append(
+                f"{', '.join(_format_education_key(key) for key in missing_from_db)} missing from database"
+            )
+        differences.append(": ".join(parts))
+    elif profile_education_keys != db_education_keys:
+        profile_order = ", ".join(_format_education_key(key) for key in profile_education_keys)
+        db_order = ", ".join(_format_education_key(key) for key in db_education_keys)
+        differences.append(
+            f"education records are in a different order: profile has [{profile_order}], database has [{db_order}]"
         )
-    else:
-        for index, (profile_edu, db_edu) in enumerate(
-            zip(profile.education, db_profile.education, strict=True), start=1
-        ):
-            prefix = f"education record {index}"
-            _append_field_difference(differences, prefix, "institution", profile_edu.institution, db_edu.institution)
-            _append_field_difference(differences, prefix, "location", profile_edu.location, db_edu.location)
-            _append_field_difference(differences, prefix, "degree", profile_edu.degree, db_edu.degree)
-            _append_field_difference(differences, prefix, "date", profile_edu.date, db_edu.date)
-            _append_field_difference(differences, prefix, "coursework", profile_edu.coursework, db_edu.coursework)
+
+    for key in sorted(profile_education_key_set & db_education_key_set):
+        profile_edu = profile_education[key]
+        db_edu = db_education[key]
+        prefix = f"education {_format_education_key(key)}"
+        _append_field_difference(differences, prefix, "institution", profile_edu.institution, db_edu.institution)
+        _append_field_difference(differences, prefix, "location", profile_edu.location, db_edu.location)
+        _append_field_difference(differences, prefix, "degree", profile_edu.degree, db_edu.degree)
+        _append_field_difference(differences, prefix, "date", profile_edu.date, db_edu.date)
+        _append_field_difference(differences, prefix, "coursework", profile_edu.coursework, db_edu.coursework)
 
     profile_experience_slugs = set(profile.experiences)
     db_experience_slugs = set(db_profile.experiences)
