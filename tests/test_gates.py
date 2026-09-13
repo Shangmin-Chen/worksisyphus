@@ -68,6 +68,14 @@ def test_gpa_gate_catches_violations() -> None:
     assert not check_gpa_gate("G.P.A3.8").passed
     assert not check_gpa_gate("G P A3.8").passed
     assert not check_gpa_gate("C.G.P.A3.85").passed
+    assert not check_gpa_gate("GPA4").passed
+    assert not check_gpa_gate("GPA3").passed
+    assert not check_gpa_gate("CGPA4").passed
+    assert not check_gpa_gate("CGPA3").passed
+    assert not check_gpa_gate("GPA3.856").passed
+    assert not check_gpa_gate("G PA 3.8").passed
+    assert not check_gpa_gate("GPA_3.8").passed
+    assert not check_gpa_gate("CGPA_3.85").passed
 
 
 def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:
