@@ -84,6 +84,12 @@ def test_gpa_gate_catches_violations() -> None:
     assert not check_gpa_gate("GPA2.5").passed
     assert not check_gpa_gate("GPA1.9").passed
     assert not check_gpa_gate("CGPA2.8").passed
+    assert not check_gpa_gate("GPA_2.0").passed
+    assert not check_gpa_gate("CGPA_2.0").passed
+    assert not check_gpa_gate("GPA2.0/4.0").passed
+    assert not check_gpa_gate("GPA2.0-beta").passed
+    assert not check_gpa_gate("GPA2.0x").passed
+    assert not check_gpa_gate("GPA2.0API").passed
 
 
 def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:
@@ -94,7 +100,9 @@ def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:
     assert check_gpa_gate("Debug log p a value before shipping").passed
     assert check_gpa_gate("Going past a checkpoint on the hot path").passed
     assert check_gpa_gate("Completed GPA2 certification module").passed
+    assert check_gpa_gate("Deployed GPA2.0 platform").passed
     assert check_gpa_gate("Completed GPA2.0 certification module").passed
+    assert check_gpa_gate("GPA2.0 API compatibility module").passed
     assert check_gpa_gate("Completed CGPA2.0 certification module").passed
     assert check_gpa_gate("Deployed on GPA360 hardware platform").passed
     assert check_gpa_gate("G PA360 hardware platform").passed
