@@ -9,6 +9,8 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
+from .selection import TrimCut
+
 _PAGES_RE = re.compile(r"Output written on .*\((\d+) pages?")
 _OVERFULL_RE = re.compile(r"Overfull \\hbox \(([\d.]+)pt too wide\) in .*? at lines? (\d+)")
 
@@ -23,6 +25,7 @@ class CompileResult:
     tex_path: Path
     pages: int
     overfull: tuple[str, ...] = ()
+    trimmed: tuple[TrimCut, ...] = ()
 
 
 def find_pdflatex() -> str:

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 
 from .compiler import CompileResult, compile_tex
 from .plan import parse_plan
 from .profile import DEFAULT_PROFILE_PATH, Profile, load_profile
 from .renderer import render_resume
-from .selection import Selection, full_selection, trim_step
+from .selection import Selection, TrimCut, full_selection, trim_step
 
 TEX_DIR = Path("tex_files")
 # Delivered resumes live only in applications/<date>_<stem>/, written there by apply().
@@ -63,6 +64,7 @@ def tailor(
     pdf_dir.mkdir(parents=True, exist_ok=True)
 
     selection: Selection | None = initial_selection
+    cuts: list[TrimCut] = []
     while selection is not None:
         result = compile_tex(render_resume(active_profile, selection), selection.name, tex_dir, pdf_dir)
         if result.pages <= PAGE_LIMIT:
@@ -74,8 +76,13 @@ def tailor(
             if excessive_overfull:
                 raise RuntimeError("Horizontal overflow detected: " + "; ".join(excessive_overfull))
             log(f"Exported {result.pdf_path} ({result.pages} page).")
-            return result
+            return replace(result, trimmed=tuple(cuts))
         log(f"{result.pages} pages; trimming and recompiling...")
-        selection = trim_step(selection)
+        step = trim_step(selection)
+        if step is None:
+            break
+        selection, cut = step
+        cuts.append(cut)
+        log(cut.log_line())
 
     raise RuntimeError("Could not fit the resume on one page even after maximum trimming.")

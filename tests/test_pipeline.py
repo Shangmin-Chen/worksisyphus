@@ -21,6 +21,7 @@ def _plan_text() -> str:
 def test_tailor_trims_until_one_page(small_profile, monkeypatch, tmp_path) -> None:
     compiled: list[str] = []
     pages_by_call = [2, 2, 1]
+    log_lines: list[str] = []
 
     def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
         compiled.append(tex)
@@ -32,13 +33,18 @@ def test_tailor_trims_until_one_page(small_profile, monkeypatch, tmp_path) -> No
     monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
     monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
 
-    result = tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
+    result = tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=tmp_path, log=log_lines.append)
 
     assert result.pages == 1
     assert len(compiled) == 3
     assert "Proj" in compiled[0]
     # First trim drops the lowest-ranked project.
     assert r"Proj \& Two" not in compiled[1]
+    assert len(result.trimmed) == 2
+    assert result.trimmed[0].kind == "project" and result.trimmed[0].slug == "proj2"
+    assert result.trimmed[1].kind == "project-bullet" and result.trimmed[1].slug == "proj1" and result.trimmed[1].bullet == "p3"
+    assert "trimmed: dropped project 'proj2'" in log_lines
+    assert "trimmed: dropped project bullet 'p3' from 'proj1'" in log_lines
 
 
 def test_tailor_raises_when_nothing_left_to_trim(small_profile, monkeypatch, tmp_path) -> None:
