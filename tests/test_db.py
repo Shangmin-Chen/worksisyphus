@@ -225,6 +225,7 @@ def test_export_profile_json(tmp_path: Path) -> None:
     data = export_profile_json(conn, output_path=export_path)
     assert data["contact"]["name"] == "Jane Roe"
     assert export_path.is_file()
+    assert not export_path.with_name(f"{export_path.name}.tmp").exists()
     loaded = json.loads(export_path.read_text(encoding="utf-8"))
     assert loaded["contact"]["name"] == "Jane Roe"
 
@@ -641,6 +642,38 @@ def test_export_profile_json_does_not_overwrite_a_real_profile_with_invalid_data
         pass
     else:
         raise AssertionError("export_profile_json overwrote a real profile with invalid data")
+
+    assert destination.read_text(encoding="utf-8") == original
+    conn.close()
+
+
+def test_export_profile_json_leaves_destination_unchanged_on_interrupted_write(
+    tmp_path: Path, monkeypatch
+) -> None:
+    conn = get_connection(":memory:")
+    init_schema(conn)
+    conn.execute(
+        "INSERT INTO contact (id, name, email, phone, website, github, linkedin) "
+        "VALUES (1, 'Jane Roe', 'jane.roe@fastmail.dev', '617-266-1810', '', '', '')"
+    )
+    conn.commit()
+
+    destination = tmp_path / "profile.json"
+    original = json.dumps({"contact": {"name": "Real Person", "email": "real.person@fastmail.dev"}})
+    destination.write_text(original, encoding="utf-8")
+
+    original_write_text = Path.write_text
+
+    def failing_write_text(self: Path, *args: Any, **kwargs: Any) -> int:
+        if self.name.endswith(".tmp"):
+            original_write_text(self, "{ partial", encoding="utf-8")
+            raise OSError("simulated interrupted write")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", failing_write_text)
+
+    with pytest.raises(OSError, match="simulated interrupted write"):
+        export_profile_json(conn, output_path=destination)
 
     assert destination.read_text(encoding="utf-8") == original
     conn.close()
