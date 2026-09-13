@@ -53,6 +53,10 @@ def test_gpa_gate_catches_violations() -> None:
     assert not check_gpa_gate("G. P. A.: 3.9").passed
     assert not check_gpa_gate("g.p.a 3.7").passed
     assert not check_gpa_gate("Grade-Point Average: 3.85").passed
+    assert not check_gpa_gate("Grade Point-Average: 3.85").passed
+    assert not check_gpa_gate("G,P,A 3.8").passed
+    assert not check_gpa_gate("G/P/A 3.8").passed
+    assert not check_gpa_gate("G_P_A 3.8").passed
     assert not check_gpa_gate("G P A 3.8").passed
     assert not check_gpa_gate("G . P . A 3.8").passed
     assert not check_gpa_gate("G-P-A 3.8").passed
@@ -73,6 +77,10 @@ def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:
     assert check_gpa_gate("Shipped 4.0 of the platform").passed
     assert check_gpa_gate("Debug log p a value before shipping").passed
     assert check_gpa_gate("Going past a checkpoint on the hot path").passed
+    assert check_gpa_gate("Completed GPA2 certification module").passed
+    assert check_gpa_gate("Deployed on GPA360 hardware platform").passed
+    assert check_gpa_gate("GPA2024 annual review cycle").passed
+    assert check_gpa_gate("CGPA360 integration test suite").passed
 
 
 def test_banned_content_gate_catches_piracy_and_fake_metrics() -> None:

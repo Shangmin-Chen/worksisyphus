@@ -76,6 +76,28 @@ def test_format_log_tail_decodes_bytes() -> None:
     assert "--- stderr ---" in tail
 
 
+def test_decode_log_chunk_replaces_invalid_utf8() -> None:
+    decoded = compiler._decode_log_chunk(b"valid\xff\xfe bytes")
+    assert "valid" in decoded
+    assert "\ufffd" in decoded
+
+
+def test_compile_survives_invalid_utf8_in_pdflatex_output(monkeypatch, tmp_path) -> None:
+    stdout = b"Overfull \\hbox (1.0pt too wide) in paragraph at lines 1--2\n\xff\xfe\nOutput written on /tmp/x.pdf (1 page, 1234 bytes).\n"
+
+    def fake_run(args, **kwargs) -> subprocess.CompletedProcess:
+        output_dir = Path(next(arg for arg in args if arg.startswith("-output-directory=")).split("=", 1)[1])
+        (output_dir / "x.pdf").write_bytes(b"%PDF-fake")
+        return subprocess.CompletedProcess(args, 0, stdout, b"")
+
+    monkeypatch.setattr(compiler.shutil, "which", lambda _name: "/usr/bin/pdflatex")
+    monkeypatch.setattr(compiler.subprocess, "run", fake_run)
+
+    result = compiler.compile_tex("tex", "x", tmp_path / "tex", tmp_path / "pdf")
+
+    assert result.pages == 1
+
+
 def test_compile_error_includes_stderr(monkeypatch, tmp_path) -> None:
     import pytest
 

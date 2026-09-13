@@ -91,8 +91,6 @@ def compile_tex(tex: str, name: str, tex_dir: Path, pdf_dir: Path) -> CompileRes
             proc = subprocess.run(
                 [engine, "-interaction=nonstopmode", "-halt-on-error", f"-output-directory={workdir}", str(tex_path)],
                 capture_output=True,
-                text=True,
-                encoding="utf-8",
                 timeout=PDFLATEX_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired as exc:
@@ -109,7 +107,7 @@ def compile_tex(tex: str, name: str, tex_dir: Path, pdf_dir: Path) -> CompileRes
             detail = _format_log_tail(proc.stdout, proc.stderr)
             raise CompileError(f"pdflatex failed for {tex_path.name}:\n{detail}")
         # pdflatex hard-wraps log lines, which can split diagnostics.
-        stdout = " ".join(proc.stdout.splitlines())
+        stdout = " ".join(_decode_log_chunk(proc.stdout).splitlines())
         match = _PAGES_RE.search(stdout)
         if match is None:
             detail = _format_log_tail(proc.stdout, proc.stderr)
