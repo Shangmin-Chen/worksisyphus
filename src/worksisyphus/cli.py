@@ -59,11 +59,21 @@ def _fit_column(value: object, width: int) -> str:
     return text if len(text) <= width else f"{text[: width - 1]}…"
 
 
-def _turso_sync_exit_code(detail: str, synced: bool) -> int:
+def _turso_sync_exit_code(result) -> int:
     """Return 1 for real Turso push failures; expected skips stay exit 0."""
-    if synced:
-        return 0
-    return 1 if detail.startswith("failed") else 0
+    from .db import TursoSyncResult
+
+    if not isinstance(result, TursoSyncResult):
+        raise TypeError(f"expected TursoSyncResult, got {type(result)!r}")
+    return 1 if result.outcome == "failed" else 0
+
+
+def _turso_sync_detail(result) -> str:
+    from .db import TursoSyncResult
+
+    if not isinstance(result, TursoSyncResult):
+        raise TypeError(f"expected TursoSyncResult, got {type(result)!r}")
+    return result.detail or ("synced" if result.synced else "skipped / failed")
 
 
 def _add_git_sync_flags(parser: argparse.ArgumentParser) -> None:
@@ -222,11 +232,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ATS check: {'passed' if ats_res.passed else 'failed'} ({ats_res.word_count} words extracted)")
             for warning in ats_res.warnings:
                 print(f"WARN: {warning}")
-            print(f"Application created: {folder}")
             if sync_result is not None:
-                detail = sync_result.detail or ("synced" if sync_result.synced else "skipped / failed")
-                if _turso_sync_exit_code(detail, sync_result.synced):
-                    return 1
+                print(f"Turso cloud sync: {_turso_sync_detail(sync_result)}")
+            print(f"Application created: {folder}")
+            if sync_result is not None and _turso_sync_exit_code(sync_result):
+                return 1
         elif args.command == "status":
             apps = list_applications()
             if args.company:
@@ -267,8 +277,8 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
             if sync_result is not None:
-                detail = sync_result.detail or ("synced" if sync_result.synced else "skipped / failed")
-                if _turso_sync_exit_code(detail, sync_result.synced):
+                print(f"Turso cloud sync: {_turso_sync_detail(sync_result)}")
+                if _turso_sync_exit_code(sync_result):
                     return 1
         elif args.command == "backfill-evals":
             from .application import backfill_evaluations
@@ -290,9 +300,8 @@ def main(argv: list[str] | None = None) -> int:
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    detail = turso_result.detail or ("synced" if turso_result.synced else "skipped / failed")
-                    print(f"Turso cloud sync: {detail}")
-                    sync_exit = _turso_sync_exit_code(detail, turso_result.synced)
+                    print(f"Turso cloud sync: {_turso_sync_detail(turso_result)}")
+                    sync_exit = _turso_sync_exit_code(turso_result)
                 print(f"Scored {len(scored)} application(s).")
                 if sync_exit:
                     return 1
@@ -319,9 +328,8 @@ def main(argv: list[str] | None = None) -> int:
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    detail = turso_result.detail or ("synced" if turso_result.synced else "skipped / failed")
-                    print(f"Turso cloud sync: {detail}")
-                    if _turso_sync_exit_code(detail, turso_result.synced):
+                    print(f"Turso cloud sync: {_turso_sync_detail(turso_result)}")
+                    if _turso_sync_exit_code(turso_result):
                         return 1
                 elif args.db_action == "sync":
                     seed_database(conn)
@@ -331,9 +339,8 @@ def main(argv: list[str] | None = None) -> int:
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    detail = turso_result.detail or ("synced" if turso_result.synced else "skipped / failed")
-                    print(f"Turso cloud sync: {detail}")
-                    if _turso_sync_exit_code(detail, turso_result.synced):
+                    print(f"Turso cloud sync: {_turso_sync_detail(turso_result)}")
+                    if _turso_sync_exit_code(turso_result):
                         return 1
                 elif args.db_action == "export-profile":
                     destination = Path(args.output)

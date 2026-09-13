@@ -131,7 +131,7 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     monkeypatch.setattr(
         db,
         "sync_to_turso",
-        lambda *args, **kwargs: db.TursoSyncResult(synced=True, detail="synced"),
+        lambda *args, **kwargs: db.TursoSyncResult(synced=True, outcome="synced", detail="synced"),
     )
 
     # `db init` and `db sync` read profile.json from the working directory. Run them against
@@ -226,7 +226,7 @@ def test_cli_db_commands_report_turso_sync_failure(monkeypatch, tmp_path, capsys
     monkeypatch.setattr(
         db,
         "sync_to_turso",
-        lambda *args, **kwargs: db.TursoSyncResult(synced=False, detail="failed (auth expired)"),
+        lambda *args, **kwargs: db.TursoSyncResult(synced=False, outcome="failed", detail="failed (auth expired)"),
     )
 
     monkeypatch.chdir(tmp_path)
@@ -248,7 +248,9 @@ def test_cli_backfill_evals_reports_turso_sync_failure(monkeypatch, tmp_path, ca
     monkeypatch.setattr(
         db,
         "sync_to_turso",
-        lambda *args, **kwargs: db.TursoSyncResult(synced=False, detail="failed (network timeout)"),
+        lambda *args, **kwargs: db.TursoSyncResult(
+            synced=False, outcome="failed", detail="failed (network timeout)"
+        ),
     )
     monkeypatch.setattr(
         application,
@@ -281,7 +283,7 @@ def test_cli_apply_returns_nonzero_on_turso_push_failure(monkeypatch, tmp_path, 
             folder,
             CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1),
             ATSCheckResult(True, (), 1, 500, "text"),
-            TursoSyncResult(synced=False, detail="failed (auth expired)"),
+            TursoSyncResult(synced=False, outcome="failed", detail="failed (auth expired)"),
         )
 
     monkeypatch.setattr(cli, "apply_app", fake_apply)
@@ -290,6 +292,34 @@ def test_cli_apply_returns_nonzero_on_turso_push_failure(monkeypatch, tmp_path, 
     assert cli.main(["apply", "--company", "Primitive", "--role", "Product Engineer", "--jd", "-", "--plan", plan]) == 1
     out = capsys.readouterr().out
     assert "Application created:" in out
+
+
+def test_turso_sync_exit_code_failed_with_empty_detail() -> None:
+    from worksisyphus.cli import _turso_sync_exit_code
+    from worksisyphus.db import TursoSyncResult
+
+    assert _turso_sync_exit_code(TursoSyncResult(synced=False, outcome="failed", detail="")) == 1
+    assert _turso_sync_exit_code(TursoSyncResult(synced=False, outcome="skipped", detail="")) == 0
+    assert _turso_sync_exit_code(TursoSyncResult(synced=False, outcome="skipped", detail="skipped / failed")) == 0
+
+
+def test_cli_db_sync_failed_with_empty_detail_exits_one(monkeypatch, tmp_path, capsys) -> None:
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr(
+        db,
+        "sync_to_turso",
+        lambda *args, **kwargs: db.TursoSyncResult(synced=False, outcome="failed", detail=""),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_profile(tmp_path)
+
+    assert cli.main(["db", "sync"]) == 1
+    out = capsys.readouterr().out
+    assert "Turso cloud sync: skipped / failed" in out
 
 
 def test_cli_update_status_returns_nonzero_on_turso_push_failure(monkeypatch, capsys, tmp_path) -> None:
@@ -303,7 +333,7 @@ def test_cli_update_status_returns_nonzero_on_turso_push_failure(monkeypatch, ca
             folder,
             "applied",
             status,
-            TursoSyncResult(synced=False, detail="failed (network timeout)"),
+            TursoSyncResult(synced=False, outcome="failed", detail="failed (network timeout)"),
         ),
     )
 
@@ -322,7 +352,7 @@ def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypat
 
     def _fake_sync(*args: object, **kwargs: object) -> db.TursoSyncResult:
         pushes.append(1)
-        return db.TursoSyncResult(synced=True, detail="synced")
+        return db.TursoSyncResult(synced=True, outcome="synced", detail="synced")
 
     monkeypatch.setattr(db, "sync_to_turso", _fake_sync)
 

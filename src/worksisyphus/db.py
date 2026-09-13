@@ -20,7 +20,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+TursoSyncOutcome = Literal["synced", "skipped", "failed"]
 
 from .profile import (
     Contact,
@@ -49,6 +51,7 @@ class TursoSyncResult:
     """Outcome of a Turso cloud push attempt."""
 
     synced: bool
+    outcome: TursoSyncOutcome
     detail: str = ""
 
 
@@ -76,20 +79,63 @@ def _record_last_turso_sync(db_path: Path) -> None:
     turso_last_sync_path(db_path).write_text(datetime.now(UTC).isoformat() + "\n", encoding="utf-8")
 
 
-def _turso_output_indicates_auth_failure(stdout: str, stderr: str) -> bool:
-    combined = f"{stdout}\n{stderr}".lower()
-    return any(marker in combined for marker in _TURSO_AUTH_MARKERS)
+def _turso_text_indicates_auth_failure(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _TURSO_AUTH_MARKERS)
 
 
-def _turso_output_indicates_error(stdout: str, stderr: str) -> str | None:
-    """Return a human-readable error when Turso printed failure text despite exit 0."""
-    if _turso_output_indicates_auth_failure(stdout, stderr):
-        for line in f"{stdout}\n{stderr}".splitlines():
+def _turso_push_output_indicates_auth_failure(stdout: str, stderr: str) -> bool:
+    return _turso_text_indicates_auth_failure(f"{stdout}\n{stderr}")
+
+
+def _turso_query_output_indicates_auth_failure(stdout: str, stderr: str) -> bool:
+    """Detect auth failures from stderr and CLI banner lines only, not query payload stdout."""
+    if _turso_text_indicates_auth_failure(stderr):
+        return True
+    for line in stdout.splitlines():
+        if not _is_turso_noise_line(line):
+            continue
+        if _turso_text_indicates_auth_failure(line):
+            return True
+    return False
+
+
+def _first_auth_failure_line(stdout: str, stderr: str, *, query_mode: bool) -> str | None:
+    sources = [stderr]
+    if query_mode:
+        sources.extend(line for line in stdout.splitlines() if _is_turso_noise_line(line))
+    else:
+        sources.append(stdout)
+    for source in sources:
+        for line in source.splitlines():
             stripped = line.strip()
-            if stripped and any(marker in stripped.lower() for marker in _TURSO_AUTH_MARKERS):
+            if stripped and _turso_text_indicates_auth_failure(stripped):
                 return stripped
-        return "Turso CLI is not authenticated"
+    return None
+
+
+def _turso_push_output_indicates_error(stdout: str, stderr: str) -> str | None:
+    """Return a human-readable error when Turso push printed failure text despite exit 0."""
+    if _turso_push_output_indicates_auth_failure(stdout, stderr):
+        return _first_auth_failure_line(stdout, stderr, query_mode=False) or "Turso CLI is not authenticated"
     for line in f"{stdout}\n{stderr}".splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("error:"):
+            return stripped
+    return None
+
+
+def _turso_query_output_indicates_error(stdout: str, stderr: str) -> str | None:
+    """Return a CLI error for verify/scalar reads without scanning query payload stdout."""
+    if _turso_query_output_indicates_auth_failure(stdout, stderr):
+        return _first_auth_failure_line(stdout, stderr, query_mode=True) or "Turso CLI is not authenticated"
+    for line in stderr.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("error:"):
+            return stripped
+    for line in stdout.splitlines():
+        if not _is_turso_noise_line(line):
+            continue
         stripped = line.strip()
         if stripped.lower().startswith("error:"):
             return stripped
@@ -246,7 +292,7 @@ def _is_turso_noise_line(line: str) -> bool:
 
 
 def _turso_shell_scalar(proc: subprocess.CompletedProcess) -> str:
-    error = _turso_output_indicates_error(proc.stdout, proc.stderr)
+    error = _turso_query_output_indicates_error(proc.stdout, proc.stderr)
     if proc.returncode != 0 or error:
         message = error or proc.stderr.strip() or proc.stdout.strip()
         raise RuntimeError(message or f"Turso command exited with code {proc.returncode}")
@@ -550,7 +596,13 @@ def _scan_application_folders(
         entries = [f"  {name}: missing meta.json" for name in missing_meta]
         entries.extend(f"  {entry}" for entry in malformed_meta)
         details = "\n".join(entries)
-        raise ValueError("Refusing to seed the database: malformed application meta.json in:\n" + details)
+        if missing_meta and malformed_meta:
+            header = "Refusing to seed the database: application folder problems in:"
+        elif missing_meta:
+            header = "Refusing to seed the database: missing application meta.json in:"
+        else:
+            header = "Refusing to seed the database: malformed application meta.json in:"
+        raise ValueError(f"{header}\n{details}")
     return application_rows
 
 
@@ -1176,17 +1228,17 @@ def sync_to_turso(
         if not freshness.allowed:
             detail = f"skipped ({freshness.reason})"
             log(f"Warning: Turso cloud sync skipped: {freshness.reason}")
-            return TursoSyncResult(synced=False, detail=detail)
+            return TursoSyncResult(synced=False, outcome="skipped", detail=detail)
 
     turso_bin = find_turso_cli()
     if not turso_bin:
         detail = "skipped (Turso CLI not found)"
         log("Warning: Turso CLI not found; cloud sync skipped.")
-        return TursoSyncResult(synced=False, detail=detail)
+        return TursoSyncResult(synced=False, outcome="skipped", detail=detail)
     if not db_path.is_file():
         detail = f"skipped (database file not found at {db_path})"
         log(f"Warning: Database file not found at {db_path}; cloud sync skipped.")
-        return TursoSyncResult(synced=False, detail=detail)
+        return TursoSyncResult(synced=False, outcome="skipped", detail=detail)
     try:
         dump_proc = run_sqlite3(
             ["sqlite3", str(db_path), ".dump"],
@@ -1197,12 +1249,12 @@ def sync_to_turso(
             message = dump_proc.stderr.strip() or f"sqlite3 .dump exited with code {dump_proc.returncode}"
             detail = f"failed ({message})"
             log(f"Warning: Turso cloud sync failed: {message}")
-            return TursoSyncResult(synced=False, detail=detail)
+            return TursoSyncResult(synced=False, outcome="failed", detail=detail)
         full_sync_sql = build_sync_sql(dump_proc.stdout)
         if full_sync_sql is None:
             detail = "failed (invalid sync SQL payload)"
             log("Warning: Turso cloud sync failed: invalid sync SQL payload.")
-            return TursoSyncResult(synced=False, detail=detail)
+            return TursoSyncResult(synced=False, outcome="failed", detail=detail)
 
         fingerprint = _compute_sync_fingerprint(db_path)
         push_proc = run_turso(
@@ -1212,7 +1264,7 @@ def sync_to_turso(
             text=True,
             timeout=30,
         )
-        push_error = _turso_output_indicates_error(push_proc.stdout, push_proc.stderr)
+        push_error = _turso_push_output_indicates_error(push_proc.stdout, push_proc.stderr)
         if push_proc.returncode != 0 or push_error:
             message = push_error or push_proc.stderr.strip() or push_proc.stdout.strip()
             detail = f"failed ({message})"
@@ -1220,18 +1272,18 @@ def sync_to_turso(
                 log(f"Warning: Turso command exited with code {push_proc.returncode}: {message}")
             else:
                 log(f"Warning: Turso cloud sync failed: {message}")
-            return TursoSyncResult(synced=False, detail=detail)
+            return TursoSyncResult(synced=False, outcome="failed", detail=detail)
 
         verify_error = _verify_remote_fingerprint(run_turso, turso_bin, turso_db_name, fingerprint)
         if verify_error:
             detail = f"failed (remote verify: {verify_error})"
             log(f"Warning: Turso cloud sync verify failed: {verify_error}")
-            return TursoSyncResult(synced=False, detail=detail)
+            return TursoSyncResult(synced=False, outcome="failed", detail=detail)
 
         _record_last_turso_sync(db_path)
         detail = "synced"
-        return TursoSyncResult(synced=True, detail=detail)
+        return TursoSyncResult(synced=True, outcome="synced", detail=detail)
     except Exception as exc:
         detail = f"failed ({exc})"
         log(f"Warning: Turso cloud sync failed with exception: {exc}")
-        return TursoSyncResult(synced=False, detail=detail)
+        return TursoSyncResult(synced=False, outcome="failed", detail=detail)

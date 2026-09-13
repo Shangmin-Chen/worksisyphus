@@ -247,7 +247,12 @@ def apply(
     no_git_check: bool = False,
     log: Log = _silent,
 ) -> tuple[Path, CompileResult, ATSCheckResult, TursoSyncResult | None]:
-    """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync."""
+    """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync.
+
+    Local apply (PDF, folder, SQLite write) is fatal on failure. Cloud sync is attempted when
+    enabled; the CLI exits 1 on Turso push failure even though the local application folder
+    may already exist.
+    """
     if not jd_text.strip():
         raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
     if not company.strip():
@@ -357,7 +362,7 @@ def apply(
 
     compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
-    # 5. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
+    # 5. Database persistence (fatal on failure) and cloud sync (CLI exits 1 on push failure)
     from .db import get_connection, save_application_to_db
 
     if resolved_db_path is not None and resolved_db_path.is_file():
@@ -503,7 +508,7 @@ def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False
         result = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
     except Exception as exc:
         log(f"Warning: Turso cloud sync failed: {exc}")
-        return TursoSyncResult(synced=False, detail=f"failed ({exc})")
+        return TursoSyncResult(synced=False, outcome="failed", detail=f"failed ({exc})")
     log(f"Turso cloud sync: {result.detail or ('synced' if result.synced else 'skipped / failed')}")
     return result
 
