@@ -31,6 +31,7 @@ def test_trim_drops_projects_first_then_bullets(small_profile) -> None:
     assert step3 is not None
     next3, cut3 = step3
     assert cut3.kind == "experience-bullet" and cut3.slug == "org-b" and cut3.bullet == "b3"
+    assert "org-b" in cut3.log_line()
     assert next3.experiences[0].bullets == ("a1", "a2", "a3")
     assert next3.experiences[1].bullets == ("b1", "b2")
 
