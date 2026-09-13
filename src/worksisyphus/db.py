@@ -233,7 +233,7 @@ def _is_turso_noise_line(line: str) -> bool:
         return True
     if any(stripped.startswith(prefix) for prefix in _TURSO_SPINNER_PREFIXES):
         return True
-    return stripped.lower().startswith("connecting")
+    return "connecting" in stripped.lower()
 
 
 def _turso_shell_scalar(proc: subprocess.CompletedProcess) -> str:

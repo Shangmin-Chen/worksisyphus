@@ -1203,6 +1203,20 @@ def test_turso_shell_scalar_strips_spinner_prefix() -> None:
     assert _turso_shell_scalar(proc) == "Simon Chen|simon.chen@fixture.test|617-266-1810"
 
 
+def test_turso_shell_scalar_strips_block_element_spinner_prefix() -> None:
+    import subprocess
+
+    from worksisyphus.db import _turso_shell_scalar
+
+    proc = subprocess.CompletedProcess(
+        [],
+        0,
+        "⣾  Connecting to database\nSimon Chen|simon.chen@fixture.test|617-266-1810\n",
+        "",
+    )
+    assert _turso_shell_scalar(proc) == "Simon Chen|simon.chen@fixture.test|617-266-1810"
+
+
 def test_sync_to_turso_rejects_verify_when_jd_text_differs_but_counts_match(tmp_path: Path, monkeypatch) -> None:
     import subprocess
 
