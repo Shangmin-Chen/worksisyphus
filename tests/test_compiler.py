@@ -65,9 +65,7 @@ def test_compile_error_includes_stderr(monkeypatch, tmp_path) -> None:
 
     def fake_run(args, **kwargs) -> subprocess.CompletedProcess:
         # No PDF is written -- simulate a failed compile.
-        return subprocess.CompletedProcess(
-            args, 1, "log tail here", "! LaTeX Error: File `x.sty' not found."
-        )
+        return subprocess.CompletedProcess(args, 1, "log tail here", "! LaTeX Error: File `x.sty' not found.")
 
     monkeypatch.setattr(compiler.shutil, "which", lambda _name: "/usr/bin/pdflatex")
     monkeypatch.setattr(compiler.subprocess, "run", fake_run)
