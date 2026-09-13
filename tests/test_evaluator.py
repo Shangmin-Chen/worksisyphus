@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from worksisyphus.evaluator import (
+    GATE_COMPLIANCE_MAX,
+    IMPACT_METRICS_MAX,
+    ROLE_ALIGNMENT_MAX,
+    TECHNICAL_DEPTH_MAX,
     evaluate_pdf_against_jd,
     evaluate_resume_text,
     format_evaluation_report,
@@ -82,3 +86,33 @@ def test_evaluate_pdf_against_jd(delivered_pdf) -> None:
     report = evaluate_pdf_against_jd(delivered_pdf, jd)
     assert report.overall_score >= 70
     assert report.gate_compliance_score == 10
+
+
+def test_scoring_constants_match_the_reported_maxima() -> None:
+    """A mechanical gate: a future constant edit that desyncs the report header must fail the build."""
+    assert ROLE_ALIGNMENT_MAX + TECHNICAL_DEPTH_MAX + IMPACT_METRICS_MAX + GATE_COMPLIANCE_MAX == 100
+
+
+def test_evaluator_scores_are_unchanged_by_the_constant_extraction() -> None:
+    """Characterization test: hoisting magic numbers to named constants must change no value.
+
+    These are the exact component scores produced before the constants were named (recorded by
+    running this same resume/JD -- the ones used by test_evaluate_resume_text_high_alignment --
+    prior to the extraction). If a future edit to the constants changes these numbers, that is a
+    real behavior change and this test should be updated deliberately, not silently.
+    """
+    resume = """
+    Simon Chen - Software Engineer
+    Languages: C++, Python, Rust, SQL
+    Experience: Built low-latency C++ trading pipeline achieving 20µs latency and 100K queries.
+    Reduced memory footprint by 45% using lock-free SPSC ring buffers resulting in 2.5x speedup.
+    """
+    jd = "Looking for a C++ and Python engineer with low-latency and concurrency experience."
+
+    report = evaluate_resume_text(resume, jd)
+
+    assert report.role_alignment_score == 33
+    assert report.technical_depth_score == 30
+    assert report.impact_metrics_score == 12
+    assert report.gate_compliance_score == 10
+    assert report.overall_score == 85

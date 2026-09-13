@@ -97,15 +97,45 @@ METRIC_PATTERNS = (
     r"\b\d+(?:\.\d+)?x\b",  # Multipliers (10x, 2.5x)
 )
 
+# Terms within COMMON_TECH_TERMS that specifically signal low-level systems depth (as opposed
+# to general tech-stack breadth). Built once here rather than re-built on every scoring call.
+DEPTH_TERMS = {
+    "c++",
+    "c++17",
+    "cython",
+    "rust",
+    "concurrency",
+    "lock-free",
+    "spsc",
+    "low-latency",
+    "shared memory",
+    "memory management",
+    "profiling",
+    "distributed systems",
+    "kernel",
+}
+
+# Rubric constants for evaluate_resume_text's four scoring components. Their maxima must sum
+# to 100 to match the "Overall Match Score: ... / 100" line in format_evaluation_report
+# (enforced by test_scoring_constants_match_the_reported_maxima).
+ROLE_ALIGNMENT_MAX = 40
+ROLE_ALIGNMENT_NO_JD_DEFAULT = 35  # an empty JD cannot be matched against
+TECHNICAL_DEPTH_MAX = 30
+DEPTH_TERMS_FOR_FULL_CREDIT = 5  # 5 distinct depth terms saturate the ratio
+IMPACT_METRICS_MAX = 20
+POINTS_PER_METRIC = 3
+GATE_COMPLIANCE_MAX = 10
+POINTS_LOST_PER_FAILED_GATE = 3
+
 
 @dataclass(frozen=True)
 class EvaluationReport:
     candidate_name: str
     overall_score: int
-    role_alignment_score: int  # max 40
-    technical_depth_score: int  # max 30
-    impact_metrics_score: int  # max 20
-    gate_compliance_score: int  # max 10
+    role_alignment_score: int  # max ROLE_ALIGNMENT_MAX
+    technical_depth_score: int  # max TECHNICAL_DEPTH_MAX
+    impact_metrics_score: int  # max IMPACT_METRICS_MAX
+    gate_compliance_score: int  # max GATE_COMPLIANCE_MAX
     matched_keywords: tuple[str, ...]
     missing_keywords: tuple[str, ...]
     extracted_metrics: tuple[str, ...]
@@ -194,39 +224,24 @@ def evaluate_resume_text(
     matched = sorted(jd_keywords & resume_keywords)
     missing = sorted(jd_keywords - resume_keywords)
 
-    # 1. Role Alignment (0 - 40 pts)
+    # 1. Role Alignment (0 - ROLE_ALIGNMENT_MAX pts)
     if jd_keywords:
         match_ratio = len(matched) / len(jd_keywords)
-        role_alignment_score = min(40, round(match_ratio * 40))
+        role_alignment_score = min(ROLE_ALIGNMENT_MAX, round(match_ratio * ROLE_ALIGNMENT_MAX))
     else:
-        role_alignment_score = 35
+        role_alignment_score = ROLE_ALIGNMENT_NO_JD_DEFAULT
 
-    # 2. Technical Depth & Complexity (0 - 30 pts)
-    depth_terms = {
-        "c++",
-        "c++17",
-        "cython",
-        "rust",
-        "concurrency",
-        "lock-free",
-        "spsc",
-        "low-latency",
-        "shared memory",
-        "memory management",
-        "profiling",
-        "distributed systems",
-        "kernel",
-    }
-    found_depth = resume_keywords & depth_terms
-    depth_ratio = min(1.0, len(found_depth) / 5)
-    technical_depth_score = round(depth_ratio * 30)
+    # 2. Technical Depth & Complexity (0 - TECHNICAL_DEPTH_MAX pts)
+    found_depth = resume_keywords & DEPTH_TERMS
+    depth_ratio = min(1.0, len(found_depth) / DEPTH_TERMS_FOR_FULL_CREDIT)
+    technical_depth_score = round(depth_ratio * TECHNICAL_DEPTH_MAX)
 
-    # 3. Impact & Quantified Metrics (0 - 20 pts)
+    # 3. Impact & Quantified Metrics (0 - IMPACT_METRICS_MAX pts)
     metrics = _extract_metrics(resume_text)
-    impact_metrics_score = min(20, len(metrics) * 3)
+    impact_metrics_score = min(IMPACT_METRICS_MAX, len(metrics) * POINTS_PER_METRIC)
 
-    # 4. Quality Gate Compliance (0 - 10 pts)
-    gate_score = 10
+    # 4. Quality Gate Compliance (0 - GATE_COMPLIANCE_MAX pts)
+    gate_score = GATE_COMPLIANCE_MAX
     gate_diagnostics: list[str] = []
     if gate_results is not None or pdf_path is not None:
         if gate_results is None and pdf_path is not None and not pdf_path.is_file():
@@ -240,7 +255,7 @@ def evaluate_resume_text(
             )
             failed_gates = [g for g in gates if not g.passed]
             if failed_gates:
-                gate_score = max(0, 10 - len(failed_gates) * 3)
+                gate_score = max(0, GATE_COMPLIANCE_MAX - len(failed_gates) * POINTS_LOST_PER_FAILED_GATE)
                 for g in failed_gates:
                     gate_diagnostics.extend(g.diagnostics)
 

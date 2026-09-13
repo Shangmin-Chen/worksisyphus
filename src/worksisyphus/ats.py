@@ -14,6 +14,18 @@ MERGED_DATE_RE = re.compile(
     r"[A-Za-z]{3,}(?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d"
 )
 
+# renderer.py emits "Education" unconditionally (it comes straight from profile.json, not a
+# plan selection), so it is always required. "Experience", "Projects", and "Technical Skills"
+# are each emitted only `if selection.<field>` is non-empty (see renderer.py's conditional
+# section builders), so a valid plan can legitimately omit any one of them -- e.g. a
+# projects-only plan renders with no "Experience" header at all. ats.py has no visibility into
+# the Selection that produced the PDF, so it cannot know which of these three were *intended*;
+# the best it can require is that at least one of them actually rendered, which still catches
+# a genuinely empty/broken body (only "Education" extracted) without rejecting a valid resume
+# that simply didn't select one particular content section.
+ALWAYS_REQUIRED_SECTIONS = ("Education",)
+CONTENT_SECTION_CANDIDATES = ("Experience", "Projects", "Technical Skills")
+
 
 class ATSCheckResult(NamedTuple):
     passed: bool
@@ -53,9 +65,24 @@ def check_pdf_ats(
             warnings=(),
         )
 
-    text = extract_text(pdf_path)
-    with pdf_path.open("rb") as fh:
-        pages = sum(1 for _ in PDFPage.get_pages(fh))
+    try:
+        text = extract_text(pdf_path)
+        with pdf_path.open("rb") as fh:
+            pages = sum(1 for _ in PDFPage.get_pages(fh))
+    except Exception as exc:
+        # pdfminer raises a wide, unstable family of exceptions on truncated or non-PDF input
+        # (PDFSyntaxError, PSEOF, struct.error, AssertionError, ...). Catching broadly here is
+        # deliberate: it converts an unparseable file into an explicit FAILURE, never a pass, so
+        # this stays fail-closed all the way through run_resume_gates (empty text also fails the
+        # Content Density Gate) instead of raising out of apply's staging block.
+        return ATSCheckResult(
+            passed=False,
+            problems=(f"could not parse PDF {pdf_path}: {type(exc).__name__}: {exc}",),
+            pages=0,
+            word_count=0,
+            text="",
+            warnings=(),
+        )
 
     problems: list[str] = []
     is_canonical = pdf_path.stem == CANONICAL_STEM
@@ -74,9 +101,15 @@ def check_pdf_ats(
         if needle not in text:
             problems.append(f"contact {label} {needle!r} did not extract")
 
-    for section in ("Education", "Experience", "Technical Skills"):
+    for section in ALWAYS_REQUIRED_SECTIONS:
         if section not in text:
             problems.append(f"section header {section!r} did not extract")
+
+    if not any(section in text for section in CONTENT_SECTION_CANDIDATES):
+        problems.append(
+            "no content section header extracted; expected at least one of "
+            f"{CONTENT_SECTION_CANDIDATES!r}"
+        )
 
     if "(cid:" in text:
         problems.append("broken glyphs: extraction produced (cid:N) placeholders")
