@@ -248,9 +248,7 @@ def test_cli_backfill_evals_reports_turso_sync_failure(monkeypatch, tmp_path, ca
     monkeypatch.setattr(
         db,
         "sync_to_turso",
-        lambda *args, **kwargs: db.TursoSyncResult(
-            synced=False, outcome="failed", detail="failed (network timeout)"
-        ),
+        lambda *args, **kwargs: db.TursoSyncResult(synced=False, outcome="failed", detail="failed (network timeout)"),
     )
     monkeypatch.setattr(
         application,
