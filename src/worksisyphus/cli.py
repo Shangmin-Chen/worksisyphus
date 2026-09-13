@@ -417,10 +417,11 @@ def main(argv: list[str] | None = None) -> int:
                 if pdf_path.is_file():
                     if args.hackerrank:
                         ats = check_pdf_ats(pdf_path, name=profile.contact.name)
-                        resume_text = scoring_text(ats)
-                        if resume_text is None:
+                        extracted: str | None = scoring_text(ats)
+                        if extracted is None:
                             detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
                             raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
+                        resume_text = extracted
                     else:
                         resume_text = ""
             else:
@@ -440,10 +441,11 @@ def main(argv: list[str] | None = None) -> int:
                     if pdf_path.is_file():
                         if args.hackerrank:
                             ats = check_pdf_ats(pdf_path, name=profile.contact.name)
-                            resume_text = scoring_text(ats)
-                            if resume_text is None:
+                            extracted = scoring_text(ats)
+                            if extracted is None:
                                 detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
                                 raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
+                            resume_text = extracted
                         else:
                             resume_text = ""
                 elif args.plan:
@@ -459,10 +461,11 @@ def main(argv: list[str] | None = None) -> int:
                         role_label = pdf_path.parent.name
                         if args.hackerrank:
                             ats = check_pdf_ats(pdf_path, name=profile.contact.name)
-                            resume_text = scoring_text(ats)
-                            if resume_text is None:
+                            extracted = scoring_text(ats)
+                            if extracted is None:
                                 detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
                                 raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
+                            resume_text = extracted
                         else:
                             resume_text = ""
                     else:
