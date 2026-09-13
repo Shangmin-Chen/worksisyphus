@@ -223,6 +223,26 @@ def test_frontend_role_title_alone_admits_personal_website(real_profile: Profile
     assert "personal-website" in all_projects
 
 
+def test_hyphenated_role_title_matches_frontend_gate(real_profile: Profile) -> None:
+    """Apply-style titles like 'Front-End Engineer' must hit front-end/frontend keywords."""
+    generic_jd = "You will ship features and talk to customers."
+    candidates = generate_candidate_plans(real_profile, generic_jd, role_name="Front-End Engineer")
+    all_projects = {p for c in candidates for p in c.get("projects", {})}
+    assert "personal-website" in all_projects
+
+
+def test_frontend_role_title_cannot_override_backend_jd(real_profile: Profile) -> None:
+    """A frontend role title must not admit personal-website when the JD is engineering-heavy."""
+    backend_jd = "Low-latency distributed systems backend engineer with C++ and concurrency."
+    candidates = generate_candidate_plans(real_profile, backend_jd, role_name="frontend_engineer")
+    all_projects = {p for c in candidates for p in c.get("projects", {})}
+    assert "personal-website" not in all_projects
+    for cand in candidates:
+        projects = list(cand.get("projects", {}))
+        if projects:
+            assert projects[0] == "persephone"
+
+
 def test_quant_role_never_admits_personal_website_even_from_the_role_title(real_profile: Profile) -> None:
     """Guards the frontend-role-title fix: even a JD that also mentions a frontend keyword must
     stay blocked from personal-website when the role is quant/systems (is_systems_quant wins).
@@ -287,7 +307,7 @@ def test_candidate_plans_are_unique(small_profile: Profile) -> None:
     assert len(keys) == len(set(keys))
 
 
-def test_knapsack_skips_entries_with_no_bullets() -> None:
+def test_knapsack_skips_entries_with_no_bullets(capsys) -> None:
     empty_entry = ScoredEntry(
         slug="empty-exp",
         title="Empty Experience",
@@ -315,3 +335,5 @@ def test_knapsack_skips_entries_with_no_bullets() -> None:
     assert "normal-exp" in exp_picks
     # Only the normal entry's header (1.5) + its 2 bullets (1.0 each) should count.
     assert total_lines == 1.5 + 1.0 + 1.0
+    err = capsys.readouterr().err
+    assert "WARN: knapsack skipping 'empty-exp'" in err

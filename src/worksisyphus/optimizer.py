@@ -143,6 +143,13 @@ def solve_line_budget_knapsack(
     proj_picks: dict[str, list[str]] = {}
 
     # 1. Base cost: allocate headers and top MIN_BULLETS mandatory bullets for each chosen entry
+    skipped = [e for e in experiences + selected_projects if not e.bullets]
+    for entry in skipped:
+        print(
+            f"WARN: knapsack skipping {entry.slug!r}: no bullets selected "
+            "(entry would fail plan validation downstream)",
+            file=sys.stderr,
+        )
     active_entries = [e for e in experiences + selected_projects if e.bullets]
     for entry in active_entries:
         total_lines += HEADER_LINE_COST
@@ -238,6 +245,19 @@ GUARDED_SLUGS = (
 )
 
 
+def _text_match_variants(text: str) -> tuple[str, ...]:
+    """Lowercase spellings to compare against hyphen/space/underscore role titles.
+
+    Apply-style titles like ``Front-End Engineer`` normalize to ``front end engineer`` when
+    separators become spaces, which would miss keyword ``front-end`` without also checking
+    hyphenated and original forms.
+    """
+    lower = text.lower()
+    spaced = re.sub(r"[_\-]+", " ", lower)
+    hyphened = re.sub(r"[\s_]+", "-", lower).strip("-")
+    return tuple(dict.fromkeys(v for v in (lower, spaced, hyphened) if v))
+
+
 def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
     """Whole-token keyword search over already-lowercased text.
 
@@ -245,8 +265,16 @@ def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
     'luxury', 'quant' inside 'quantify'. Word boundaries are expressed with alphanumeric
     lookarounds rather than \\b so that keywords ending in punctuation ('c++', 'next.js')
     still match.
+
+    Checks separator variants (spaces, hyphens, underscores) so role titles like
+    ``Front-End Engineer`` still hit ``front-end`` and ``Low Latency Engineer`` hits
+    ``low-latency``.
     """
-    return any(re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", text) for kw in keywords)
+    return any(
+        re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", variant)
+        for variant in _text_match_variants(text)
+        for kw in keywords
+    )
 
 
 def _promote(entries: list[ScoredEntry], slug: str) -> list[ScoredEntry]:
@@ -264,17 +292,16 @@ def apply_selection_guardrails(
 ) -> tuple[list[ScoredEntry], list[ScoredEntry]]:
     """Enforce Simon's selection guardrails deterministically."""
     jd_lower = jd_text.lower()
-    # Role rubric names are snake_case ("it_specialist"); keywords are written with spaces
-    # ("it specialist"), so normalize separators before matching or multi-word keywords never hit.
-    role_lower = re.sub(r"[_\-]+", " ", role_name.lower())
 
     # 1. BU IT gate: only selected for IT/support/security roles
-    is_it_role = _mentions(jd_lower, IT_KEYWORDS) or _mentions(role_lower, IT_KEYWORDS)
+    is_it_role = _mentions(jd_lower, IT_KEYWORDS) or _mentions(role_name, IT_KEYWORDS)
     filtered_exp = [e for e in experiences if e.slug != BU_IT_SLUG or is_it_role]
 
-    is_systems_quant = _mentions(jd_lower, SYSTEMS_QUANT_KEYWORDS) or _mentions(role_lower, SYSTEMS_QUANT_KEYWORDS)
+    is_systems_quant = _mentions(jd_lower, SYSTEMS_QUANT_KEYWORDS) or _mentions(role_name, SYSTEMS_QUANT_KEYWORDS)
     is_engineering = (
-        is_systems_quant or _mentions(jd_lower, ENGINEERING_KEYWORDS) or _mentions(role_lower, ENGINEERING_KEYWORDS)
+        is_systems_quant
+        or _mentions(jd_lower, ENGINEERING_KEYWORDS)
+        or _mentions(role_name, ENGINEERING_KEYWORDS)
     )
 
     # 2. Weak-project gate. The rule is "the JD *is* a mobile / civic / blockchain role", not
@@ -282,15 +309,20 @@ def apply_selection_guardrails(
     #    not admit fitness-tracker as filler. The role title is the strongest signal, so it can
     #    admit a domain even when the posting also reads as engineering-heavy.
     def _is_role(keywords: tuple[str, ...]) -> bool:
-        return _mentions(role_lower, keywords) or (_mentions(jd_lower, keywords) and not is_engineering)
+        return _mentions(role_name, keywords) or (_mentions(jd_lower, keywords) and not is_engineering)
 
     has_mobile = _is_role(MOBILE_KEYWORDS)
     has_civic = _is_role(CIVIC_KEYWORDS)
     has_crypto = _is_role(CRYPTO_KEYWORDS)
 
-    # 3. Personal-website gate: frontend/fullstack/web-infra/edge only; never quant/systems/infra
-    is_frontend_web = _mentions(jd_lower, FRONTEND_KEYWORDS) or _mentions(role_lower, FRONTEND_KEYWORDS)
-    allow_personal_website = is_frontend_web and not is_systems_quant
+    # 3. Personal-website gate: frontend/fullstack/web-infra/edge only; never quant/systems/infra.
+    # A frontend role title alone cannot override an engineering JD — the posting must also
+    # signal frontend/fullstack work, or personal-website weakens backend/systems resumes.
+    jd_has_frontend = _mentions(jd_lower, FRONTEND_KEYWORDS)
+    is_frontend_web = jd_has_frontend or _mentions(role_name, FRONTEND_KEYWORDS)
+    allow_personal_website = (
+        is_frontend_web and not is_systems_quant and not (is_engineering and not jd_has_frontend)
+    )
 
     filtered_proj = [
         p
