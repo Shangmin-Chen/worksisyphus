@@ -502,11 +502,11 @@ def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False
     from .db import sync_to_turso
 
     try:
-        synced = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
+        result = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
     except Exception as exc:
         log(f"Warning: Turso cloud sync failed: {exc}")
         return False
-    return synced
+    return result.synced
 
 
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:

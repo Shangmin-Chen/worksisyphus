@@ -753,6 +753,160 @@ def test_seed_deletes_ghost_application_rows_with_audit(tmp_path: Path) -> None:
     conn.close()
 
 
+def test_seed_refuses_malformed_meta_json(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    good = apps / "2026-08-01_acme_swe"
+    good.mkdir(parents=True)
+    (good / "meta.json").write_text(json.dumps({"company": "Acme", "status": "applied"}), encoding="utf-8")
+    bad = apps / "2026-08-02_broken_swe"
+    bad.mkdir(parents=True)
+    (bad / "meta.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="malformed application meta.json") as excinfo:
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    message = excinfo.value.args[0]
+    assert "2026-08-02_broken_swe" in message
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 0
+    conn.close()
+
+
+def test_decode_sqlite_unistr_handles_unicode_tex_and_backslashes() -> None:
+    from worksisyphus.db import decode_sqlite_unistr
+
+    assert decode_sqlite_unistr(r"line1\u000aline2") == "line1\nline2"
+    assert decode_sqlite_unistr(r"em-dash\u2014here") == "em-dash\u2014here"
+    assert decode_sqlite_unistr(r"TeX \$8K and 75\%") == r"TeX \$8K and 75\%"
+    assert decode_sqlite_unistr(r"path\\file") == r"path\file"
+
+
+def test_build_sync_sql_strips_unistr_calls() -> None:
+    from worksisyphus.db import build_sync_sql
+
+    dump = (
+        "PRAGMA foreign_keys=OFF;\n"
+        "BEGIN TRANSACTION;\n"
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, text TEXT);\n"
+        "INSERT INTO t VALUES(1,unistr('newline\\u000aand em\\u2014dash'));\n"
+        "COMMIT;\n"
+    )
+    sql = build_sync_sql(dump)
+    assert sql is not None
+    assert "unistr(" not in sql
+    assert "newline\nand em\u2014dash" in sql
+
+
+def test_decode_unistr_sql_replays_into_sqlite(tmp_path: Path) -> None:
+    from worksisyphus.db import build_sync_sql, get_connection
+
+    dump = (
+        "PRAGMA foreign_keys=OFF;\n"
+        "BEGIN TRANSACTION;\n"
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, text TEXT);\n"
+        "INSERT INTO t VALUES(1,unistr('TeX \\$8K\\u000a75\\%'));\n"
+        "COMMIT;\n"
+    )
+    sql = build_sync_sql(dump)
+    assert sql is not None
+    db_file = tmp_path / "replay.db"
+    conn = get_connection(db_file)
+    conn.executescript(sql)
+    row = conn.execute("SELECT text FROM t WHERE id = 1").fetchone()[0]
+    assert row == r"TeX \$8K" + "\n" + r"75\%"
+    conn.close()
+
+
+def test_sync_to_turso_reports_missing_binary(tmp_path: Path, monkeypatch) -> None:
+    from worksisyphus.db import sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    fake_db.write_bytes(b"sqlite")
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: None)
+    logs: list[str] = []
+    result = sync_to_turso(db_path=fake_db, no_git_check=True, log=logs.append)
+    assert result.synced is False
+    assert any("Turso CLI not found" in log for log in logs)
+
+
+def test_sync_to_turso_rejects_auth_failure_with_exit_zero(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, "BEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER);\nCOMMIT;\n", "")
+
+    def fake_turso(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "You are not logged in, please login with turso auth login before running other commands.\n",
+            "",
+        )
+
+    logs: list[str] = []
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        log=logs.append,
+        sqlite3_runner=fake_sqlite3,
+        turso_runner=fake_turso,
+    )
+    assert result.synced is False
+    assert any("not logged in" in log for log in logs)
+
+
+def test_sync_to_turso_records_last_sync_on_verified_success(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import read_last_turso_sync, seed_database, sync_to_turso, turso_last_sync_path
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    assert read_last_turso_sync(fake_db) is None
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT);\n"
+            "INSERT INTO contact VALUES(1,'Simon Chen');\nCOMMIT;\n",
+            "",
+        )
+
+    def fake_turso(cmd, *args, **kwargs):
+        if kwargs.get("input"):
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "1\n", "")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=fake_turso,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is True
+    assert turso_last_sync_path(fake_db).is_file()
+    assert read_last_turso_sync(fake_db) is not None
+
+
 def test_seed_skips_dot_directories_even_with_meta(tmp_path: Path) -> None:
     """Staging residue that died after meta-write must never become an application row."""
     from worksisyphus.db import seed_database

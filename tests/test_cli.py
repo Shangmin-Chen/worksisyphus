@@ -123,7 +123,11 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
 
     test_db = tmp_path / "test.db"
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
-    monkeypatch.setattr(db, "sync_to_turso", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        db,
+        "sync_to_turso",
+        lambda *args, **kwargs: db.TursoSyncResult(synced=True, detail="synced"),
+    )
 
     # `db init` and `db sync` read profile.json from the working directory. Run them against
     # a profile this test owns: they used to silently seed from tests/fixtures/profile.json
@@ -190,9 +194,9 @@ def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypat
 
     pushes: list[int] = []
 
-    def _fake_sync(*args: object, **kwargs: object) -> bool:
+    def _fake_sync(*args: object, **kwargs: object) -> db.TursoSyncResult:
         pushes.append(1)
-        return True
+        return db.TursoSyncResult(synced=True, detail="synced")
 
     monkeypatch.setattr(db, "sync_to_turso", _fake_sync)
 
