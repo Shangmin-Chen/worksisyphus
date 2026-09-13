@@ -118,22 +118,20 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
     skills: dict[str, tuple[str, ...]] = {}
     for group, items in skills_data.items():
         if not isinstance(items, list):
-            raise ValueError(
-                f"Invalid skills.{group} in {path}: expected list, got {type(items).__name__}"
-            )
+            raise ValueError(f"Invalid skills.{group} in {path}: expected list, got {type(items).__name__}")
         skills[group] = tuple(items)
+    education: list[Education] = []
+    for i, e in enumerate(education_entries):
+        if not _require_dict(e, f"education entry {i}", path):
+            continue
+        label = f"education entry {i} ({e.get('institution', '?')})"
+        coursework = e.get("coursework", [])
+        if not isinstance(coursework, list):
+            raise ValueError(f"Invalid coursework in {label} in {path}: expected list, got {type(coursework).__name__}")
+        education.append(_build(Education, {**e, "coursework": tuple(coursework)}, label, path))
     return Profile(
         contact=_build(Contact, data.get("contact", {"name": ""}), "contact", path),
-        education=tuple(
-            _build(
-                Education,
-                {**e, "coursework": tuple(e.get("coursework", []))},
-                f"education entry {i} ({e.get('institution', '?')})",
-                path,
-            )
-            for i, e in enumerate(education_entries)
-            if _require_dict(e, f"education entry {i}", path)
-        ),
+        education=tuple(education),
         experiences={
             slug: _build(Experience, {**e, "id": slug}, f"experience '{slug}'", path)
             for slug, e in experiences_data.items()

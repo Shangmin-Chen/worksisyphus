@@ -298,6 +298,34 @@ def test_load_profile_rejects_invalid_sections(tmp_path, payload, needle) -> Non
     assert needle in message
 
 
+def test_load_profile_rejects_null_coursework(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "Simon Chen", "email": "simon@example.com", "phone": "617-000-0000"},
+                "education": [
+                    {
+                        "institution": "Example University",
+                        "location": "Boston, MA",
+                        "degree": "B.S. Computer Science",
+                        "date": "2026",
+                        "coursework": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as excinfo:
+        load_profile(profile_path)
+    message = str(excinfo.value)
+    assert str(profile_path) in message
+    assert "coursework" in message
+    assert "education entry 0" in message
+    assert "Example University" in message
+
+
 def test_load_profile_strips_a_leading_bom(tmp_path) -> None:
     profile_path = tmp_path / "profile.json"
     payload = json.dumps({"contact": {"name": "Simon Chen", "email": "s@example.com", "phone": "617-000-0000"}})
