@@ -106,11 +106,11 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
             for i, e in enumerate(data.get("education", []))
         ),
         experiences={
-            slug: _build(Experience, {"id": slug, **e}, f"experience '{slug}'", path)
+            slug: _build(Experience, {**e, "id": slug}, f"experience '{slug}'", path)
             for slug, e in data.get("experiences", {}).items()
         },
         projects={
-            slug: _build(Project, {"id": slug, **p}, f"project '{slug}'", path)
+            slug: _build(Project, {**p, "id": slug}, f"project '{slug}'", path)
             for slug, p in data.get("projects", {}).items()
         },
         skills={group: tuple(items) for group, items in data.get("skills", {}).items()},

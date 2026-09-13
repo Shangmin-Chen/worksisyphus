@@ -162,6 +162,66 @@ def test_load_profile_names_the_offending_project(tmp_path) -> None:
     assert str(profile_path) in message
 
 
+def test_load_profile_dict_key_slug_overrides_inner_id(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "Simon Chen", "email": "simon@example.com", "phone": "617-000-0000"},
+                "experiences": {
+                    "acme-co": {
+                        "id": "wrong-slug",
+                        "role": "Engineer",
+                        "org": "Acme Co",
+                        "location": "NY",
+                        "date": "2025",
+                        "bullets": {},
+                    }
+                },
+                "projects": {
+                    "widget": {
+                        "id": "also-wrong",
+                        "name": "Widget",
+                        "tech": "Python",
+                        "date": "2025",
+                        "bullets": {},
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    profile = load_profile(profile_path)
+    assert profile.experiences["acme-co"].id == "acme-co"
+    assert profile.projects["widget"].id == "widget"
+
+
+def test_load_profile_names_the_offending_education_entry(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "Simon Chen", "email": "simon@example.com", "phone": "617-000-0000"},
+                "education": [
+                    {
+                        "institution": "Example University",
+                        "location": "Boston, MA",
+                        "degre": "B.S. Computer Science",
+                        "date": "2026",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as excinfo:
+        load_profile(profile_path)
+    message = str(excinfo.value)
+    assert str(profile_path) in message
+    assert "education entry 0" in message
+    assert "Example University" in message
+
+
 def test_load_profile_names_a_bad_contact_key(tmp_path) -> None:
     profile_path = tmp_path / "profile.json"
     profile_path.write_text(
