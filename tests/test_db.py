@@ -891,6 +891,25 @@ def test_decode_unistr_sql_replays_into_sqlite(tmp_path: Path) -> None:
     conn.close()
 
 
+def _sqlite_executing_fake_turso(db_path: Path):
+    import sqlite3
+    import subprocess
+
+    def fake_turso(cmd, *args, **kwargs):
+        inp = kwargs.get("input") or ""
+        if "DROP TABLE" in inp or inp.count("CREATE TABLE") > 2:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute(inp.strip().rstrip(";")).fetchone()
+            value = "" if row is None or row[0] is None else str(row[0])
+            return subprocess.CompletedProcess(cmd, 0, value + "\n", "")
+        finally:
+            conn.close()
+
+    return fake_turso
+
+
 def test_sync_to_turso_reports_missing_binary(tmp_path: Path, monkeypatch) -> None:
     from worksisyphus.db import sync_to_turso
 
@@ -965,10 +984,15 @@ def test_sync_to_turso_rejects_verify_mismatch_without_recording_last_sync(tmp_p
             "",
         )
 
+    monkeypatch.setattr(
+        "worksisyphus.db._verify_remote_fingerprint",
+        lambda *args, **kwargs: "fingerprint mismatch (header)",
+    )
+
     def fake_turso(cmd, *args, **kwargs):
         if kwargs.get("input"):
             return subprocess.CompletedProcess(cmd, 0, "", "")
-        return subprocess.CompletedProcess(cmd, 0, "0\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
 
     result = sync_to_turso(
         db_path=fake_db,
@@ -1041,15 +1065,10 @@ def test_sync_to_turso_records_last_sync_on_verified_success(tmp_path: Path, mon
             "",
         )
 
-    def fake_turso(cmd, *args, **kwargs):
-        if kwargs.get("input"):
-            return subprocess.CompletedProcess(cmd, 0, "", "")
-        return subprocess.CompletedProcess(cmd, 0, "1\n", "")
-
     result = sync_to_turso(
         db_path=fake_db,
         no_git_check=True,
-        turso_runner=fake_turso,
+        turso_runner=_sqlite_executing_fake_turso(fake_db),
         sqlite3_runner=fake_sqlite3,
     )
     assert result.synced is True
@@ -1107,13 +1126,11 @@ def test_sync_fingerprint_detects_jd_text_change_with_same_counts(tmp_path: Path
     conn.close()
     second = _compute_sync_fingerprint(fake_db)
 
-    assert first != second
-    assert first.count("|") == second.count("|")
+    assert first.header == second.header
+    assert first.applications_digest != second.applications_digest
 
 
-def test_sync_to_turso_rejects_verify_when_jd_text_differs_but_counts_match(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_sync_to_turso_rejects_verify_when_jd_text_differs_but_counts_match(tmp_path: Path, monkeypatch) -> None:
     import subprocess
 
     from worksisyphus.db import seed_database, sync_to_turso
@@ -1146,10 +1163,15 @@ def test_sync_to_turso_rejects_verify_when_jd_text_differs_but_counts_match(
             "",
         )
 
+    monkeypatch.setattr(
+        "worksisyphus.db._verify_remote_fingerprint",
+        lambda *args, **kwargs: "fingerprint mismatch (applications)",
+    )
+
     def fake_turso(cmd, *args, **kwargs):
         if kwargs.get("input"):
             return subprocess.CompletedProcess(cmd, 0, "", "")
-        return subprocess.CompletedProcess(cmd, 0, "0\n", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
 
     result = sync_to_turso(
         db_path=fake_db,
@@ -1159,6 +1181,75 @@ def test_sync_to_turso_rejects_verify_when_jd_text_differs_but_counts_match(
     )
     assert result.synced is False
     assert "verify" in result.detail
+
+
+def test_sync_fingerprint_detects_profile_bullet_change_with_same_counts(tmp_path: Path) -> None:
+    from worksisyphus.db import _compute_sync_fingerprint, seed_database
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_data = _fixture_data_with_deliverable_contact()
+    profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
+
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    first = _compute_sync_fingerprint(fake_db)
+
+    profile_data["experiences"]["ezesports"]["bullets"]["nextjs-migration"] = (
+        "Reworded bullet text for verify coverage."
+    )
+    profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    second = _compute_sync_fingerprint(fake_db)
+
+    assert first.header == second.header
+    assert first.profile_digest != second.profile_digest
+
+
+def test_sync_to_turso_rejects_verify_when_profile_bullet_differs(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+    monkeypatch.setattr(
+        "worksisyphus.db._verify_remote_fingerprint",
+        lambda *args, **kwargs: "fingerprint mismatch (profile)",
+    )
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT, email TEXT);\n"
+            "INSERT INTO contact VALUES(1,'Simon Chen','simon.chen@fixture.test');\n"
+            "COMMIT;\n",
+            "",
+        )
+
+    def fake_turso(cmd, *args, **kwargs):
+        if kwargs.get("input"):
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=fake_turso,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is False
+    assert "profile" in result.detail
 
 
 def test_sync_to_turso_rejects_sqlite_dump_failure(tmp_path: Path, monkeypatch) -> None:
@@ -1207,15 +1298,10 @@ def test_sync_to_turso_allows_unistr_substring_in_string_literals(tmp_path: Path
             "",
         )
 
-    def fake_turso(cmd, *args, **kwargs):
-        if kwargs.get("input"):
-            return subprocess.CompletedProcess(cmd, 0, "", "")
-        return subprocess.CompletedProcess(cmd, 0, "1\n", "")
-
     result = sync_to_turso(
         db_path=fake_db,
         no_git_check=True,
-        turso_runner=fake_turso,
+        turso_runner=_sqlite_executing_fake_turso(fake_db),
         sqlite3_runner=fake_sqlite3,
     )
     assert result.synced is True
@@ -1247,9 +1333,7 @@ def test_sync_to_turso_rejects_push_error_with_exit_zero(tmp_path: Path, monkeyp
         )
 
     def fake_turso(cmd, *args, **kwargs):
-        return subprocess.CompletedProcess(
-            cmd, 0, "Error: no such function: unistr\n", ""
-        )
+        return subprocess.CompletedProcess(cmd, 0, "Error: no such function: unistr\n", "")
 
     result = sync_to_turso(
         db_path=fake_db,

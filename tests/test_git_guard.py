@@ -224,7 +224,7 @@ def test_apply_completes_local_generation_even_if_cloud_sync_is_skipped(small_pr
     init_schema(conn)
     conn.close()
 
-    folder, _res, _ats = apply(
+    folder, _res, _ats, _sync = apply(
         plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
         jd_text="Distributed systems",
         company="Acme Corp",

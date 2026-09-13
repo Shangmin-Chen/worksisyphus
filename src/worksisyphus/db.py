@@ -10,6 +10,7 @@ Provides:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
@@ -95,34 +96,188 @@ def _turso_output_indicates_error(stdout: str, stderr: str) -> str | None:
     return None
 
 
-_SYNC_FINGERPRINT_EXPR = """
-COALESCE((SELECT name FROM contact WHERE id = 1), '')
+_SYNC_HEADER_SQL = """
+SELECT COALESCE((SELECT name FROM contact WHERE id = 1), '')
 || '|' || COALESCE((SELECT email FROM contact WHERE id = 1), '')
 || '|' || (SELECT COUNT(*) FROM applications)
-|| '|' || (SELECT COUNT(*) FROM audit_events)
 || '|' || (
     (SELECT COUNT(*) FROM experience_bullets)
     + (SELECT COUNT(*) FROM project_bullets)
 )
-|| '|' || COALESCE((
-    SELECT GROUP_CONCAT(jd_text || char(31) || plan_json, char(30) ORDER BY id)
+"""
+
+_SYNC_APPLICATIONS_CANONICAL_SQL = """
+SELECT COALESCE((
+    SELECT GROUP_CONCAT(
+        id || char(31) || jd_text || char(31) || plan_json || char(31) || evaluation_json,
+        char(30) ORDER BY id
+    )
     FROM applications
 ), '')
 """
 
+_SYNC_PROFILE_CANONICAL_PARTS: tuple[str, ...] = (
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'edu:' || institution || char(31) || location || char(31) || degree || char(31) || date
+                || char(31) || coursework || char(31) || sort_order,
+            char(10) ORDER BY sort_order, id
+        )
+        FROM education
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'exp:' || slug || char(31) || role || char(31) || org || char(31) || location || char(31) || date
+                || char(31) || sort_order,
+            char(10) ORDER BY sort_order, slug
+        )
+        FROM experiences
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'eb:' || experience_slug || char(31) || slug || char(31) || text || char(31) || sort_order,
+            char(10) ORDER BY experience_slug, slug
+        )
+        FROM experience_bullets
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'proj:' || slug || char(31) || name || char(31) || tech || char(31) || date || char(31) || sort_order,
+            char(10) ORDER BY sort_order, slug
+        )
+        FROM projects
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'pb:' || project_slug || char(31) || slug || char(31) || text || char(31) || sort_order,
+            char(10) ORDER BY project_slug, slug
+        )
+        FROM project_bullets
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'sk:' || group_name || char(31) || item || char(31) || sort_order,
+            char(10) ORDER BY group_name, sort_order, item
+        )
+        FROM skills
+    ), '')
+    """,
+)
 
-def _compute_sync_fingerprint(db_path: Path) -> str:
+
+@dataclass(frozen=True)
+class SyncFingerprint:
+    """Compact post-push verify token: header counts plus content digests."""
+
+    header: str
+    applications_digest: str
+    profile_digest: str
+
+
+def _digest_payload(payload: str) -> str:
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _fetch_sync_header(conn: sqlite3.Connection) -> str:
+    row = conn.execute(_SYNC_HEADER_SQL).fetchone()
+    return row[0] if row else "||||0"
+
+
+def _fetch_applications_canonical(conn: sqlite3.Connection) -> str:
+    row = conn.execute(_SYNC_APPLICATIONS_CANONICAL_SQL).fetchone()
+    return row[0] if row else ""
+
+
+def _fetch_profile_canonical(conn: sqlite3.Connection) -> str:
+    chunks: list[str] = []
+    for sql in _SYNC_PROFILE_CANONICAL_PARTS:
+        row = conn.execute(sql).fetchone()
+        if row and row[0]:
+            chunks.append(row[0])
+    return "\n".join(chunks)
+
+
+def _compute_sync_fingerprint(db_path: Path) -> SyncFingerprint:
     conn = sqlite3.connect(str(db_path))
     try:
-        row = conn.execute(f"SELECT {_SYNC_FINGERPRINT_EXPR}").fetchone()
-        return row[0] if row else "|||||0|0|"
+        return SyncFingerprint(
+            header=_fetch_sync_header(conn),
+            applications_digest=_digest_payload(_fetch_applications_canonical(conn)),
+            profile_digest=_digest_payload(_fetch_profile_canonical(conn)),
+        )
     finally:
         conn.close()
 
 
-def _verify_sql_for_fingerprint(fingerprint: str) -> str:
-    escaped = fingerprint.replace("'", "''")
-    return f"SELECT {_SYNC_FINGERPRINT_EXPR} = '{escaped}';"
+def _turso_shell_scalar(proc: subprocess.CompletedProcess) -> str:
+    error = _turso_output_indicates_error(proc.stdout, proc.stderr)
+    if proc.returncode != 0 or error:
+        message = error or proc.stderr.strip() or proc.stdout.strip()
+        raise RuntimeError(message or f"Turso command exited with code {proc.returncode}")
+    return proc.stdout.rstrip("\n")
+
+
+def _run_turso_query(
+    run_turso: Callable[..., subprocess.CompletedProcess],
+    turso_bin: str,
+    turso_db_name: str,
+    sql: str,
+) -> str:
+    proc = run_turso(
+        [turso_bin, "db", "shell", turso_db_name],
+        input=sql.strip().rstrip(";") + ";\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return _turso_shell_scalar(proc)
+
+
+def _fetch_remote_profile_canonical(
+    run_turso: Callable[..., subprocess.CompletedProcess],
+    turso_bin: str,
+    turso_db_name: str,
+) -> str:
+    chunks: list[str] = []
+    for sql in _SYNC_PROFILE_CANONICAL_PARTS:
+        chunk = _run_turso_query(run_turso, turso_bin, turso_db_name, sql)
+        if chunk:
+            chunks.append(chunk)
+    return "\n".join(chunks)
+
+
+def _verify_remote_fingerprint(
+    run_turso: Callable[..., subprocess.CompletedProcess],
+    turso_bin: str,
+    turso_db_name: str,
+    expected: SyncFingerprint,
+) -> str | None:
+    """Return a human-readable verify error, or None when remote matches expected."""
+    try:
+        remote_header = _run_turso_query(run_turso, turso_bin, turso_db_name, _SYNC_HEADER_SQL)
+        remote_apps = _run_turso_query(run_turso, turso_bin, turso_db_name, _SYNC_APPLICATIONS_CANONICAL_SQL)
+        remote_profile = _fetch_remote_profile_canonical(run_turso, turso_bin, turso_db_name)
+    except RuntimeError as exc:
+        return str(exc)
+
+    if remote_header != expected.header:
+        return "fingerprint mismatch (header)"
+    if _digest_payload(remote_apps) != expected.applications_digest:
+        return "fingerprint mismatch (applications)"
+    if _digest_payload(remote_profile) != expected.profile_digest:
+        return "fingerprint mismatch (profile)"
+    return None
 
 
 ACTION_APPLY = "APPLY"
@@ -1035,22 +1190,10 @@ def sync_to_turso(
                 log(f"Warning: Turso cloud sync failed: {message}")
             return TursoSyncResult(synced=False, detail=detail)
 
-        verify_proc = run_turso(
-            [turso_bin, "db", "shell", turso_db_name, _verify_sql_for_fingerprint(fingerprint)],
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        verify_error = _turso_output_indicates_error(verify_proc.stdout, verify_proc.stderr)
-        if verify_proc.returncode != 0 or verify_error:
-            message = verify_error or verify_proc.stderr.strip() or verify_proc.stdout.strip()
-            detail = f"failed (remote verify: {message})"
-            log(f"Warning: Turso cloud sync verify failed: {message}")
-            return TursoSyncResult(synced=False, detail=detail)
-        verified = any(line.strip() == "1" for line in verify_proc.stdout.splitlines())
-        if not verified:
-            detail = "failed (remote verify: fingerprint mismatch)"
-            log("Warning: Turso cloud sync verify failed: remote fingerprint mismatch.")
+        verify_error = _verify_remote_fingerprint(run_turso, turso_bin, turso_db_name, fingerprint)
+        if verify_error:
+            detail = f"failed (remote verify: {verify_error})"
+            log(f"Warning: Turso cloud sync verify failed: {verify_error}")
             return TursoSyncResult(synced=False, detail=detail)
 
         _record_last_turso_sync(db_path)

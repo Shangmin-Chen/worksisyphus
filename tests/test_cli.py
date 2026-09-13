@@ -72,7 +72,7 @@ def test_update_status_reports_transition(monkeypatch, capsys, tmp_path) -> None
     monkeypatch.setattr(
         cli,
         "update_application_status",
-        lambda app, status, **kwargs: (folder, "applied", status),
+        lambda app, status, **kwargs: (folder, "applied", status, None),
     )
 
     assert cli.main(["update-status", "--app", folder.name, "--status", "phone_screen"]) == 0
@@ -96,7 +96,12 @@ def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         pdf = folder / "Simon_Chen_Resume.pdf"
         pdf.write_bytes(b"%PDF-fake")
-        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
+        return (
+            folder,
+            CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1),
+            ATSCheckResult(True, (), 1, 500, "text"),
+            None,
+        )
 
     monkeypatch.setattr(cli, "apply_app", fake_apply)
     monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
@@ -256,6 +261,56 @@ def test_cli_backfill_evals_reports_turso_sync_failure(monkeypatch, tmp_path, ca
     assert "Turso cloud sync: failed (network timeout)" in out
     assert "Synced profile.json to SQLite and Turso cloud" not in out
     assert "Scored 1 application(s)." in out
+
+
+def test_cli_apply_returns_nonzero_on_turso_push_failure(monkeypatch, tmp_path, capsys) -> None:
+    import io
+
+    from worksisyphus import db
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.compiler import CompileResult
+    from worksisyphus.db import TursoSyncResult
+
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+
+    def fake_apply(*args, **kwargs):
+        folder = tmp_path / "applications" / "2026-08-20_primitive_product-engineer"
+        folder.mkdir(parents=True, exist_ok=True)
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        return (
+            folder,
+            CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1),
+            ATSCheckResult(True, (), 1, 500, "text"),
+            TursoSyncResult(synced=False, detail="failed (auth expired)"),
+        )
+
+    monkeypatch.setattr(cli, "apply_app", fake_apply)
+    monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
+
+    assert cli.main(["apply", "--company", "Primitive", "--role", "Product Engineer", "--jd", "-", "--plan", plan]) == 1
+    out = capsys.readouterr().out
+    assert "Application created:" in out
+
+
+def test_cli_update_status_returns_nonzero_on_turso_push_failure(monkeypatch, capsys, tmp_path) -> None:
+    from worksisyphus.db import TursoSyncResult
+
+    folder = tmp_path / "2026-08-05_dirac_full-stack-engineer"
+    monkeypatch.setattr(
+        cli,
+        "update_application_status",
+        lambda app, status, **kwargs: (
+            folder,
+            "applied",
+            status,
+            TursoSyncResult(synced=False, detail="failed (network timeout)"),
+        ),
+    )
+
+    assert cli.main(["update-status", "--app", folder.name, "--status", "phone_screen"]) == 1
+    out = capsys.readouterr().out
+    assert "Updated 2026-08-05_dirac_full-stack-engineer: applied -> phone_screen" in out
 
 
 def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:
@@ -427,7 +482,12 @@ def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         pdf = folder / "Simon_Chen_Resume.pdf"
         pdf.write_bytes(b"%PDF-fake")
-        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
+        return (
+            folder,
+            CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1),
+            ATSCheckResult(True, (), 1, 500, "text"),
+            None,
+        )
 
     monkeypatch.setattr(cli, "apply_app", fake_apply)
     monkeypatch.setattr("sys.stdin", io.StringIO("Full-stack engineer building with Python and TypeScript."))

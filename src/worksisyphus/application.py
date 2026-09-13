@@ -15,8 +15,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-if TYPE_CHECKING:
-    from .db import TursoSyncResult
+from .db import TursoSyncResult
 
 from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
@@ -248,7 +247,7 @@ def apply(
     allow_branch: bool = False,
     no_git_check: bool = False,
     log: Log = _silent,
-) -> tuple[Path, CompileResult, ATSCheckResult]:
+) -> tuple[Path, CompileResult, ATSCheckResult, TursoSyncResult | None]:
     """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync."""
     if not jd_text.strip():
         raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
@@ -382,10 +381,11 @@ def apply(
         finally:
             conn.close()
 
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
+        sync_result = _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check) if sync_cloud else None
+    else:
+        sync_result = None
 
-    return target_folder, compile_result, ats_result
+    return target_folder, compile_result, ats_result, sync_result
 
 
 def evaluate_application(
@@ -498,7 +498,7 @@ def backfill_evaluations(
 
 def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> TursoSyncResult:
     """Push local database state to Turso; returns TursoSyncResult with synced/detail."""
-    from .db import TursoSyncResult, sync_to_turso
+    from .db import sync_to_turso
 
     try:
         result = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
@@ -571,10 +571,10 @@ def update_application_status(
     allow_branch: bool = False,
     no_git_check: bool = False,
     log: Log = _silent,
-) -> tuple[Path, str, str]:
+) -> tuple[Path, str, str, TursoSyncResult | None]:
     """Atomically update status in an application's meta.json.
 
-    Returns (folder_path, old_status, new_status).
+    Returns (folder_path, old_status, new_status, turso_sync_result).
     """
     if new_status not in STATUSES:
         raise ValueError(f"Invalid status {new_status!r}. Must be one of: {', '.join(STATUSES)}")
@@ -604,7 +604,8 @@ def update_application_status(
         finally:
             conn.close()
 
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
+        sync_result = _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check) if sync_cloud else None
+    else:
+        sync_result = None
 
-    return target_folder, old_status, new_status
+    return target_folder, old_status, new_status, sync_result
