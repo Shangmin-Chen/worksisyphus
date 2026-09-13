@@ -90,6 +90,16 @@ def test_gpa_gate_catches_violations() -> None:
     assert not check_gpa_gate("GPA2.0-beta").passed
     assert not check_gpa_gate("GPA2.0x").passed
     assert not check_gpa_gate("GPA2.0API").passed
+    assert not check_gpa_gate("GPA2.0").passed
+    assert not check_gpa_gate("CGPA2.0").passed
+    assert not check_gpa_gate("GPA2.0.").passed
+    assert not check_gpa_gate("GPA2.0,").passed
+    assert not check_gpa_gate("CGPA2.0.").passed
+    assert not check_gpa_gate("GPA2.0, on a 4.0 scale").passed
+    assert not check_gpa_gate("GPA2.0 out of 4.0").passed
+    assert not check_gpa_gate("CGPA2.0 out of 4.0").passed
+    assert not check_gpa_gate("GPA2.0.beta").passed
+    assert not check_gpa_gate("GPA2.0,4.0").passed
 
 
 def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:
