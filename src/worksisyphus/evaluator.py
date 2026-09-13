@@ -235,17 +235,17 @@ def evaluate_resume_text(
             gate_score = 0
             gate_diagnostics.append(f"PDF file not found: {pdf_path}")
         else:
-            gates = (
-                gate_results
-                if gate_results is not None
-                else check_resume_gates(
+            if gate_results is not None:
+                gates = gate_results
+            else:
+                assert pdf_path is not None
+                gates = check_resume_gates(
                     pdf_path,
                     candidate_name=candidate_name,
                     candidate_email=candidate_email,
                     candidate_phone=candidate_phone,
                     require_contact=False,
-                )  # type: ignore[arg-type]
-            )
+                )
             failed_gates = [g for g in gates if not g.passed]
             if failed_gates:
                 gate_score = max(0, 10 - len(failed_gates) * 3)
