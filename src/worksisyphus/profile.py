@@ -138,6 +138,17 @@ def _total_bullets(profile: Profile) -> int:
     )
 
 
+def _append_field_difference(
+    differences: list[str],
+    prefix: str,
+    field_name: str,
+    profile_value: object,
+    db_value: object,
+) -> None:
+    if profile_value != db_value:
+        differences.append(f"{prefix} {field_name}: profile has {profile_value!r}, database has {db_value!r}")
+
+
 def profile_content_differences(profile: Profile, db_profile: Profile) -> list[str]:
     """Compare non-contact profile content and return actionable difference strings."""
     differences: list[str] = []
@@ -148,20 +159,12 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
         )
     else:
         for index, (profile_edu, db_edu) in enumerate(zip(profile.education, db_profile.education, strict=True), start=1):
-            if (
-                profile_edu.institution,
-                profile_edu.location,
-                profile_edu.degree,
-                profile_edu.date,
-                profile_edu.coursework,
-            ) != (
-                db_edu.institution,
-                db_edu.location,
-                db_edu.degree,
-                db_edu.date,
-                db_edu.coursework,
-            ):
-                differences.append(f"education record {index} differs between profile and database")
+            prefix = f"education record {index}"
+            _append_field_difference(differences, prefix, "institution", profile_edu.institution, db_edu.institution)
+            _append_field_difference(differences, prefix, "location", profile_edu.location, db_edu.location)
+            _append_field_difference(differences, prefix, "degree", profile_edu.degree, db_edu.degree)
+            _append_field_difference(differences, prefix, "date", profile_edu.date, db_edu.date)
+            _append_field_difference(differences, prefix, "coursework", profile_edu.coursework, db_edu.coursework)
 
     profile_experience_slugs = set(profile.experiences)
     db_experience_slugs = set(db_profile.experiences)
@@ -180,13 +183,11 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
     for slug in sorted(profile_experience_slugs & db_experience_slugs):
         profile_exp = profile.experiences[slug]
         db_exp = db_profile.experiences[slug]
-        if (profile_exp.role, profile_exp.org, profile_exp.location, profile_exp.date) != (
-            db_exp.role,
-            db_exp.org,
-            db_exp.location,
-            db_exp.date,
-        ):
-            differences.append(f"experience {slug!r} metadata differs between profile and database")
+        prefix = f"experience {slug!r}"
+        _append_field_difference(differences, prefix, "role", profile_exp.role, db_exp.role)
+        _append_field_difference(differences, prefix, "org", profile_exp.org, db_exp.org)
+        _append_field_difference(differences, prefix, "location", profile_exp.location, db_exp.location)
+        _append_field_difference(differences, prefix, "date", profile_exp.date, db_exp.date)
         profile_bullet_slugs = set(profile_exp.bullets)
         db_bullet_slugs = set(db_exp.bullets)
         if len(profile_exp.bullets) != len(db_exp.bullets) or profile_bullet_slugs != db_bullet_slugs:
@@ -198,6 +199,11 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
             if missing_from_profile:
                 message += f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_profile)} missing from profile"
             differences.append(message)
+        for bullet_slug in sorted(profile_bullet_slugs & db_bullet_slugs):
+            if profile_exp.bullets[bullet_slug] != db_exp.bullets[bullet_slug]:
+                differences.append(
+                    f"experience {slug!r}.{bullet_slug!r} text differs between profile and database"
+                )
 
     profile_project_slugs = set(profile.projects)
     db_project_slugs = set(db_profile.projects)
@@ -214,8 +220,10 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
     for slug in sorted(profile_project_slugs & db_project_slugs):
         profile_proj = profile.projects[slug]
         db_proj = db_profile.projects[slug]
-        if (profile_proj.name, profile_proj.tech, profile_proj.date) != (db_proj.name, db_proj.tech, db_proj.date):
-            differences.append(f"project {slug!r} metadata differs between profile and database")
+        prefix = f"project {slug!r}"
+        _append_field_difference(differences, prefix, "name", profile_proj.name, db_proj.name)
+        _append_field_difference(differences, prefix, "tech", profile_proj.tech, db_proj.tech)
+        _append_field_difference(differences, prefix, "date", profile_proj.date, db_proj.date)
         profile_bullet_slugs = set(profile_proj.bullets)
         db_bullet_slugs = set(db_proj.bullets)
         if len(profile_proj.bullets) != len(db_proj.bullets) or profile_bullet_slugs != db_bullet_slugs:
@@ -227,6 +235,11 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
             if missing_from_profile:
                 message += f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_profile)} missing from profile"
             differences.append(message)
+        for bullet_slug in sorted(profile_bullet_slugs & db_bullet_slugs):
+            if profile_proj.bullets[bullet_slug] != db_proj.bullets[bullet_slug]:
+                differences.append(
+                    f"project {slug!r}.{bullet_slug!r} text differs between profile and database"
+                )
 
     profile_skill_groups = set(profile.skills)
     db_skill_groups = set(db_profile.skills)
@@ -269,7 +282,7 @@ def profile_drift_summary(profile: Profile, db_profile: Profile) -> str | None:
         delta = len(db_profile.projects) - len(profile.projects)
         return f"profile.json is {delta} project{'s' if delta != 1 else ''} behind the database"
 
-    return "profile.json differs from the database"
+    return differences[0]
 
 
 def profile_index(profile: Profile) -> str:

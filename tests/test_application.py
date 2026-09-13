@@ -646,18 +646,6 @@ def _seed_db_profile(db_path: Path, profile, tmp_path: Path) -> None:
         conn.close()
 
 
-def _patch_apply_pipeline(monkeypatch) -> None:
-    import worksisyphus.application as app_module
-    import worksisyphus.pipeline as pipe_module
-
-    monkeypatch.setattr(pipe_module, "compile_tex", _fake_compile_factory())
-    monkeypatch.setattr(
-        app_module,
-        "run_resume_gates",
-        lambda *a, **kw: ((GateResult("ATS", True, ()),), ATSCheckResult(True, (), 1, 100, "text")),
-    )
-
-
 def test_apply_warns_and_records_profile_drift_for_missing_experience(small_profile, monkeypatch, tmp_path) -> None:
     _patch_apply_pipeline(monkeypatch)
 

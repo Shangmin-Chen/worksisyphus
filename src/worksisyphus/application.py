@@ -96,6 +96,7 @@ class ContactCrossCheck:
     ran: bool
     database: str = ""
     reason: str = ""
+    db_profile: Profile | None = None
 
     def as_meta(self) -> dict[str, Any]:
         return {
@@ -145,7 +146,8 @@ def cross_check_contact_against_db(
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
         if cur.fetchone() is None:
             return skipped(f"{db_path} has no contact table. Run `uv run worksisyphus db sync`.")
-        db_contact = load_profile_from_db(conn).contact
+        db_profile = load_profile_from_db(conn)
+        db_contact = db_profile.contact
     finally:
         conn.close()
 
@@ -181,7 +183,7 @@ def cross_check_contact_against_db(
             f"`uv run worksisyphus db export-profile --force`. If profile.json is right, publish it with "
             f"`uv run worksisyphus db sync`."
         )
-    return ContactCrossCheck(ran=True, database=database)
+    return ContactCrossCheck(ran=True, database=database, db_profile=db_profile)
 
 
 @dataclass(frozen=True)
@@ -200,7 +202,6 @@ class ProfileDriftCheck:
 
 def check_profile_drift_against_db(
     profile: Profile,
-    db_path: Path | None,
     contact_cross_check: ContactCrossCheck,
     log: Log = _silent,
 ) -> ProfileDriftCheck:
@@ -209,20 +210,18 @@ def check_profile_drift_against_db(
         reason = contact_cross_check.reason or "contact cross-check did not run against the database."
         return ProfileDriftCheck(checked=False, skip_reason=reason)
 
-    if db_path is None or not db_path.is_file():
-        return ProfileDriftCheck(checked=False, skip_reason="no database available for profile drift check.")
-
-    from .db import get_connection, load_profile_from_db
-
-    conn = get_connection(db_path)
-    try:
-        db_profile = load_profile_from_db(conn)
-    finally:
-        conn.close()
+    db_profile = contact_cross_check.db_profile
+    if db_profile is None:
+        return ProfileDriftCheck(
+            checked=False,
+            skip_reason="database profile was not loaded during contact cross-check.",
+        )
 
     differences = profile_content_differences(profile, db_profile)
     if differences:
-        log(f"Profile content drift detected ({len(differences)} difference(s) vs {db_path}):")
+        log(
+            f"Profile content drift detected ({len(differences)} difference(s) vs {contact_cross_check.database}):"
+        )
         for difference in differences:
             log(f"  - {difference}")
 
@@ -314,12 +313,7 @@ def apply(
     validate_contact(active_profile.contact, source=str(profile_path))
     resolved_db_path = _resolve_db_path(db_path, applications_dir)
     contact_cross_check = cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
-    profile_drift_check = check_profile_drift_against_db(
-        active_profile,
-        resolved_db_path,
-        contact_cross_check,
-        log=log,
-    )
+    profile_drift_check = check_profile_drift_against_db(active_profile, contact_cross_check, log=log)
 
     # Deterministic naming strictly derived from company and role (#34). The underscore is the
     # folder grammar's structural separator (it delimits the retry ordinal), so slugify must

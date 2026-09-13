@@ -6,7 +6,14 @@ import json
 import pytest
 
 from worksisyphus import load_profile, profile_index, validate_contact
-from worksisyphus.profile import Contact, Experience, Project, profile_content_differences, profile_drift_summary
+from worksisyphus.profile import (
+    Contact,
+    Education,
+    Experience,
+    Project,
+    profile_content_differences,
+    profile_drift_summary,
+)
 
 
 def test_real_profile_loads_expected_shape(real_profile) -> None:
@@ -124,6 +131,35 @@ def test_profile_content_differences_reports_truncated_project_bullets(small_pro
     assert any("'p2'" in diff and "'p3'" in diff for diff in differences)
 
 
+def test_profile_content_differences_reports_shared_bullet_text_change(small_profile) -> None:
+    profile_exp = dataclasses.replace(
+        small_profile.experiences["org-a"],
+        bullets={**small_profile.experiences["org-a"].bullets, "a1": "Rewritten bullet"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        experiences={**small_profile.experiences, "org-a": profile_exp},
+    )
+
+    differences = profile_content_differences(profile, small_profile)
+
+    assert any("experience 'org-a'.'a1' text differs between profile and database" in diff for diff in differences)
+
+
+def test_profile_content_differences_reports_education_degree_change(small_profile) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        education=(Education("BU", "Boston, MA", "B.S. Underwater Basket Weaving", "2026", ("Systems",)),),
+    )
+
+    differences = profile_content_differences(small_profile, db_profile)
+
+    assert any(
+        "education record 1 degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'" in diff
+        for diff in differences
+    )
+
+
 def test_profile_drift_summary_prefers_bullet_delta(small_profile) -> None:
     truncated_proj1 = Project(
         "proj1",
@@ -138,3 +174,15 @@ def test_profile_drift_summary_prefers_bullet_delta(small_profile) -> None:
     )
 
     assert profile_drift_summary(profile, small_profile) == "profile.json is 2 bullets behind the database"
+
+
+def test_profile_drift_summary_falls_back_to_first_named_difference(small_profile) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        education=(Education("BU", "Boston, MA", "B.S. Underwater Basket Weaving", "2026", ("Systems",)),),
+    )
+
+    assert (
+        profile_drift_summary(small_profile, db_profile)
+        == "education record 1 degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'"
+    )
