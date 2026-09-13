@@ -311,14 +311,17 @@ def apply_selection_guardrails(
     # 2. Weak-project gate. The rule is "the JD *is* a mobile / civic / blockchain role", not
     #    "the JD mentions the word" -- a backend posting that happens to say "mobile clients" must
     #    not admit fitness-tracker as filler. The role title is the strongest signal, so it can
-    #    admit a domain even when the posting also reads as engineering-heavy. Only JD-derived
-    #    engineering suppresses JD domain keywords; a backend role title must not block a civic JD.
-    def _is_role(keywords: tuple[str, ...]) -> bool:
+    #    admit a domain even when the posting also reads as engineering-heavy. JD-side mobile
+    #    keywords are suppressed by any engineering signal (role or JD); civic/crypto JD keywords
+    #    are suppressed only by JD-derived engineering so a backend role title cannot block them.
+    def _jd_domain_role(keywords: tuple[str, ...]) -> bool:
         return _mentions_role(role_name, keywords) or (_mentions_literal(jd_lower, keywords) and not jd_is_engineering)
 
-    has_mobile = _is_role(MOBILE_KEYWORDS)
-    has_civic = _is_role(CIVIC_KEYWORDS)
-    has_crypto = _is_role(CRYPTO_KEYWORDS)
+    has_mobile = _mentions_role(role_name, MOBILE_KEYWORDS) or (
+        _mentions_literal(jd_lower, MOBILE_KEYWORDS) and not is_engineering
+    )
+    has_civic = _jd_domain_role(CIVIC_KEYWORDS)
+    has_crypto = _jd_domain_role(CRYPTO_KEYWORDS)
 
     # 3. Personal-website gate: frontend/fullstack/web-infra/edge only; never quant/systems/infra.
     # A frontend role title alone cannot override an engineering JD — the posting must also

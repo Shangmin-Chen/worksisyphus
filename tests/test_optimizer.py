@@ -268,10 +268,17 @@ def test_civic_jd_admits_spark_food_waste_with_engineering_role_title(real_profi
     civic_jd = "Non-profit climate and food waste platform engineer."
     agent = HackerRankHiringAgent(role_name="backend_engineer", jd_text=civic_jd)
     _exps, projs = score_and_rank_entries(real_profile, agent)
-    _filtered_exps, filtered_projs = apply_selection_guardrails(
-        _exps, projs, civic_jd, role_name="backend_engineer"
-    )
+    _filtered_exps, filtered_projs = apply_selection_guardrails(_exps, projs, civic_jd, role_name="backend_engineer")
     assert any(p.slug == "spark-food-waste" for p in filtered_projs)
+
+
+def test_mobile_jd_blocked_by_engineering_role_title(real_profile: Profile) -> None:
+    """Mobile JD keywords must not admit fitness-tracker when the role is engineering-heavy."""
+    mobile_jd = "Backend distributed systems engineer serving mobile clients at scale."
+    agent = HackerRankHiringAgent(role_name="backend_engineer", jd_text=mobile_jd)
+    _exps, projs = score_and_rank_entries(real_profile, agent)
+    _filtered_exps, filtered_projs = apply_selection_guardrails(_exps, projs, mobile_jd, role_name="backend_engineer")
+    assert not any(p.slug == "fitness-tracker" for p in filtered_projs)
 
 
 def test_jd_literal_matching_avoids_spaced_low_latency_false_positive(real_profile: Profile) -> None:
