@@ -163,3 +163,25 @@ def test_projects_only_resume_passes_without_an_experience_section(tmp_path, mon
 
     assert res.passed, res.problems
     assert not any("Experience" in problem for problem in res.problems)
+
+
+def test_resume_missing_technical_skills_header_fails_the_gate(tmp_path, monkeypatch) -> None:
+    """Regression guard: every real plan (52/52) has a non-empty skills list.
+
+    Technical Skills is hard-required precisely because it is never legitimately absent on
+    the delivery path -- a missing header here means the extraction failed, not that a plan
+    chose to omit it. This must fail even though Experience is present, which would pass
+    incorrectly under the "any one of the four sections" relaxation that was tried and
+    reverted.
+    """
+    text = (
+        "Simon Chen\nsimon@example.com $|$ 555-555-5555\n"
+        "Education\nBoston University\n"
+        "Experience\nSoftware Engineer\n" + "filler word " * 400
+    )
+    pdf = _fake_extraction(tmp_path, monkeypatch, text)
+
+    res = check_pdf_ats(pdf, name="Simon Chen", email="", phone="", expected_pages=1)
+
+    assert not res.passed
+    assert any("Technical Skills" in problem for problem in res.problems)

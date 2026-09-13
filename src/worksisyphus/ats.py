@@ -14,17 +14,32 @@ MERGED_DATE_RE = re.compile(
     r"[A-Za-z]{3,}(?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d"
 )
 
-# renderer.py emits "Education" unconditionally (it comes straight from profile.json, not a
-# plan selection), so it is always required. "Experience", "Projects", and "Technical Skills"
-# are each emitted only `if selection.<field>` is non-empty (see renderer.py's conditional
-# section builders), so a valid plan can legitimately omit any one of them -- e.g. a
-# projects-only plan renders with no "Experience" header at all. ats.py has no visibility into
-# the Selection that produced the PDF, so it cannot know which of these three were *intended*;
-# the best it can require is that at least one of them actually rendered, which still catches
-# a genuinely empty/broken body (only "Education" extracted) without rejecting a valid resume
-# that simply didn't select one particular content section.
-ALWAYS_REQUIRED_SECTIONS = ("Education",)
-CONTENT_SECTION_CANDIDATES = ("Experience", "Projects", "Technical Skills")
+# renderer.py emits, unconditionally-then-conditionally:
+#   if profile.education:      -> "Education"
+#   if selection.experiences:  -> "Experience"
+#   if selection.projects:     -> "Projects"
+#   if selection.skills:       -> "Technical Skills"
+# "Education" is always required: it comes straight from profile.json, not a plan selection.
+# "Technical Skills" is ALSO hard-required here even though it is technically selection-driven:
+# an audit of every published plan (applications/*/plan.json, 52/52) found zero plans with an
+# empty `skills` list -- plans: 52 | missing skills: 0 | missing experiences: 0 | missing
+# projects: 0. On the real delivery path a resume with no Technical Skills header has never
+# happened; treating it as optional would only hide a genuine extraction failure (the header
+# silently failing to extract) behind whatever else happened to render. Keep it required so
+# that failure mode still trips the gate.
+# "Experience" and "Projects" are the genuinely conditional pair: plan.py enforces "at least
+# one of experiences/projects" on every plan, so exactly one of the two headers is sometimes
+# absent by design (a projects-only plan has no "Experience" header at all) -- ats.py has no
+# visibility into the Selection that produced the PDF, so it cannot know which of the two was
+# *intended*, only that plan.py guarantees at least one always is. Require at least one rather
+# than both, so a valid projects-only (or experience-only) plan is not rejected.
+# Do NOT relax this further to "any one of the four" -- that was tried and reverted: it let a
+# Technical Skills extraction failure pass silently as long as Experience or Projects still
+# extracted, which is a real coverage loss on every one of the 52/52 plans that actually have
+# a Technical Skills section, traded for a projects-only case that -- while valid -- has never
+# occurred in practice. See git history for the reverted single-bucket version.
+ALWAYS_REQUIRED_SECTIONS = ("Education", "Technical Skills")
+CONTENT_SECTION_CANDIDATES = ("Experience", "Projects")
 
 
 class ATSCheckResult(NamedTuple):
