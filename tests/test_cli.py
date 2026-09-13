@@ -111,6 +111,34 @@ def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
     assert recorded["jd_text"] == "JD text content"
 
 
+def test_apply_rejects_two_stdin_sources(monkeypatch, capsys) -> None:
+    def _boom(*args, **kwargs):
+        raise AssertionError("apply_app must not run: the stdin guard should fire first")
+
+    monkeypatch.setattr(cli, "apply_app", _boom)
+    monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
+
+    ret = cli.main(["apply", "--company", "X", "--jd", "-", "--plan", "-", "--no-sync"])
+    assert ret == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ")
+    assert "already consumed it" in err
+    assert "--jd" in err
+    assert "--plan" in err
+
+
+def test_evaluate_rejects_two_stdin_sources(monkeypatch, capsys) -> None:
+    monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
+
+    ret = cli.main(["evaluate", "--jd", "-", "--plan", "-"])
+    assert ret == 1
+    err = capsys.readouterr().err
+    assert err.startswith("error: ")
+    assert "already consumed it" in err
+    assert "--jd" in err
+    assert "--plan" in err
+
+
 def test_cli_index(capsys) -> None:
     assert cli.main(["index"]) == 0
     out = capsys.readouterr().out
@@ -212,6 +240,53 @@ def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypat
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     conn.close()
     assert "contact" not in tables, "a refused seed must not leave a half-built database behind"
+
+
+def test_db_sync_survives_turso_sync_exception(monkeypatch, tmp_path, capsys) -> None:
+    """An exception escaping sync_to_turso must not fail the whole `db sync` command.
+
+    Before this guard, cli.py called sync_to_turso directly with no try/except, so an exception
+    raised inside it (a network error, an unexpected Turso CLI failure, ...) propagated to
+    main()'s top-level handler, which printed a generic "error: ..." and returned 1 -- even
+    though the local seed into SQLite had already succeeded. The fix catches it and reports a
+    plain sync failure instead, mirroring application.py's _sync_cloud.
+    """
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+
+    def _boom(*args: object, **kwargs: object) -> bool:
+        raise RuntimeError("network unreachable")
+
+    monkeypatch.setattr(db, "sync_to_turso", _boom)
+
+    monkeypatch.chdir(tmp_path)
+    Path("profile.json").write_text(
+        json.dumps(
+            {
+                "contact": {
+                    "name": "Real Person",
+                    "email": "real.person@fastmail.dev",
+                    "phone": "617-266-1810",
+                    "website": "",
+                    "github": "",
+                    "linkedin": "",
+                },
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    ret = cli.main(["db", "sync"])
+    assert ret == 0
+    out = capsys.readouterr().out
+    assert "Warning: Turso cloud sync failed: network unreachable" in out
+    assert "Synced profile.json to SQLite and Turso cloud (skipped / failed)" in out
 
 
 def test_cli_evaluate_with_stdin_and_resume(capsys, monkeypatch, delivered_pdf) -> None:

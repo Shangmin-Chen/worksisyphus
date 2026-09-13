@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 from datetime import date
@@ -16,9 +17,44 @@ from .profile import load_profile, profile_index
 from .selection import Selection
 
 
-def _read_plan(arg: str) -> str:
-    """Return plan text from a path or - for stdin."""
-    return sys.stdin.read() if arg == "-" else Path(arg).read_text(encoding="utf-8")
+def _read_stdin_text() -> str:
+    """Read all of stdin as UTF-8, independent of the process locale.
+
+    Plain ``sys.stdin.read()`` decodes using the locale's preferred encoding, so a JD pasted
+    with non-ASCII text (curly quotes, accented names) could decode differently on different
+    machines. Reading the underlying binary buffer through an explicit UTF-8 TextIOWrapper pins
+    the encoding to match the file-path branch, which already passes encoding="utf-8" to
+    Path.read_text. Tests monkeypatch sys.stdin with an io.StringIO, which has no .buffer -- that
+    case falls back to sys.stdin.read() directly, so the monkeypatch keeps working unchanged.
+    """
+    stdin = sys.stdin
+    buffer = getattr(stdin, "buffer", None)
+    if buffer is not None:
+        return io.TextIOWrapper(buffer, encoding="utf-8").read()
+    return stdin.read()
+
+
+class _InputReader:
+    """Reads plan/JD text from a path, or from stdin for '-'.
+
+    stdin can only be read once per process: a second read returns "". Threading every
+    read through one object makes the second '-' impossible to reach rather than merely
+    discouraged, so a future option that accepts '-' inherits the guard for free.
+    """
+
+    def __init__(self) -> None:
+        self._stdin_option: str | None = None
+
+    def read(self, arg: str, option: str) -> str:
+        if arg != "-":
+            return Path(arg).read_text(encoding="utf-8")
+        if self._stdin_option is not None:
+            raise ValueError(
+                f"--{option} cannot also read stdin: --{self._stdin_option} already consumed it, "
+                f"and a second read returns empty text. Pass --{option} a file path instead."
+            )
+        self._stdin_option = option
+        return _read_stdin_text()
 
 
 def _describe(selection: Selection) -> str:
@@ -62,6 +98,27 @@ def _fit_column(value: object, width: int) -> str:
 def _add_git_sync_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
     parser.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
+
+
+def _sync_cloud_and_report(*, allow_branch: bool, no_git_check: bool) -> bool:
+    """Push to Turso, catching unexpected errors so a sync hiccup can't fail an already-successful command.
+
+    sync_to_turso already reports *why* it skipped or failed (git-guard blocked, Turso CLI
+    missing, network error, ...) through the ``log`` callback passed in below -- that reason is
+    what distinguishes "blocked by git state" from "Turso unreachable" in the printed log, rather
+    than collapsing both into the same generic boolean. Mirrors application.py's ``_sync_cloud``:
+    the try/except around the call means an exception escaping sync_to_turso is logged with its
+    reason and treated as a plain sync failure, instead of propagating to main()'s top-level
+    handler and reporting the whole command as failed (exit 1) even though the local work (a
+    compiled resume, a seeded database, ...) already succeeded.
+    """
+    from .db import sync_to_turso
+
+    try:
+        return sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=print)
+    except Exception as exc:
+        print(f"Warning: Turso cloud sync failed: {exc}")
+        return False
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -181,6 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     opt_cmd.add_argument("--output", default=None, help="Optional plan JSON file path to write winning plan to.")
     args = parser.parse_args(argv)
+    read_input = _InputReader()
 
     try:
         if args.command == "compile":
@@ -188,14 +246,14 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "index":
             print(profile_index(load_profile()))
         elif args.command == "validate":
-            print(_describe(parse_plan(_read_plan(args.plan), load_profile())))
+            print(_describe(parse_plan(read_input.read(args.plan, "plan"), load_profile())))
         elif args.command == "apply":
             from .optimizer import optimize_plan
 
             profile = load_profile()
-            jd_text = _read_plan(args.jd)
+            jd_text = read_input.read(args.jd, "jd")
             if args.plan:
-                plan_text = _read_plan(args.plan)
+                plan_text = read_input.read(args.plan, "plan")
             else:
                 best_plan, _, _ = optimize_plan(profile, jd_text, role_name=args.role or "software_engineer")
                 plan_text = json.dumps(best_plan, indent=2)
@@ -257,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
         elif args.command == "backfill-evals":
             from .application import backfill_evaluations
-            from .db import DEFAULT_DB_PATH, get_connection, seed_database, sync_to_turso
+            from .db import DEFAULT_DB_PATH, get_connection, seed_database
 
             scored = backfill_evaluations(overwrite=args.overwrite, log=print)
             if not scored:
@@ -269,11 +327,7 @@ def main(argv: list[str] | None = None) -> int:
                 finally:
                     conn.close()
                 if not args.no_sync:
-                    ok = sync_to_turso(
-                        allow_branch=args.allow_branch,
-                        no_git_check=args.no_git_check,
-                        log=print,
-                    )
+                    ok = _sync_cloud_and_report(allow_branch=args.allow_branch, no_git_check=args.no_git_check)
                     print(f"Turso cloud sync: {'synced' if ok else 'skipped / failed'}")
                 print(f"Scored {len(scored)} application(s).")
         elif args.command == "db":
@@ -284,7 +338,6 @@ def main(argv: list[str] | None = None) -> int:
                 get_connection,
                 load_profile_from_db,
                 seed_database,
-                sync_to_turso,
             )
 
             conn = get_connection(DEFAULT_DB_PATH)
@@ -292,18 +345,14 @@ def main(argv: list[str] | None = None) -> int:
                 if args.db_action == "init":
                     seed_database(conn)
                     print(f"Initialized and seeded {DEFAULT_DB_PATH}")
-                    turso_ok = sync_to_turso(
-                        allow_branch=args.allow_branch,
-                        no_git_check=args.no_git_check,
-                        log=print,
+                    turso_ok = _sync_cloud_and_report(
+                        allow_branch=args.allow_branch, no_git_check=args.no_git_check
                     )
                     print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
                 elif args.db_action == "sync":
                     seed_database(conn)
-                    turso_ok = sync_to_turso(
-                        allow_branch=args.allow_branch,
-                        no_git_check=args.no_git_check,
-                        log=print,
+                    turso_ok = _sync_cloud_and_report(
+                        allow_branch=args.allow_branch, no_git_check=args.no_git_check
                     )
                     print(
                         f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
@@ -386,7 +435,7 @@ def main(argv: list[str] | None = None) -> int:
                 format_hackerrank_report,
             )
 
-            if getattr(args, "check_upstream", False):
+            if args.check_upstream:
                 status = check_upstream_status()
                 print("=" * 68)
                 print(f"HACKERRANK UPSTREAM SYNC STATUS: {status.get('upstream_repo', '')}")
@@ -419,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 if not args.jd and not args.hackerrank:
                     raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
-                jd_text = _read_plan(args.jd) if args.jd else ""
+                jd_text = read_input.read(args.jd, "jd") if args.jd else ""
 
                 if args.profile:
                     from .selection import full_selection
@@ -433,7 +482,7 @@ def main(argv: list[str] | None = None) -> int:
                     if pdf_path.is_file():
                         resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
                 elif args.plan:
-                    plan_text = _read_plan(args.plan)
+                    plan_text = read_input.read(args.plan, "plan")
                     selection = parse_plan(plan_text, profile)
                     resume_text = selection_to_plain_text(selection, profile)
                     role_label = Path(args.plan).stem
@@ -470,7 +519,7 @@ def main(argv: list[str] | None = None) -> int:
             from .optimizer import format_optimization_report, optimize_plan
 
             profile = load_profile()
-            jd_text = _read_plan(args.jd)
+            jd_text = read_input.read(args.jd, "jd")
             best_plan, best_eval, results = optimize_plan(profile, jd_text, role_name=args.role)
             print(format_optimization_report(best_plan, best_eval, results))
             if args.output:
@@ -481,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             plan_name = Path(args.plan).stem if args.plan != "-" else "stdin"
             tailor(
-                _read_plan(args.plan),
+                read_input.read(args.plan, "plan"),
                 plan_name=plan_name,
                 pdf_dir=Path(args.output) if args.output else PREVIEW_DIR,
                 log=print,
