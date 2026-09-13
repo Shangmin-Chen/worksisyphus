@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -793,23 +794,35 @@ def test_seed_database_refuses_a_corrupt_application_meta_json(tmp_path: Path) -
 
 def test_seed_database_leaves_the_database_untouched_when_a_meta_json_is_corrupt(tmp_path: Path) -> None:
     """The corrupt-folder raise must happen before conn.commit(), so a good prior seed survives."""
-    conn, profile_file = _seed_fixture(tmp_path)
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    expected_email = DELIVERABLE_CONTACT["email"]
     apps = tmp_path / "applications"
     for name in ("2026-01-01_good_one", "2026-01-02_good_two"):
         folder = apps / name
         folder.mkdir(parents=True)
         (folder / "meta.json").write_text(json.dumps({"company": "Good", "status": "applied"}), encoding="utf-8")
+
+    db_file = tmp_path / "worksisyphus.db"
+    conn = get_connection(db_file)
     seed_database(conn, profile_path=profile_file, applications_dir=apps)
     assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 2
+    conn.close()
 
     corrupt = apps / "2026-01-03_bad_one"
     corrupt.mkdir(parents=True)
     (corrupt / "meta.json").write_text("{not json", encoding="utf-8")
 
+    conn = get_connection(db_file)
     with pytest.raises(ValueError, match=r"Invalid meta\.json"):
         seed_database(conn, profile_path=profile_file, applications_dir=apps)
-    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 2
+    conn.rollback()
     conn.close()
+
+    verify = get_connection(db_file)
+    assert verify.execute("SELECT count(*) FROM applications").fetchone()[0] == 2
+    assert load_profile_from_db(verify).contact.email == expected_email
+    verify.close()
 
 
 def test_seed_database_refuses_a_meta_json_that_is_not_an_object(tmp_path: Path) -> None:
@@ -822,3 +835,70 @@ def test_seed_database_refuses_a_meta_json_that_is_not_an_object(tmp_path: Path)
     with pytest.raises(ValueError, match="expected a JSON object"):
         seed_database(conn, profile_path=profile_file, applications_dir=apps)
     conn.close()
+
+
+def test_seed_database_refuses_a_folder_missing_meta_json(tmp_path: Path) -> None:
+    """An incomplete application folder must fail closed, not be skipped and ghost-deleted."""
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    incomplete = apps / "2026-01-01_incomplete"
+    incomplete.mkdir(parents=True)
+
+    with pytest.raises(ValueError, match="Missing meta.json"):
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+
+
+def test_seed_database_refuses_invalid_utf8_in_meta_json(tmp_path: Path) -> None:
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    bad = apps / "2026-01-01_bad_utf8"
+    bad.mkdir(parents=True)
+    (bad / "meta.json").write_bytes(b'{"company": "\xff"}')
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json"):
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+
+
+def test_seed_database_leaves_a_fresh_database_empty_when_application_meta_is_corrupt(tmp_path: Path) -> None:
+    """Preflight must refuse before init_schema, so a first seed leaves no schema shell."""
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    apps = tmp_path / "applications"
+    bad = apps / "2026-01-01_bad"
+    bad.mkdir(parents=True)
+    (bad / "meta.json").write_text("{not json", encoding="utf-8")
+
+    db_file = tmp_path / "fresh.db"
+    conn = get_connection(db_file)
+    try:
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("seed_database accepted a corrupt application meta.json")
+
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "contact" not in tables, "schema was created before application meta was validated"
+    conn.close()
+
+
+def test_audit_events_rejects_update(memory_conn) -> None:
+    conn = memory_conn
+    init_schema(conn)
+    log_audit_event(conn, "experience", "startup", "INSERT")
+    event_id = conn.execute("SELECT id FROM audit_events").fetchone()[0]
+
+    with pytest.raises(sqlite3.IntegrityError, match="append-only: UPDATE is not permitted"):
+        conn.execute("UPDATE audit_events SET action = 'TAMPERED' WHERE id = ?", (event_id,))
+
+
+def test_audit_events_rejects_delete(memory_conn) -> None:
+    conn = memory_conn
+    init_schema(conn)
+    log_audit_event(conn, "experience", "startup", "INSERT")
+    event_id = conn.execute("SELECT id FROM audit_events").fetchone()[0]
+
+    with pytest.raises(sqlite3.IntegrityError, match="append-only: DELETE is not permitted"):
+        conn.execute("DELETE FROM audit_events WHERE id = ?", (event_id,))

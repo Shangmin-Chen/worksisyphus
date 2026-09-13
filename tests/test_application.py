@@ -518,6 +518,15 @@ def test_list_applications_reports_invalid_metadata(tmp_path) -> None:
         list_applications(tmp_path / "applications")
 
 
+def test_list_applications_reports_invalid_utf8_in_meta_json(tmp_path) -> None:
+    folder = tmp_path / "applications" / "2026-07-11_bad_utf8"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_bytes(b'{"company": "\xff"}')
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json"):
+        list_applications(tmp_path / "applications")
+
+
 def test_resolve_application_folder_errors(tmp_path) -> None:
     with pytest.raises(ValueError, match="must not be empty"):
         resolve_application_folder("  ", applications_dir=tmp_path / "applications")

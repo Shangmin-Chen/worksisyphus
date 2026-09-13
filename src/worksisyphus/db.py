@@ -290,6 +290,34 @@ def _seed_bullets(
         )
 
 
+def _load_application_meta(app_dir: Path) -> dict[str, Any]:
+    """Read and validate an application folder's meta.json.
+
+    Kept local to db.py (not imported from application.py) so the store layer stays
+    independent of the lifecycle path. Uses the same message prefix as application.py.
+    """
+    meta_file = app_dir / "meta.json"
+    if not meta_file.is_file():
+        raise ValueError(f"Missing meta.json in {app_dir}; the application folder is incomplete.")
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Invalid meta.json in {app_dir}: {exc}") from exc
+    if not isinstance(meta, dict):
+        raise ValueError(f"Invalid meta.json in {app_dir}: expected a JSON object.")
+    return meta
+
+
+def _preflight_application_metas(applications_dir: Path) -> None:
+    """Validate every application meta.json before seed_database mutates the schema."""
+    if not applications_dir.is_dir():
+        return
+    for d in sorted(applications_dir.iterdir()):
+        if not d.is_dir() or d.name.startswith("."):
+            continue
+        _load_application_meta(d)
+
+
 def _seed_applications(
     conn: sqlite3.Connection,
     applications_dir: Path,
@@ -306,17 +334,9 @@ def _seed_applications(
         for d in sorted(applications_dir.iterdir()):
             if not d.is_dir() or d.name.startswith("."):
                 continue
-            meta_file = d / "meta.json"
+            meta = _load_application_meta(d)
             jd_file = d / "jd.txt"
             plan_file = d / "plan.json"
-            if not meta_file.is_file():
-                continue
-            try:
-                meta = json.loads(meta_file.read_text(encoding="utf-8"))
-            except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-                raise ValueError(f"Invalid meta.json in {d}: {exc}") from exc
-            if not isinstance(meta, dict):
-                raise ValueError(f"Invalid meta.json in {d}: expected a JSON object.")
             # Strip to the same canonical form apply() stores, so DB and disk compare exactly.
             jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
             plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
@@ -388,6 +408,8 @@ def seed_database(
         validate_contact(loaded.contact, source=str(profile_path))
     except ValueError as exc:
         raise ValueError(f"Refusing to seed the database: {exc}") from exc
+
+    _preflight_application_metas(applications_dir)
 
     data = profile_to_dict(loaded)
 
