@@ -59,6 +59,11 @@ def _fit_column(value: object, width: int) -> str:
     return text if len(text) <= width else f"{text[: width - 1]}…"
 
 
+def _add_git_sync_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
+    parser.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="worksisyphus", description="Resume compiler.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -88,8 +93,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Path to a plan JSON file, or - for stdin. If omitted, uses the knapsack optimizer.",
     )
     apply_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
-    apply_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
-    apply_cmd.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
+    _add_git_sync_flags(apply_cmd)
     validate_cmd = sub.add_parser("validate", help="Parse a plan and print the resolved selection; no LaTeX involved.")
     validate_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
     status_cmd = sub.add_parser("status", help="List all applications and their current statuses.")
@@ -106,8 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     update_cmd.add_argument("--status", required=True, choices=STATUSES, help="New status value.")
     update_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
-    update_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
-    update_cmd.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
+    _add_git_sync_flags(update_cmd)
     backfill_cmd = sub.add_parser(
         "backfill-evals",
         help="Score applications that predate evaluation recording and sync them to the database.",
@@ -116,18 +119,13 @@ def main(argv: list[str] | None = None) -> int:
         "--overwrite", action="store_true", help="Re-score applications that already have an evaluation."
     )
     backfill_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
-    backfill_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
-    backfill_cmd.add_argument(
-        "--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync."
-    )
+    _add_git_sync_flags(backfill_cmd)
     db_cmd = sub.add_parser("db", help="Manage SQLite and Turso database layer.")
     db_sub = db_cmd.add_subparsers(dest="db_action", required=True)
     init_cmd = db_sub.add_parser("init", help="Initialize and seed database from profile.json and applications/.")
-    init_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
-    init_cmd.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
+    _add_git_sync_flags(init_cmd)
     sync_cmd = db_sub.add_parser("sync", help="Sync database: load profile.json into SQLite and push to Turso cloud.")
-    sync_cmd.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
-    sync_cmd.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
+    _add_git_sync_flags(sync_cmd)
     db_sub.add_parser("status", help="Show database metrics and connection status.")
     export_cmd = db_sub.add_parser(
         "export-profile",

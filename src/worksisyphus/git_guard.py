@@ -8,12 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-Log = Callable[[str], None]
-
-
-def _silent(_: str) -> None:
-    pass
-
 
 @dataclass(frozen=True)
 class GitFreshnessResult:
@@ -28,16 +22,15 @@ class GitFreshnessResult:
 def check_git_freshness_for_sync(
     repo_dir: Path = Path("."),
     target_branch: str = "main",
-    allow_any_branch: bool = False,
-    check_upstream: bool = True,
+    allow_branch: bool = False,
     fetch_timeout: float = 2.0,
     runner: Callable[..., Any] = subprocess.run,
 ) -> GitFreshnessResult:
-    """Verify that the repository is on target_branch and up-to-date with remote before syncing to Turso.
+    """Verify that the repository is on target_branch and not behind origin/target_branch.
 
-    Returns a GitFreshnessResult indicating whether cloud synchronization is safe.
+    Fetch is best-effort (timeout, then cached refs). A missing or unreadable
+    origin/<target_branch> fails closed — pass --no-git-check to skip the gate.
     """
-    # 1. Verify this is a git repository
     try:
         res = runner(
             ["git", "-C", str(repo_dir), "rev-parse", "--is-inside-work-tree"],
@@ -56,7 +49,6 @@ def check_git_freshness_for_sync(
             reason=f"Failed to inspect git repository: {exc}",
         )
 
-    # 2. Check current branch
     try:
         res = runner(
             ["git", "-C", str(repo_dir), "branch", "--show-current"],
@@ -72,13 +64,12 @@ def check_git_freshness_for_sync(
         )
 
     if not current_branch:
-        if not allow_any_branch:
-            return GitFreshnessResult(
-                allowed=False,
-                branch="(detached HEAD)",
-                reason="Detached HEAD state; cloud sync is restricted to the main branch.",
-            )
-    elif current_branch != target_branch and not allow_any_branch:
+        return GitFreshnessResult(
+            allowed=False,
+            branch="(detached HEAD)",
+            reason="Detached HEAD state; cloud sync requires a named branch.",
+        )
+    if current_branch != target_branch and not allow_branch:
         return GitFreshnessResult(
             allowed=False,
             branch=current_branch,
@@ -88,42 +79,47 @@ def check_git_freshness_for_sync(
             ),
         )
 
-    # 3. Check upstream freshness (if requested)
-    if check_upstream:
-        # Best-effort background fetch of remote target branch with tight timeout
-        try:
-            runner(
-                ["git", "-C", str(repo_dir), "fetch", "origin", target_branch],
-                capture_output=True,
-                text=True,
-                timeout=fetch_timeout,
-            )
-        except Exception:
-            # Network failure or timeout; continue with local cached remote ref
-            pass
+    try:
+        runner(
+            ["git", "-C", str(repo_dir), "fetch", "origin", target_branch],
+            capture_output=True,
+            text=True,
+            timeout=fetch_timeout,
+        )
+    except Exception:
+        pass
 
-        # Check commits behind origin/target_branch
-        try:
-            res = runner(
-                ["git", "-C", str(repo_dir), "rev-list", "--count", f"HEAD..origin/{target_branch}"],
-                capture_output=True,
-                text=True,
-                timeout=2.0,
-            )
-            if res.returncode == 0:
-                behind = int(res.stdout.strip() or "0")
-                if behind > 0:
-                    return GitFreshnessResult(
-                        allowed=False,
-                        branch=current_branch,
-                        behind_count=behind,
-                        reason=(
-                            f"Local branch is behind origin/{target_branch} by {behind} commit(s). "
-                            f"Run 'git pull' before syncing to Turso cloud."
-                        ),
-                    )
-        except Exception:
-            # If origin ref does not exist (e.g. fresh clone with no remotes), proceed
-            pass
-
+    unverifiable = GitFreshnessResult(
+        allowed=False,
+        branch=current_branch,
+        reason=(
+            f"Could not verify freshness against origin/{target_branch}. "
+            f"Fetch that ref, or pass --no-git-check to skip this gate."
+        ),
+    )
+    try:
+        res = runner(
+            ["git", "-C", str(repo_dir), "rev-list", "--count", f"HEAD..origin/{target_branch}"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+        )
+    except Exception:
+        return unverifiable
+    if res.returncode != 0:
+        return unverifiable
+    try:
+        behind = int(res.stdout.strip() or "0")
+    except ValueError:
+        return unverifiable
+    if behind > 0:
+        return GitFreshnessResult(
+            allowed=False,
+            branch=current_branch,
+            behind_count=behind,
+            reason=(
+                f"Local branch is behind origin/{target_branch} by {behind} commit(s). "
+                f"Run 'git pull' before syncing to Turso cloud."
+            ),
+        )
     return GitFreshnessResult(allowed=True, branch=current_branch, behind_count=0)

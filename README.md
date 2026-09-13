@@ -21,7 +21,7 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
 1. Open Claude Code in this repo: `claude`
 2. Paste the job description:
    > Tailor my resume to this JD: *(paste the whole posting, company name included)*
-3. Claude runs the unified `apply` pipeline: reads the slug index, ranks content into a plan (order = relevance), validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, and freezes the exact plan alongside it, then runs the ATS extraction check and automatically syncs to Turso cloud.
+3. Claude runs the unified `apply` pipeline: reads the slug index, ranks content into a plan (order = relevance), validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, and freezes the exact plan alongside it, then runs the ATS extraction check and syncs to Turso when the git gate allows it (`main`, not behind `origin/main`).
 4. The resume is done when `apply` succeeds (exactly one page, no horizontal overflow, ATS check passed) — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut.
 5. The delivered PDF lives only at `applications/<date>_<company>_<role>/Simon_Chen_Resume.pdf`. The 3-page canonical is a local build artifact and never goes out.
 6. The application is automatically tracked in SQLite and Turso cloud with full metadata, JD text, audit logs, and the HackerRank hiring-agent score for the resume as sent.
@@ -40,24 +40,25 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 ## Manual usage (no agent)
 
 ```bash
-uv run worksisyphus apply --company <company> --jd <file|-> [--role <role>] [--plan <file|->] [--no-sync] # 1-step compile, validate, freeze & Turso sync
+uv run worksisyphus apply --company <company> --jd <file|-> [--role <role>] [--plan <file|->] [--no-sync] [--allow-branch] [--no-git-check] # 1-step compile, validate, freeze & Turso sync
 #   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you;
-#   only one of --jd/--plan may read stdin at a time (pass the other by file path)
+#   only one of --jd/--plan may read stdin at a time (pass the other by file path);
+#   Turso sync requires main not behind origin/main (override with --allow-branch / --no-git-check)
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan <file|->      # check a plan and print the resolved selection
 uv run worksisyphus tailor --plan <file|->        # preview build into tex_files/ (never delivers; use apply)
 uv run worksisyphus status                        # list applications and identifiers
-uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
+uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen [--no-sync] [--allow-branch] [--no-git-check]
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
 uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluate canonical database directly
 uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
 uv run worksisyphus evaluate --check-upstream     # check sync status against upstream hiring-agent
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find optimal plan
-uv run worksisyphus backfill-evals                # score applications that predate evaluation recording
+uv run worksisyphus backfill-evals [--overwrite] [--no-sync] [--allow-branch] [--no-git-check]
 uv run worksisyphus db status                     # show database stats and metrics
 uv run worksisyphus db history [--limit N]        # show timestamped append-only audit trail
-uv run worksisyphus db sync                       # load profile.json into SQLite and push to Turso cloud
+uv run worksisyphus db sync [--allow-branch] [--no-git-check]  # load profile.json into SQLite and push to Turso cloud
 uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery)
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
 uv run --with pdfminer.six python scripts/ats_check.py applications/<app>/Simon_Chen_Resume.pdf  # ATS extraction check
@@ -75,6 +76,7 @@ Every tailored resume compiles straight into `applications/<date>_<company>_<rol
 ├── GEMINI.md               # rules for Antigravity / Gemini agents
 ├── scripts/ats_check.py    # verify a compiled PDF extracts cleanly for ATS parsers
 ├── src/worksisyphus/
+│   ├── git_guard.py        # branch + origin/main freshness gate for Turso sync
 │   ├── db.py               # SQLite/Turso database & append-only audit trail
 │   ├── profile.py          # database loader + slug index
 │   ├── plan.py             # plan-file parser and validation

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from pathlib import Path
 
 from worksisyphus.application import apply
 from worksisyphus.compiler import CompileResult
@@ -16,11 +15,7 @@ def _make_runner(responses: dict[tuple[str, ...], subprocess.CompletedProcess]):
         tuple_cmd = tuple(cmd)
         if tuple_cmd in responses:
             return responses[tuple_cmd]
-        # Partial match prefix fallback
-        for key, resp in responses.items():
-            if tuple_cmd[: len(key)] == key:
-                return resp
-        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        raise AssertionError(f"unexpected git command: {tuple_cmd}")
 
     return fake_run
 
@@ -55,7 +50,7 @@ def test_git_freshness_rejects_feature_branch_by_default():
     assert "Cloud sync is restricted to 'main'" in result.reason
 
 
-def test_git_freshness_allows_feature_branch_when_allow_any_branch_set():
+def test_git_freshness_allows_feature_branch_when_allow_branch_set():
     runner = _make_runner(
         {
             ("git", "-C", ".", "rev-parse", "--is-inside-work-tree"): subprocess.CompletedProcess([], 0, "true\n", ""),
@@ -66,7 +61,7 @@ def test_git_freshness_allows_feature_branch_when_allow_any_branch_set():
             ),
         }
     )
-    result = check_git_freshness_for_sync(allow_any_branch=True, runner=runner)
+    result = check_git_freshness_for_sync(allow_branch=True, runner=runner)
     assert result.allowed is True
     assert result.branch == "feat/experiment"
 
@@ -82,6 +77,18 @@ def test_git_freshness_rejects_detached_head_by_default():
     assert result.allowed is False
     assert result.branch == "(detached HEAD)"
     assert "Detached HEAD state" in result.reason
+
+
+def test_git_freshness_rejects_detached_head_even_with_allow_branch():
+    runner = _make_runner(
+        {
+            ("git", "-C", ".", "rev-parse", "--is-inside-work-tree"): subprocess.CompletedProcess([], 0, "true\n", ""),
+            ("git", "-C", ".", "branch", "--show-current"): subprocess.CompletedProcess([], 0, "\n", ""),
+        }
+    )
+    result = check_git_freshness_for_sync(allow_branch=True, runner=runner)
+    assert result.allowed is False
+    assert result.branch == "(detached HEAD)"
 
 
 def test_git_freshness_rejects_when_behind_upstream():
@@ -112,11 +119,27 @@ def test_git_freshness_handles_fetch_timeout_and_offline():
             return subprocess.CompletedProcess(cmd, 0, "main\n", "")
         if "rev-list" in cmd:
             return subprocess.CompletedProcess(cmd, 0, "0\n", "")
-        return subprocess.CompletedProcess(cmd, 0, "", "")
+        raise AssertionError(f"unexpected git command: {cmd}")
 
     result = check_git_freshness_for_sync(runner=exploding_fetch)
     assert result.allowed is True
     assert result.branch == "main"
+
+
+def test_git_freshness_rejects_when_upstream_ref_is_missing():
+    runner = _make_runner(
+        {
+            ("git", "-C", ".", "rev-parse", "--is-inside-work-tree"): subprocess.CompletedProcess([], 0, "true\n", ""),
+            ("git", "-C", ".", "branch", "--show-current"): subprocess.CompletedProcess([], 0, "main\n", ""),
+            ("git", "-C", ".", "fetch", "origin", "main"): subprocess.CompletedProcess([], 0, "", ""),
+            ("git", "-C", ".", "rev-list", "--count", "HEAD..origin/main"): subprocess.CompletedProcess(
+                [], 128, "", "fatal: ambiguous argument 'HEAD..origin/main'"
+            ),
+        }
+    )
+    result = check_git_freshness_for_sync(runner=runner)
+    assert result.allowed is False
+    assert "Could not verify freshness against origin/main" in result.reason
 
 
 def test_git_freshness_rejects_non_git_directory():
@@ -133,7 +156,6 @@ def test_git_freshness_rejects_non_git_directory():
 
 
 def test_sync_to_turso_skips_when_git_guard_disallows(monkeypatch, tmp_path):
-
     fake_db = tmp_path / "worksisyphus.db"
     fake_db.write_bytes(b"")
 
@@ -160,12 +182,14 @@ def test_sync_to_turso_bypasses_git_guard_when_no_git_check_set(monkeypatch, tmp
         return GitFreshnessResult(allowed=False, reason="should not be called")
 
     monkeypatch.setattr("worksisyphus.git_guard.check_git_freshness_for_sync", fake_guard)
-    # Turso CLI missing will cause False, but guard is bypassed
-    monkeypatch.setattr("shutil.which", lambda _: None)
-    monkeypatch.setattr(Path, "is_file", lambda self: False)
+    monkeypatch.setattr("worksisyphus.db.shutil.which", lambda _: None)
+    monkeypatch.setenv("HOME", str(tmp_path))
 
-    sync_to_turso(db_path=fake_db, no_git_check=True)
+    logs: list[str] = []
+    synced = sync_to_turso(db_path=fake_db, no_git_check=True, log=logs.append)
     assert guard_called is False
+    assert synced is False
+    assert any("Turso CLI not found" in log for log in logs)
 
 
 def test_apply_completes_local_generation_even_if_cloud_sync_is_skipped(small_profile, monkeypatch, tmp_path):
@@ -211,10 +235,8 @@ def test_apply_completes_local_generation_even_if_cloud_sync_is_skipped(small_pr
         log=logs.append,
     )
 
-    # Local files exist and are complete
     assert folder.is_dir()
     assert (folder / "Simon_Chen_Resume.pdf").is_file()
     assert (folder / "meta.json").is_file()
     assert (folder / "plan.json").is_file()
-    # Warning was logged about skipped cloud sync
     assert any("Turso cloud sync skipped" in log and "feat/foo" in log for log in logs)

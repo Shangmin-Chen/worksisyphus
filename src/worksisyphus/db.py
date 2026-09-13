@@ -775,7 +775,7 @@ def sync_to_turso(
     if not no_git_check:
         from .git_guard import check_git_freshness_for_sync
 
-        freshness = check_git_freshness_for_sync(allow_any_branch=allow_branch)
+        freshness = check_git_freshness_for_sync(allow_branch=allow_branch)
         if not freshness.allowed:
             log(f"Warning: Turso cloud sync skipped: {freshness.reason}")
             return False
