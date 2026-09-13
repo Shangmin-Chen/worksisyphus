@@ -143,7 +143,10 @@ def test_profile_content_differences_reports_shared_bullet_text_change(small_pro
 
     differences = profile_content_differences(profile, small_profile)
 
-    assert any("experience 'org-a'.'a1' text differs between profile and database" in diff for diff in differences)
+    assert any(
+        "experience 'org-a'.'a1' text: profile has 'Rewritten bullet', database has 'A one'" in diff
+        for diff in differences
+    )
 
 
 def test_profile_content_differences_reports_education_degree_change(small_profile) -> None:
@@ -174,6 +177,36 @@ def test_profile_drift_summary_prefers_bullet_delta(small_profile) -> None:
     )
 
     assert profile_drift_summary(profile, small_profile) == "profile.json is 2 bullets behind the database"
+
+
+def test_profile_content_differences_reports_extra_bullet_slug_in_profile(small_profile) -> None:
+    profile_exp = dataclasses.replace(
+        small_profile.experiences["org-a"],
+        bullets={**small_profile.experiences["org-a"].bullets, "a-extra": "Extra bullet in profile only"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        experiences={**small_profile.experiences, "org-a": profile_exp},
+    )
+
+    differences = profile_content_differences(profile, small_profile)
+
+    assert any("experience 'org-a' has 4 bullets in profile, 3 in database" in diff for diff in differences)
+    assert any("'a-extra' missing from database" in diff for diff in differences)
+
+
+def test_profile_content_differences_reports_skill_group_item_change(small_profile) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        skills={**small_profile.skills, "languages": ("Python", "Go")},
+    )
+
+    differences = profile_content_differences(small_profile, db_profile)
+
+    assert any(
+        "skill group 'languages' items: profile has ('Python', 'Rust'), database has ('Python', 'Go')" in diff
+        for diff in differences
+    )
 
 
 def test_profile_drift_summary_falls_back_to_first_named_difference(small_profile) -> None:

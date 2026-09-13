@@ -196,14 +196,22 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
                 f"{len(db_exp.bullets)} in database"
             )
             missing_from_profile = sorted(db_bullet_slugs - profile_bullet_slugs)
+            missing_from_db = sorted(profile_bullet_slugs - db_bullet_slugs)
             if missing_from_profile:
                 message += (
                     f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_profile)} missing from profile"
                 )
+            if missing_from_db:
+                message += f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_db)} missing from database"
             differences.append(message)
         for bullet_slug in sorted(profile_bullet_slugs & db_bullet_slugs):
-            if profile_exp.bullets[bullet_slug] != db_exp.bullets[bullet_slug]:
-                differences.append(f"experience {slug!r}.{bullet_slug!r} text differs between profile and database")
+            _append_field_difference(
+                differences,
+                f"experience {slug!r}.{bullet_slug!r}",
+                "text",
+                profile_exp.bullets[bullet_slug],
+                db_exp.bullets[bullet_slug],
+            )
 
     profile_project_slugs = set(profile.projects)
     db_project_slugs = set(db_profile.projects)
@@ -232,14 +240,22 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
                 f"{len(db_proj.bullets)} in database"
             )
             missing_from_profile = sorted(db_bullet_slugs - profile_bullet_slugs)
+            missing_from_db = sorted(profile_bullet_slugs - db_bullet_slugs)
             if missing_from_profile:
                 message += (
                     f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_profile)} missing from profile"
                 )
+            if missing_from_db:
+                message += f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_db)} missing from database"
             differences.append(message)
         for bullet_slug in sorted(profile_bullet_slugs & db_bullet_slugs):
-            if profile_proj.bullets[bullet_slug] != db_proj.bullets[bullet_slug]:
-                differences.append(f"project {slug!r}.{bullet_slug!r} text differs between profile and database")
+            _append_field_difference(
+                differences,
+                f"project {slug!r}.{bullet_slug!r}",
+                "text",
+                profile_proj.bullets[bullet_slug],
+                db_proj.bullets[bullet_slug],
+            )
 
     profile_skill_groups = set(profile.skills)
     db_skill_groups = set(db_profile.skills)
@@ -254,8 +270,13 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
         differences.append(": ".join(parts))
     else:
         for group in sorted(profile_skill_groups):
-            if profile.skills[group] != db_profile.skills[group]:
-                differences.append(f"skill group {group!r} differs between profile and database")
+            _append_field_difference(
+                differences,
+                f"skill group {group!r}",
+                "items",
+                profile.skills[group],
+                db_profile.skills[group],
+            )
 
     return differences
 
