@@ -303,9 +303,20 @@ def check_upstream_status() -> dict[str, Any]:
                     ),
                 )
             remote_commit = data.get("sha", "")
+            if not remote_commit:
+                return _upstream_result(
+                    manifest,
+                    status="unreachable",
+                    remote_commit="unknown",
+                    etag=cached_etag,
+                    message=(
+                        f"Upstream returned HTTP 200 without a commit SHA; "
+                        f"tracked commit {synced_commit[:7]} NOT verified."
+                    ),
+                )
             remote_etag = resp.headers.get("ETag") or cached_etag
             is_synced = bool(
-                remote_commit and (remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit))
+                remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit)
             )
             return _upstream_result(
                 manifest,

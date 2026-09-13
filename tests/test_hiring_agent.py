@@ -369,6 +369,27 @@ def test_check_upstream_status_403_forbidden_not_rate_limited(monkeypatch) -> No
     assert "passed" not in status["message"]
 
 
+def test_check_upstream_status_200_missing_sha(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {}
+    mock_resp.headers = {}
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert status["remote_commit"] == "unknown"
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+
+
 def test_check_upstream_status_200_invalid_json(monkeypatch) -> None:
     from unittest.mock import MagicMock
 
