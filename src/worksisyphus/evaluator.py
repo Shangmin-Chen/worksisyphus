@@ -138,6 +138,12 @@ def _extract_metrics(text: str) -> list[str]:
     return metrics
 
 
+def require_pdf_resume_text(pdf_path: Path | None, resume_text: str) -> None:
+    """Fail closed when a PDF target was named but extraction produced no text."""
+    if pdf_path is not None and not resume_text.strip():
+        raise ValueError(f"Resume PDF produced no extractable text: {pdf_path}")
+
+
 def selection_to_plain_text(selection: Selection, profile: Profile) -> str:
     """Build unformatted plain text directly from a Selection and Profile model."""
     chunks = [
@@ -180,6 +186,8 @@ def evaluate_resume_text(
     resume_text: str,
     jd_text: str,
     candidate_name: str = "Simon Chen",
+    candidate_email: str = "",
+    candidate_phone: str = "",
     pdf_path: Path | None = None,
     gate_results: tuple[GateResult, ...] | None = None,
 ) -> EvaluationReport:
@@ -188,6 +196,7 @@ def evaluate_resume_text(
     Pass gate_results when the caller has already run the gates, so the PDF text layer is
     extracted once per evaluation rather than once here and once in the caller.
     """
+    require_pdf_resume_text(pdf_path, resume_text)
     jd_keywords = _extract_technical_keywords(jd_text)
     resume_keywords = _extract_technical_keywords(resume_text)
 
@@ -233,11 +242,17 @@ def evaluate_resume_text(
             gate_score = 0
             gate_diagnostics.append(f"PDF file not found: {pdf_path}")
         else:
-            gates = (
-                gate_results
-                if gate_results is not None
-                else check_resume_gates(pdf_path, candidate_name=candidate_name, require_contact=False)  # type: ignore[arg-type]
-            )
+            if gate_results is not None:
+                gates = gate_results
+            else:
+                assert pdf_path is not None
+                gates = check_resume_gates(
+                    pdf_path,
+                    candidate_name=candidate_name,
+                    candidate_email=candidate_email,
+                    candidate_phone=candidate_phone,
+                    require_contact=False,
+                )
             failed_gates = [g for g in gates if not g.passed]
             if failed_gates:
                 gate_score = max(0, 10 - len(failed_gates) * 3)
@@ -278,15 +293,30 @@ def evaluate_resume_text(
     )
 
 
-def evaluate_pdf_against_jd(pdf_path: Path, jd_text: str, candidate_name: str = "Simon Chen") -> EvaluationReport:
+def evaluate_pdf_against_jd(
+    pdf_path: Path,
+    jd_text: str,
+    candidate_name: str = "Simon Chen",
+    candidate_email: str = "",
+    candidate_phone: str = "",
+) -> EvaluationReport:
     """Evaluate a compiled PDF file directly against a job description."""
-    # Diagnostic scoring, not delivery: only a name is available here, so an unverifiable
-    # email/phone must not be reported as a gate failure. apply() runs the strict form.
-    gates, ats_res = run_resume_gates(pdf_path, candidate_name=candidate_name, require_contact=False)
+    # Diagnostic scoring, not delivery: contact fields are passed when available so gates
+    # can verify extraction, but require_contact stays False so missing email/phone never
+    # fails the report. apply() runs the strict form.
+    gates, ats_res = run_resume_gates(
+        pdf_path,
+        candidate_name=candidate_name,
+        candidate_email=candidate_email,
+        candidate_phone=candidate_phone,
+        require_contact=False,
+    )
     return evaluate_resume_text(
         resume_text=ats_res.text,
         jd_text=jd_text,
         candidate_name=candidate_name,
+        candidate_email=candidate_email,
+        candidate_phone=candidate_phone,
         pdf_path=pdf_path,
         gate_results=gates,
     )

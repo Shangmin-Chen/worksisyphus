@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from worksisyphus.evaluator import (
     evaluate_pdf_against_jd,
     evaluate_resume_text,
     format_evaluation_report,
+    require_pdf_resume_text,
     selection_to_plain_text,
 )
 from worksisyphus.plan import parse_plan
@@ -42,6 +45,34 @@ def test_evaluate_resume_text_missing_keywords() -> None:
     assert "rust" in report.missing_keywords
     assert "kubernetes" in report.missing_keywords
     assert any("Consider highlighting" in s for s in report.suggestions)
+
+
+def test_require_pdf_resume_text_raises_on_empty_extraction(delivered_pdf) -> None:
+    with pytest.raises(ValueError, match="no extractable text"):
+        require_pdf_resume_text(delivered_pdf, "")
+
+
+def test_evaluate_resume_text_raises_on_empty_pdf_extraction(delivered_pdf) -> None:
+    with pytest.raises(ValueError, match="no extractable text"):
+        evaluate_resume_text(
+            resume_text="",
+            jd_text="Python developer",
+            pdf_path=delivered_pdf,
+        )
+
+
+def test_evaluate_pdf_against_jd_raises_on_empty_extraction(monkeypatch, delivered_pdf) -> None:
+    from worksisyphus import evaluator
+    from worksisyphus.ats import ATSCheckResult
+
+    monkeypatch.setattr(
+        evaluator,
+        "run_resume_gates",
+        lambda pdf_path, **kwargs: ((), ATSCheckResult(True, (), 1, 0, "")),
+    )
+
+    with pytest.raises(ValueError, match="no extractable text"):
+        evaluate_pdf_against_jd(delivered_pdf, "Python developer")
 
 
 def test_evaluate_resume_missing_pdf_gate_failure() -> None:
@@ -82,3 +113,55 @@ def test_evaluate_pdf_against_jd(delivered_pdf) -> None:
     report = evaluate_pdf_against_jd(delivered_pdf, jd)
     assert report.overall_score >= 70
     assert report.gate_compliance_score == 10
+
+
+def test_evaluate_resume_text_threads_contact_into_gates(monkeypatch, delivered_pdf) -> None:
+    from worksisyphus import evaluator
+
+    captured: dict[str, str] = {}
+
+    def fake_check_resume_gates(pdf_path, **kwargs):
+        captured.update(kwargs)
+        return ()
+
+    monkeypatch.setattr(evaluator, "check_resume_gates", fake_check_resume_gates)
+
+    evaluate_resume_text(
+        resume_text="C++ developer",
+        jd_text="C++ developer",
+        candidate_name="Simon Chen",
+        candidate_email="simon@example.com",
+        candidate_phone="617-555-0100",
+        pdf_path=delivered_pdf,
+    )
+
+    assert captured["candidate_name"] == "Simon Chen"
+    assert captured["candidate_email"] == "simon@example.com"
+    assert captured["candidate_phone"] == "617-555-0100"
+    assert captured["require_contact"] is False
+
+
+def test_evaluate_pdf_against_jd_threads_contact_into_run_resume_gates(monkeypatch, delivered_pdf) -> None:
+    from worksisyphus import evaluator
+    from worksisyphus.ats import ATSCheckResult
+
+    captured: dict[str, str] = {}
+
+    def fake_run_resume_gates(pdf_path, **kwargs):
+        captured.update(kwargs)
+        return (), ATSCheckResult(True, (), 1, 500, "C++ developer")
+
+    monkeypatch.setattr(evaluator, "run_resume_gates", fake_run_resume_gates)
+
+    evaluate_pdf_against_jd(
+        delivered_pdf,
+        "C++ developer",
+        candidate_name="Simon Chen",
+        candidate_email="simon@example.com",
+        candidate_phone="617-555-0100",
+    )
+
+    assert captured["candidate_name"] == "Simon Chen"
+    assert captured["candidate_email"] == "simon@example.com"
+    assert captured["candidate_phone"] == "617-555-0100"
+    assert captured["require_contact"] is False
