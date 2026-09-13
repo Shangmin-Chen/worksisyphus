@@ -399,6 +399,9 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Custom Tracks:   {', '.join(status.get('custom_tracks', []))}")
                 print(f"Message:         {status.get('message')}")
                 print("=" * 68)
+                upstream_status = status.get("status", "")
+                if upstream_status in ("unreachable", "outdated"):
+                    return 1
                 return 0
 
             profile = load_profile()

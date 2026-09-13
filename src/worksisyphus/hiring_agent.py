@@ -231,6 +231,21 @@ def _upstream_result(
     }
 
 
+def _manifest_load_failure(exc: BaseException) -> dict[str, Any]:
+    """Structured upstream status when the local manifest cannot be read or parsed."""
+    return {
+        "status": "unreachable",
+        "upstream_repo": "interviewstreet/hiring-agent",
+        "local_commit": "unknown",
+        "remote_commit": "unknown",
+        "synced_date": None,
+        "reference_role": None,
+        "custom_tracks": [],
+        "etag": None,
+        "message": f"Failed to load upstream manifest ({type(exc).__name__}: {exc}); tracked commit NOT verified.",
+    }
+
+
 def check_upstream_status() -> dict[str, Any]:
     """Check local rubric manifest against upstream HackerRank repository with ETag caching and rate-limit resilience."""
     if not UPSTREAM_MANIFEST_PATH.is_file():
@@ -239,7 +254,11 @@ def check_upstream_status() -> dict[str, Any]:
             "message": "No upstream manifest file found.",
         }
 
-    manifest = json.loads(UPSTREAM_MANIFEST_PATH.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(UPSTREAM_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        return _manifest_load_failure(exc)
+
     synced_commit = manifest.get("synced_commit", "unknown")
     upstream_repo = manifest.get("upstream_repo", "interviewstreet/hiring-agent")
     cached_etag = manifest.get("etag")
@@ -270,7 +289,19 @@ def check_upstream_status() -> dict[str, Any]:
             )
 
         if resp.status_code == 200:
-            data = resp.json()
+            try:
+                data = resp.json()
+            except (ValueError, json.JSONDecodeError) as exc:
+                return _upstream_result(
+                    manifest,
+                    status="unreachable",
+                    remote_commit="unknown",
+                    etag=cached_etag,
+                    message=(
+                        f"Upstream returned invalid JSON ({type(exc).__name__}: {exc}); "
+                        f"tracked commit {synced_commit[:7]} NOT verified."
+                    ),
+                )
             remote_commit = data.get("sha", "")
             remote_etag = resp.headers.get("ETag") or cached_etag
             is_synced = bool(
@@ -287,12 +318,24 @@ def check_upstream_status() -> dict[str, Any]:
             )
 
         if resp.status_code == 403:
+            remaining = resp.headers.get("X-RateLimit-Remaining")
+            if remaining is not None and remaining == "0":
+                return _upstream_result(
+                    manifest,
+                    status="rate_limited",
+                    remote_commit="rate_limited",
+                    etag=cached_etag,
+                    message=(
+                        f"GitHub API rate limit reached. Tracked upstream commit: {synced_commit[:7]} "
+                        "NOT verified."
+                    ),
+                )
             return _upstream_result(
                 manifest,
-                status="rate_limited",
-                remote_commit="rate_limited",
+                status="unreachable",
+                remote_commit="unknown",
                 etag=cached_etag,
-                message=f"GitHub API rate limit reached. Tracked upstream commit: {synced_commit[:7]} (falling back to cache).",
+                message=f"Upstream returned HTTP 403 (forbidden); tracked commit {synced_commit[:7]} NOT verified.",
             )
 
         return _upstream_result(
@@ -410,8 +453,14 @@ class HackerRankHiringAgent:
             raise ValueError(f"Category score dict is missing a numeric 'score': {exc}") from exc
         max_possible = sum(cat.max for cat in self.role.categories)
 
-        bonus = float(eval_dict.get("bonus_points", {}).get("total", 0))
-        deductions = float(eval_dict.get("deductions", {}).get("total", 0))
+        try:
+            bonus = float(eval_dict.get("bonus_points", {})["total"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"bonus_points is missing a numeric 'total': {exc}") from exc
+        try:
+            deductions = float(eval_dict.get("deductions", {})["total"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"deductions is missing a numeric 'total': {exc}") from exc
 
         final_score = max(
             self.role.min_final_score,

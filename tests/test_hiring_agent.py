@@ -335,6 +335,7 @@ def test_check_upstream_status_403_rate_limited(monkeypatch) -> None:
 
     mock_resp = MagicMock()
     mock_resp.status_code = 403
+    mock_resp.headers = {"X-RateLimit-Remaining": "0"}
 
     monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
 
@@ -342,6 +343,64 @@ def test_check_upstream_status_403_rate_limited(monkeypatch) -> None:
     assert status["status"] == "rate_limited"
     assert status["remote_commit"] == "rate_limited"
     assert "rate limit reached" in status["message"]
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+    assert "falling back to cache" not in status["message"]
+
+
+def test_check_upstream_status_403_forbidden_not_rate_limited(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 403
+    mock_resp.headers = {}
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert status["remote_commit"] == "unknown"
+    assert "403" in status["message"]
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+
+
+def test_check_upstream_status_200_invalid_json(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {}
+    mock_resp.json.side_effect = ValueError("invalid json")
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+
+
+def test_check_upstream_status_manifest_load_failure(monkeypatch, tmp_path) -> None:
+    from worksisyphus import hiring_agent
+
+    manifest_path = tmp_path / "upstream_manifest.json"
+    manifest_path.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setattr(hiring_agent, "UPSTREAM_MANIFEST_PATH", manifest_path)
+
+    status = hiring_agent.check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert status["local_commit"] == "unknown"
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
 
 
 def test_check_upstream_status_offline_timeout(monkeypatch) -> None:
@@ -548,6 +607,28 @@ def test_calculate_final_score_rejects_a_category_without_a_score() -> None:
         "deductions": {"total": 0.0},
     }
     with pytest.raises(ValueError, match="missing a numeric 'score'"):
+        agent._calculate_final_score(eval_dict)
+
+
+def test_calculate_final_score_rejects_missing_bonus_total() -> None:
+    agent = HackerRankHiringAgent(role_name="software_engineering_intern")
+    eval_dict = {
+        "scores": {"open_source": {"score": 30.0, "max": 35, "evidence": "e"}},
+        "bonus_points": {},
+        "deductions": {"total": 0.0},
+    }
+    with pytest.raises(ValueError, match="bonus_points is missing a numeric 'total'"):
+        agent._calculate_final_score(eval_dict)
+
+
+def test_calculate_final_score_rejects_non_numeric_deduction_total() -> None:
+    agent = HackerRankHiringAgent(role_name="software_engineering_intern")
+    eval_dict = {
+        "scores": {"open_source": {"score": 30.0, "max": 35, "evidence": "e"}},
+        "bonus_points": {"total": 0.0},
+        "deductions": {"total": "not-a-number"},
+    }
+    with pytest.raises(ValueError, match="deductions is missing a numeric 'total'"):
         agent._calculate_final_score(eval_dict)
 
 

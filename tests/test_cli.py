@@ -305,6 +305,30 @@ def test_cli_evaluate_check_upstream(capsys) -> None:
     assert "interviewstreet/hiring-agent" in out
 
 
+def test_cli_evaluate_check_upstream_unreachable_exits_nonzero(monkeypatch, capsys) -> None:
+    from worksisyphus import hiring_agent
+
+    def fake_check_upstream_status():
+        return {
+            "status": "unreachable",
+            "upstream_repo": "interviewstreet/hiring-agent",
+            "local_commit": "70fd3ea",
+            "remote_commit": "offline",
+            "synced_date": "2026-08-19T00:00:00Z",
+            "reference_role": "software_engineering_intern",
+            "custom_tracks": ["software_engineer"],
+            "message": "Upstream check failed; tracked commit NOT verified.",
+        }
+
+    monkeypatch.setattr(hiring_agent, "check_upstream_status", fake_check_upstream_status)
+
+    ret = cli.main(["evaluate", "--check-upstream"])
+    assert ret == 1
+    out = capsys.readouterr().out
+    assert "UNREACHABLE" in out
+    assert "NOT verified" in out
+
+
 def test_cli_optimize_command(tmp_path, capsys) -> None:
     jd_file = tmp_path / "jd.txt"
     jd_file.write_text("Looking for a distributed systems engineer with C++ and Python.", encoding="utf-8")
