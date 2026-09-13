@@ -366,6 +366,59 @@ def test_cli_evaluate_no_target_fallback_names_profile(tmp_path, capsys, monkeyp
     assert "RESUME EVALUATION REPORT: PROFILE_JSON" in captured.out
 
 
+def test_cli_evaluate_no_target_missing_latest_pdf_raises(tmp_path, capsys, monkeypatch) -> None:
+    from worksisyphus import application
+
+    app_folder = tmp_path / "applications" / "2026-08-18_testco_swe"
+    app_folder.mkdir(parents=True)
+    (app_folder / "jd.txt").write_text("Python backend developer.", encoding="utf-8")
+    (app_folder / "meta.json").write_text('{"company": "TestCo", "status": "applied"}', encoding="utf-8")
+
+    monkeypatch.setattr(application, "APPLICATIONS_DIR", tmp_path / "applications")
+
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Backend engineer with Python.", encoding="utf-8")
+
+    ret = cli.main(["evaluate", "--jd", str(jd_file)])
+    assert ret == 1
+    captured = capsys.readouterr()
+    assert "error:" in captured.err
+    assert "Resume PDF not found or not readable" in captured.err
+    assert "Simon_Chen_Resume.pdf" in captured.err
+    assert "PROFILE_JSON" not in captured.out
+
+
+def test_cli_evaluate_app_jd_threads_contact_into_gates(tmp_path, capsys, monkeypatch, small_profile) -> None:
+    from worksisyphus import application
+    from worksisyphus.ats import ATSCheckResult
+
+    app_folder = tmp_path / "applications" / "2026-08-18_testco_swe"
+    app_folder.mkdir(parents=True)
+    (app_folder / "jd.txt").write_text("Python backend developer.", encoding="utf-8")
+    (app_folder / "meta.json").write_text('{"company": "TestCo", "status": "applied"}', encoding="utf-8")
+    (app_folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr(application, "APPLICATIONS_DIR", tmp_path / "applications")
+    monkeypatch.setattr(cli, "load_profile", lambda: small_profile)
+
+    captured: dict[str, str] = {}
+
+    def fake_run_resume_gates(pdf_path, **kwargs):
+        captured.update(kwargs)
+        return (), ATSCheckResult(True, (), 1, 500, "Python backend developer")
+
+    monkeypatch.setattr(
+        "worksisyphus.evaluator.run_resume_gates",
+        fake_run_resume_gates,
+    )
+
+    ret = cli.main(["evaluate", "--app", "testco_swe"])
+    assert ret == 0
+    assert captured.get("candidate_email") == "simon.chen@fixture.test"
+    assert captured.get("candidate_phone") == "617-201-4477"
+    assert "RESUME EVALUATION REPORT" in capsys.readouterr().out
+
+
 def test_cli_evaluate_no_target_fallback_uses_latest_pdf(tmp_path, capsys, monkeypatch) -> None:
     from worksisyphus.ats import ATSCheckResult
 

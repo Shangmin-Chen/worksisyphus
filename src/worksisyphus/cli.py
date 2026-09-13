@@ -493,20 +493,9 @@ def main(argv: list[str] | None = None) -> int:
                     # Delivered resumes live only in applications/, which is gitignored. Fall back
                     # to the profile itself so the command still works in a fresh clone.
                     pdf_path = _latest_application_pdf()
-                    if pdf_path is not None and pdf_path.is_file():
-                        role_label = pdf_path.parent.name
-                        fallback_notice = (
-                            f"no --resume/--app given; scoring {pdf_path} (most recent delivered resume)"
-                        )
-                        if args.hackerrank:
-                            candidate_name, candidate_email, candidate_phone = _candidate_contact()
-                            resume_text = check_pdf_ats(
-                                pdf_path, name=candidate_name, email=candidate_email, phone=candidate_phone
-                            ).text
-                    else:
+                    if pdf_path is None:
                         from .selection import full_selection
 
-                        pdf_path = None
                         profile = _get_profile()
                         resume_text = selection_to_plain_text(full_selection(profile), profile)
                         role_label = "profile_json"
@@ -516,6 +505,15 @@ def main(argv: list[str] | None = None) -> int:
                             profile.contact.email,
                             profile.contact.phone,
                         )
+                    else:
+                        role_label = pdf_path.parent.name
+                        fallback_notice = f"no --resume/--app given; scoring {pdf_path} (most recent delivered resume)"
+                        _require_readable_pdf(pdf_path)
+                        if args.hackerrank:
+                            candidate_name, candidate_email, candidate_phone = _candidate_contact()
+                            resume_text = check_pdf_ats(
+                                pdf_path, name=candidate_name, email=candidate_email, phone=candidate_phone
+                            ).text
 
             if fallback_notice:
                 print(fallback_notice)
@@ -528,7 +526,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 if pdf_path is not None:
                     eval_name, eval_email, eval_phone = candidate_name, candidate_email, candidate_phone
-                    if not args.app and not args.resume:
+                    if args.app or not args.resume:
                         eval_name, eval_email, eval_phone = _candidate_contact()
                     display_name = eval_name or "Simon Chen"
                     report = evaluate_pdf_against_jd(
