@@ -300,8 +300,7 @@ def test_db_sync_fails_closed_when_turso_sync_returns_false(monkeypatch, tmp_pat
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
 
     def _fail(*args: object, **kwargs: object) -> bool:
-        log = kwargs.get("log", lambda _: None)
-        log("Warning: Turso cloud sync skipped: git freshness check failed")
+        print("Warning: Turso cloud sync skipped: git freshness check failed")
         return False
 
     monkeypatch.setattr(db, "sync_to_turso", _fail)
