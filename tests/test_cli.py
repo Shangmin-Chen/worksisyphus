@@ -207,7 +207,8 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     # 6. Sync
     assert cli.main(["db", "sync"]) == 0
     sync_out = capsys.readouterr().out
-    assert "Synced profile.json to SQLite and Turso cloud" in sync_out
+    assert "Synced profile.json to SQLite" in sync_out
+    assert "Turso cloud sync: synced" in sync_out
 
 
 def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:
@@ -284,9 +285,39 @@ def test_db_sync_fails_closed_on_turso_sync_exception(monkeypatch, tmp_path, cap
     captured = capsys.readouterr()
     assert ret == 1
     assert "Warning: Turso cloud sync failed: network unreachable" in captured.out
-    assert "Synced profile.json to SQLite and Turso cloud (skipped / failed)" in captured.out
+    assert "Synced profile.json to SQLite" in captured.out
+    assert "Turso cloud sync: skipped / failed" in captured.out
     assert captured.err.startswith("error: ")
     assert "Turso cloud sync did not complete" in captured.err
+    assert "profile.json was not synced" not in captured.err
+
+
+def test_db_sync_fails_closed_when_turso_sync_returns_false(monkeypatch, tmp_path, capsys) -> None:
+    """Companion to the exception test: production returns False on skip/failure paths."""
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+
+    def _fail(*args: object, **kwargs: object) -> bool:
+        log = kwargs.get("log", lambda _: None)
+        log("Warning: Turso cloud sync skipped: git freshness check failed")
+        return False
+
+    monkeypatch.setattr(db, "sync_to_turso", _fail)
+
+    monkeypatch.chdir(tmp_path)
+    Path("profile.json").write_text(json.dumps(_MINIMAL_VALID_PROFILE), encoding="utf-8")
+
+    ret = cli.main(["db", "sync"])
+    captured = capsys.readouterr()
+    assert ret == 1
+    assert "Synced profile.json to SQLite" in captured.out
+    assert "Warning: Turso cloud sync skipped: git freshness check failed" in captured.out
+    assert "Turso cloud sync: skipped / failed" in captured.out
+    assert captured.err.startswith("error: ")
+    assert "Turso cloud sync did not complete" in captured.err
+    assert "profile.json was not synced" not in captured.err
 
 
 def test_db_init_survives_turso_sync_exception(monkeypatch, tmp_path, capsys) -> None:

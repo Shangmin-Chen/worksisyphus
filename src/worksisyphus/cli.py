@@ -206,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     history_cmd.add_argument("--limit", type=int, default=20, help="Number of audit events to display.")
     history_cmd.add_argument("--type", dest="entity_type", default=None, help="Filter by entity type.")
     eval_cmd = sub.add_parser("evaluate", help="Score a resume PDF or plan against a target job description.")
-    eval_cmd.add_argument("--plan", default=None, help="Plan JSON file to evaluate.")
+    eval_cmd.add_argument("--plan", default=None, help="Plan JSON file or - for stdin.")
     eval_cmd.add_argument(
         "--resume",
         default=None,
@@ -354,19 +354,15 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
                 elif args.db_action == "sync":
                     seed_database(conn)
+                    print("Synced profile.json to SQLite")
                     turso_ok = _sync_cloud_and_report(allow_branch=args.allow_branch, no_git_check=args.no_git_check)
-                    print(
-                        f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
-                    )
+                    print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
                     if not turso_ok:
                         # Unlike `db init`, this command's only job is the Turso push: the local
                         # seed above is a means, not the goal. Fail closed so a caller that checks
                         # $? (a script, a CI step) can never read exit 0 as "synced" when nothing
                         # reached Turso -- the reason for the miss is already in the log above.
-                        print(
-                            "error: Turso cloud sync did not complete; profile.json was not synced.",
-                            file=sys.stderr,
-                        )
+                        print("error: Turso cloud sync did not complete.", file=sys.stderr)
                         return 1
                 elif args.db_action == "export-profile":
                     destination = Path(args.output)
