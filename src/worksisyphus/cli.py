@@ -350,15 +350,11 @@ def main(argv: list[str] | None = None) -> int:
                 if args.db_action == "init":
                     seed_database(conn)
                     print(f"Initialized and seeded {DEFAULT_DB_PATH}")
-                    turso_ok = _sync_cloud_and_report(
-                        allow_branch=args.allow_branch, no_git_check=args.no_git_check
-                    )
+                    turso_ok = _sync_cloud_and_report(allow_branch=args.allow_branch, no_git_check=args.no_git_check)
                     print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
                 elif args.db_action == "sync":
                     seed_database(conn)
-                    turso_ok = _sync_cloud_and_report(
-                        allow_branch=args.allow_branch, no_git_check=args.no_git_check
-                    )
+                    turso_ok = _sync_cloud_and_report(allow_branch=args.allow_branch, no_git_check=args.no_git_check)
                     print(
                         f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
                     )
