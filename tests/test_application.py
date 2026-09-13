@@ -633,6 +633,73 @@ def test_resolve_lists_each_ambiguous_match_on_its_own_line(tmp_path) -> None:
     assert any("2026-08-08_google_data-engineer" in line for line in lines)
 
 
+def test_backfill_evaluations_reports_a_corrupt_meta_json(tmp_path) -> None:
+    """json.JSONDecodeError is a ValueError subclass, so pytest.raises(ValueError) alone would
+    pass even without the fix; the message text is the discriminating signal."""
+    from worksisyphus.application import backfill_evaluations
+
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_badco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text("{bad", encoding="utf-8")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json in") as excinfo:
+        backfill_evaluations(applications_dir=apps)
+    assert "2026-08-01_badco_swe" in str(excinfo.value)
+
+
+def test_update_application_status_reports_a_corrupt_meta_json(tmp_path) -> None:
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_badco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text("{bad", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json in") as excinfo:
+        update_application_status("badco_swe", "phone_screen", applications_dir=apps, sync_cloud=False)
+    assert "2026-08-01_badco_swe" in str(excinfo.value)
+
+
+def test_list_applications_still_reports_a_corrupt_meta_json(tmp_path) -> None:
+    """Regression guard: routing list_applications through _read_meta must not weaken the one
+    site that already produced a clean ValueError for a corrupt meta.json."""
+    folder = tmp_path / "applications" / "2026-07-11_acme_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text("{bad", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json in") as excinfo:
+        list_applications(tmp_path / "applications")
+    assert "2026-07-11_acme_swe" in str(excinfo.value)
+
+
+def test_apply_rejects_a_company_role_that_would_exceed_filesystem_folder_name_limits(
+    small_profile, tmp_path
+) -> None:
+    """slugify() has no max length; an extreme --company/--role must fail with a clear error
+    before compilation, not surface as an opaque ENAMETOOLONG deep inside the publish retry loop."""
+    with pytest.raises(ValueError, match="too long"):
+        apply(
+            plan_text="{}",
+            jd_text="JD text",
+            company="A" * 300,
+            profile=small_profile,
+            applications_dir=tmp_path / "applications",
+        )
+
+    with pytest.raises(ValueError, match="too long"):
+        apply(
+            plan_text="{}",
+            jd_text="JD text",
+            company="B" * 150,
+            role="C" * 150,
+            profile=small_profile,
+            applications_dir=tmp_path / "applications",
+        )
+
+    # Nothing was staged or published for either rejected attempt.
+    assert not (tmp_path / "applications").exists() or list((tmp_path / "applications").iterdir()) == []
+
+
 def test_list_applications_orders_newest_first_then_retry_order(tmp_path) -> None:
     apps_dir = tmp_path / "applications"
     for name in (

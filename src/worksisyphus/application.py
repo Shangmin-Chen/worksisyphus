@@ -7,8 +7,10 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import tempfile
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Callable, Collection, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, date, datetime
@@ -59,6 +61,15 @@ def _is_default_applications_dir(applications_dir: Path) -> bool:
     return Path(applications_dir).resolve() == APPLICATIONS_DIR.resolve()
 
 
+def _resolve_applications_dir(applications_dir: Path | None) -> Path:
+    """The caller's applications dir if one was given, else the live default.
+
+    ``is not None`` on purpose: an explicitly-passed falsy-ish path (e.g. ``Path("")``) must
+    still win over the default, which ``applications_dir or APPLICATIONS_DIR`` would not do.
+    """
+    return applications_dir if applications_dir is not None else APPLICATIONS_DIR
+
+
 def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | None:
     """Which database this run should cross-check and record against, or None for neither.
 
@@ -72,6 +83,23 @@ def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | Non
     from .db import DEFAULT_DB_PATH
 
     return DEFAULT_DB_PATH if _is_default_applications_dir(applications_dir) else None
+
+
+@contextmanager
+def _db_connection(db_path: Path) -> Iterator[sqlite3.Connection]:
+    """Open a connection to ``db_path`` and guarantee it is closed on the way out.
+
+    ``get_connection`` is imported lazily inside the function body so that importing this
+    module never pulls in db.py at module load time -- db.py is a store, not a source, per
+    CLAUDE.md's architecture rule.
+    """
+    from .db import get_connection
+
+    conn = get_connection(db_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 @dataclass(frozen=True)
@@ -131,16 +159,13 @@ def cross_check_contact_against_db(
     if not db_path.is_file():
         return skipped(f"no database at {db_path} (fresh clone or CI). Rule checks still applied.")
 
-    from .db import get_connection, load_profile_from_db
+    from .db import load_profile_from_db
 
-    conn = get_connection(db_path)
-    try:
+    with _db_connection(db_path) as conn:
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
         if cur.fetchone() is None:
             return skipped(f"{db_path} has no contact table. Run `uv run worksisyphus db sync`.")
         db_contact = load_profile_from_db(conn).contact
-    finally:
-        conn.close()
 
     if not any((db_contact.name, db_contact.email, db_contact.phone)):
         return skipped(f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.")
@@ -175,6 +200,17 @@ def cross_check_contact_against_db(
             f"`uv run worksisyphus db sync`."
         )
     return ContactCrossCheck(ran=True, database=database)
+
+
+def _read_meta(meta_file: Path) -> dict[str, Any]:
+    """Read an application's meta.json, naming the folder in every failure mode."""
+    try:
+        data = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Invalid meta.json in {meta_file.parent}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid meta.json in {meta_file.parent}: expected a JSON object.")
+    return data
 
 
 def parse_app_folder(name: str, siblings: Collection[str] = ()) -> tuple[str, str, int | None]:
@@ -254,7 +290,7 @@ def apply(
     if not plan_text.strip():
         raise ValueError("Plan is empty.")
 
-    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
+    applications_dir = _resolve_applications_dir(applications_dir)
     when = when or date.today()
 
     # Contact validation runs before anything is compiled or staged.
@@ -272,7 +308,23 @@ def apply(
         raise ValueError(f"Slug for {company!r}/{role!r} contains '_': {comp_slug}_{role_slug}")
     app_stem = f"{comp_slug}_{role_slug}"
 
-    base_target = applications_dir / f"{when.isoformat()}_{app_stem}"
+    folder_name = f"{when.isoformat()}_{app_stem}"
+    # Most filesystems cap a single path component at 255 bytes; a long --company/--role would
+    # otherwise produce a folder name that os.replace rejects with ENAMETOOLONG deep inside the
+    # publish retry loop, surfacing as an opaque OSError instead of a clear, actionable error.
+    # A margin is reserved for the retry ordinal suffix (`_2`, `_3`, ...) that _allocate_target
+    # may append on a same-day re-apply.
+    _ordinal_suffix_margin = 8
+    max_folder_name_bytes = 255 - _ordinal_suffix_margin
+    folder_name_bytes = len(folder_name.encode("utf-8"))
+    if folder_name_bytes > max_folder_name_bytes:
+        raise ValueError(
+            f"Company/role {company!r}/{role!r} produce a folder name too long for the "
+            f"filesystem ({folder_name_bytes} bytes; limit {max_folder_name_bytes} bytes, "
+            "reserved for a retry suffix). Shorten --company or --role."
+        )
+
+    base_target = applications_dir / folder_name
 
     normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -357,11 +409,10 @@ def apply(
     compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
     # 5. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
-    from .db import get_connection, save_application_to_db
+    from .db import save_application_to_db
 
     if resolved_db_path is not None and resolved_db_path.is_file():
-        conn = get_connection(resolved_db_path)
-        try:
+        with _db_connection(resolved_db_path) as conn:
             save_application_to_db(
                 conn=conn,
                 app_id=target_folder.name,
@@ -376,8 +427,6 @@ def apply(
                 plan_json=normalized_plan.strip(),
                 evaluation_json=json.dumps(evaluation, sort_keys=True),
             )
-        finally:
-            conn.close()
 
         if sync_cloud:
             _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
@@ -456,7 +505,7 @@ def backfill_evaluations(
     applications_dir fail on any checkout without a profile (it is gitignored), which since
     load_profile stopped falling back to the fixture means every fresh clone and CI.
     """
-    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
+    applications_dir = _resolve_applications_dir(applications_dir)
     scored: list[tuple[str, float | None]] = []
     if not applications_dir.is_dir():
         return scored
@@ -472,7 +521,7 @@ def backfill_evaluations(
             log(f"Skipped {folder.name}: missing meta.json or resume")
             continue
 
-        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        meta = _read_meta(meta_file)
         if meta.get("evaluation") and not overwrite:
             continue
 
@@ -511,7 +560,7 @@ def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False
 
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
     """List all applications with metadata, newest date first (retry order within a day)."""
-    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
+    applications_dir = _resolve_applications_dir(applications_dir)
     apps: list[dict[str, str]] = []
     if not applications_dir.is_dir():
         return apps
@@ -523,12 +572,7 @@ def list_applications(applications_dir: Path | None = None) -> list[dict[str, st
         meta_file = folder / "meta.json"
         if not meta_file.is_file():
             raise ValueError(f"Missing meta.json in {folder}; the application folder is incomplete.")
-        try:
-            data = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
-            raise ValueError(f"Invalid meta.json in {folder}: {exc}") from exc
-        if not isinstance(data, dict):
-            raise ValueError(f"Invalid meta.json in {folder}: expected a JSON object.")
+        data = _read_meta(meta_file)
         data["folder"] = folder.name
         apps.append(data)
     return apps
@@ -542,7 +586,7 @@ def resolve_application_folder(
     if not app_identifier.strip():
         raise ValueError("Application identifier must not be empty.")
 
-    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
+    applications_dir = _resolve_applications_dir(applications_dir)
     if not applications_dir.is_dir():
         raise FileNotFoundError(f"No application folder found matching {app_identifier!r} in {applications_dir}.")
 
@@ -579,30 +623,25 @@ def update_application_status(
     if new_status not in STATUSES:
         raise ValueError(f"Invalid status {new_status!r}. Must be one of: {', '.join(STATUSES)}")
 
-    applications_dir = applications_dir if applications_dir is not None else APPLICATIONS_DIR
+    applications_dir = _resolve_applications_dir(applications_dir)
     target_folder = resolve_application_folder(app_identifier, applications_dir=applications_dir)
 
     meta_file = target_folder / "meta.json"
     if not meta_file.is_file():
         raise FileNotFoundError(f"Missing meta.json in {target_folder}.")
 
-    meta = json.loads(meta_file.read_text(encoding="utf-8"))
-    if not isinstance(meta, dict):
-        raise ValueError(f"Invalid meta.json in {target_folder}: expected a JSON object.")
+    meta = _read_meta(meta_file)
     old_status = meta.get("status", "unknown")
     meta["status"] = new_status
     temporary_meta = meta_file.with_name(f"{meta_file.name}.tmp")
     temporary_meta.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     temporary_meta.replace(meta_file)
 
-    from .db import DEFAULT_DB_PATH, get_connection, update_application_status_in_db
+    from .db import DEFAULT_DB_PATH, update_application_status_in_db
 
     if _is_default_applications_dir(applications_dir) and DEFAULT_DB_PATH.is_file():
-        conn = get_connection(DEFAULT_DB_PATH)
-        try:
+        with _db_connection(DEFAULT_DB_PATH) as conn:
             update_application_status_in_db(conn, target_folder.name, new_status)
-        finally:
-            conn.close()
 
         if sync_cloud:
             _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
