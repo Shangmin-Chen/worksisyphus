@@ -268,7 +268,7 @@ def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
     is the case worth having: the fixture is small, the real profile is where an unhandled
     field would actually hide.
     """
-    from worksisyphus.profile import profile_to_dict
+    from worksisyphus.profile import load_profile, profile_content_differences, profile_to_dict
 
     real_profile_path = Path("profile.json")
     if not real_profile_path.is_file():
@@ -289,6 +289,10 @@ def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
     assert exported_data["experiences"] == real_data["experiences"]
     assert exported_data["projects"] == real_data["projects"]
     assert exported_data["skills"] == real_data["skills"]
+
+    disk_profile = load_profile(real_profile_path)
+    db_profile = load_profile_from_db(conn)
+    assert profile_content_differences(disk_profile, db_profile) == []
 
 
 def test_build_sync_sql_places_drops_inside_the_transaction() -> None:

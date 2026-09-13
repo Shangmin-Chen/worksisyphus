@@ -19,7 +19,14 @@ from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
 from .gates import run_resume_gates
 from .pipeline import tailor
-from .profile import DEFAULT_PROFILE_PATH, Contact, Profile, load_profile, validate_contact
+from .profile import (
+    DEFAULT_PROFILE_PATH,
+    Contact,
+    Profile,
+    load_profile,
+    profile_content_differences,
+    validate_contact,
+)
 
 APPLICATIONS_DIR = Path("applications")
 STATUSES = ("applied", "phone_screen", "onsite", "offer", "rejected")
@@ -89,6 +96,7 @@ class ContactCrossCheck:
     ran: bool
     database: str = ""
     reason: str = ""
+    db_profile: Profile | None = None
 
     def as_meta(self) -> dict[str, Any]:
         return {
@@ -122,9 +130,9 @@ def cross_check_contact_against_db(
     """
     database = str(db_path) if db_path is not None else ""
 
-    def skipped(reason: str) -> ContactCrossCheck:
+    def skipped(reason: str, *, db_profile: Profile | None = None) -> ContactCrossCheck:
         log(f"Contact cross-check skipped: {reason}")
-        return ContactCrossCheck(ran=False, database=database, reason=reason)
+        return ContactCrossCheck(ran=False, database=database, reason=reason, db_profile=db_profile)
 
     if db_path is None:
         return skipped("this run is not writing to the default database.")
@@ -138,12 +146,16 @@ def cross_check_contact_against_db(
         cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
         if cur.fetchone() is None:
             return skipped(f"{db_path} has no contact table. Run `uv run worksisyphus db sync`.")
-        db_contact = load_profile_from_db(conn).contact
+        db_profile = load_profile_from_db(conn)
+        db_contact = db_profile.contact
     finally:
         conn.close()
 
     if not any((db_contact.name, db_contact.email, db_contact.phone)):
-        return skipped(f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.")
+        return skipped(
+            f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.",
+            db_profile=db_profile,
+        )
 
     # The database side gets the same rules as the profile side. The previous round left this
     # unchecked on the argument that "seeding can no longer corrupt the database" -- an
@@ -174,7 +186,41 @@ def cross_check_contact_against_db(
             f"`uv run worksisyphus db export-profile --force`. If profile.json is right, publish it with "
             f"`uv run worksisyphus db sync`."
         )
-    return ContactCrossCheck(ran=True, database=database)
+    return ContactCrossCheck(ran=True, database=database, db_profile=db_profile)
+
+
+@dataclass(frozen=True)
+class ProfileDriftCheck:
+    """Whether non-contact profile content was compared against the database at apply time."""
+
+    checked: bool
+    differences: tuple[str, ...] = ()
+    skip_reason: str = ""
+
+    def as_meta(self) -> dict[str, Any]:
+        if self.checked:
+            return {"checked": True, "differences": list(self.differences)}
+        return {"checked": False, "skip_reason": self.skip_reason}
+
+
+def check_profile_drift_against_db(
+    profile: Profile,
+    contact_cross_check: ContactCrossCheck,
+    log: Log = _silent,
+) -> ProfileDriftCheck:
+    """Compare non-contact profile content against the database and warn without blocking."""
+    db_profile = contact_cross_check.db_profile
+    if db_profile is None:
+        reason = contact_cross_check.reason or "contact cross-check did not run against the database."
+        return ProfileDriftCheck(checked=False, skip_reason=reason)
+
+    differences = profile_content_differences(profile, db_profile)
+    if differences:
+        log(f"Profile content drift detected ({len(differences)} difference(s) vs {contact_cross_check.database}):")
+        for difference in differences:
+            log(f"  - {difference}")
+
+    return ProfileDriftCheck(checked=True, differences=tuple(differences))
 
 
 def parse_app_folder(name: str, siblings: Collection[str] = ()) -> tuple[str, str, int | None]:
@@ -262,6 +308,7 @@ def apply(
     validate_contact(active_profile.contact, source=str(profile_path))
     resolved_db_path = _resolve_db_path(db_path, applications_dir)
     contact_cross_check = cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
+    profile_drift_check = check_profile_drift_against_db(active_profile, contact_cross_check, log=log)
 
     # Deterministic naming strictly derived from company and role (#34). The underscore is the
     # folder grammar's structural separator (it delimits the retry ordinal), so slugify must
@@ -309,6 +356,7 @@ def apply(
             # published before this field existed, which reads as "not recorded" -- distinct
             # from both "verified" and "skipped", and honest, since it cannot be reconstructed.
             "contact_verification": contact_cross_check.as_meta(),
+            "profile_drift": profile_drift_check.as_meta(),
         }
         # 3. Quality gates and ATS validation, reusing a single PDF extraction
         gate_results, ats_result = run_resume_gates(

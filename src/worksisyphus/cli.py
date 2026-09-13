@@ -320,11 +320,22 @@ def main(argv: list[str] | None = None) -> int:
                     contact = load_profile_from_db(conn).contact
                     print(f"Wrote {destination} from {DEFAULT_DB_PATH} ({contact.name} <{contact.email}>)")
                 elif args.db_action == "status":
+                    from .profile import DEFAULT_PROFILE_PATH, profile_drift_summary
+
                     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
                     if not cur.fetchone():
                         print("Database not initialized. Run 'worksisyphus db init' first.")
                         return 0
                     profile = load_profile_from_db(conn)
+                    if DEFAULT_PROFILE_PATH.is_file():
+                        try:
+                            disk_profile = load_profile(DEFAULT_PROFILE_PATH)
+                        except (FileNotFoundError, json.JSONDecodeError, TypeError, ValueError):
+                            print(f"Profile file: {DEFAULT_PROFILE_PATH} (unreadable; drift not checked)")
+                        else:
+                            drift_summary = profile_drift_summary(disk_profile, profile)
+                            if drift_summary:
+                                print(drift_summary)
                     events = get_audit_history(conn, limit=1)
                     cur = conn.execute("SELECT count(*) FROM applications")
                     app_count = cur.fetchone()[0]

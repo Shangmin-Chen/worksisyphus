@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import io
 import json
 from pathlib import Path
@@ -8,6 +9,8 @@ import pytest
 
 from worksisyphus import cli
 from worksisyphus.pipeline import PREVIEW_DIR
+from worksisyphus.profile import Project, profile_to_dict
+from worksisyphus.profile import load_profile as real_load_profile
 
 
 @pytest.fixture(autouse=True)
@@ -180,6 +183,39 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     assert cli.main(["db", "sync"]) == 0
     sync_out = capsys.readouterr().out
     assert "Synced profile.json to SQLite and Turso cloud" in sync_out
+
+
+def test_cli_db_status_reports_profile_drift(monkeypatch, tmp_path, capsys, small_profile) -> None:
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr(db, "sync_to_turso", lambda *args, **kwargs: True)
+    monkeypatch.setattr(cli, "load_profile", real_load_profile)
+
+    monkeypatch.chdir(tmp_path)
+    Path("profile.json").write_text(json.dumps(profile_to_dict(small_profile)), encoding="utf-8")
+
+    assert cli.main(["db", "init"]) == 0
+    capsys.readouterr()
+
+    truncated_proj1 = Project(
+        "proj1",
+        "Proj1",
+        "Python",
+        "2025",
+        {"p1": "P1 one"},
+    )
+    truncated_profile = dataclasses.replace(
+        small_profile,
+        projects={**small_profile.projects, "proj1": truncated_proj1},
+    )
+    Path("profile.json").write_text(json.dumps(profile_to_dict(truncated_profile)), encoding="utf-8")
+
+    assert cli.main(["db", "status"]) == 0
+    status_out = capsys.readouterr().out
+    assert "profile.json is 2 bullets behind the database" in status_out
+    assert "Database:" in status_out
 
 
 def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:

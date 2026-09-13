@@ -6,7 +6,14 @@ import json
 import pytest
 
 from worksisyphus import load_profile, profile_index, validate_contact
-from worksisyphus.profile import Contact
+from worksisyphus.profile import (
+    Contact,
+    Education,
+    Experience,
+    Project,
+    profile_content_differences,
+    profile_drift_summary,
+)
 
 
 def test_real_profile_loads_expected_shape(real_profile) -> None:
@@ -81,3 +88,183 @@ def test_validate_contact_rejects_empty_required_fields(field_name) -> None:
     with pytest.raises(ValueError) as excinfo:
         validate_contact(contact)
     assert f"contact.{field_name} is empty" in str(excinfo.value)
+
+
+def test_profile_content_differences_reports_missing_experience(small_profile) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        experiences={
+            **small_profile.experiences,
+            "org-extra": Experience(
+                "org-extra",
+                "Lead",
+                "Extra Org",
+                "Remote",
+                "2026",
+                {"x1": "Extra bullet"},
+            ),
+        },
+    )
+
+    differences = profile_content_differences(small_profile, db_profile)
+
+    assert any("profile has 2 experiences, database has 3" in diff for diff in differences)
+    assert any("'org-extra' missing from profile" in diff for diff in differences)
+
+
+def test_profile_content_differences_reports_truncated_project_bullets(small_profile) -> None:
+    truncated_proj1 = Project(
+        "proj1",
+        "Proj1",
+        "Python",
+        "2025",
+        {"p1": "P1 one"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        projects={**small_profile.projects, "proj1": truncated_proj1},
+    )
+
+    differences = profile_content_differences(profile, small_profile)
+
+    assert any("project 'proj1' has 1 bullets in profile, 3 in database" in diff for diff in differences)
+    assert any("'p2'" in diff and "'p3'" in diff for diff in differences)
+
+
+def test_profile_content_differences_reports_shared_bullet_text_change(small_profile) -> None:
+    profile_exp = dataclasses.replace(
+        small_profile.experiences["org-a"],
+        bullets={**small_profile.experiences["org-a"].bullets, "a1": "Rewritten bullet"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        experiences={**small_profile.experiences, "org-a": profile_exp},
+    )
+
+    differences = profile_content_differences(profile, small_profile)
+
+    assert any(
+        "experience 'org-a'.'a1' text: profile has 'Rewritten bullet', database has 'A one'" in diff
+        for diff in differences
+    )
+
+
+def test_profile_content_differences_reports_education_degree_change(small_profile) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        education=(Education("BU", "Boston, MA", "B.S. Underwater Basket Weaving", "2026", ("Systems",)),),
+    )
+
+    differences = profile_content_differences(small_profile, db_profile)
+
+    assert any(
+        "education 'BU' ('2026') degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'" in diff
+        for diff in differences
+    )
+
+
+def test_profile_content_differences_reports_education_reorder_without_field_corruption(small_profile) -> None:
+    profile = dataclasses.replace(
+        small_profile,
+        education=(
+            Education("MIT", "Cambridge, MA", "M.S. CS", "2028", ("ML",)),
+            Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),
+        ),
+    )
+    db_profile = dataclasses.replace(
+        small_profile,
+        education=(
+            Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),
+            Education("MIT", "Cambridge, MA", "M.S. CS", "2028", ("ML",)),
+        ),
+    )
+
+    differences = profile_content_differences(profile, db_profile)
+
+    assert any("education records are in a different order" in diff for diff in differences)
+    assert not any("institution:" in diff for diff in differences)
+    assert not any("degree:" in diff for diff in differences)
+
+
+def test_profile_content_differences_reports_education_field_change_with_stable_keys(small_profile) -> None:
+    profile = dataclasses.replace(
+        small_profile,
+        education=(
+            Education("MIT", "Cambridge, MA", "M.S. CS", "2028", ("ML",)),
+            Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),
+        ),
+    )
+    db_profile = dataclasses.replace(
+        small_profile,
+        education=(
+            Education("BU", "Boston, MA", "BA CS", "2026", ("Systems",)),
+            Education("MIT", "Cambridge, MA", "M.Eng. CS", "2028", ("ML",)),
+        ),
+    )
+
+    differences = profile_content_differences(profile, db_profile)
+
+    assert any("education records are in a different order" in diff for diff in differences)
+    assert any(
+        "education 'MIT' ('2028') degree: profile has 'M.S. CS', database has 'M.Eng. CS'" in diff
+        for diff in differences
+    )
+    assert not any("'BU' ('2026') degree:" in diff for diff in differences)
+
+
+def test_profile_drift_summary_prefers_bullet_delta(small_profile) -> None:
+    truncated_proj1 = Project(
+        "proj1",
+        "Proj1",
+        "Python",
+        "2025",
+        {"p1": "P1 one"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        projects={**small_profile.projects, "proj1": truncated_proj1},
+    )
+
+    assert profile_drift_summary(profile, small_profile) == "profile.json is 2 bullets behind the database"
+
+
+def test_profile_content_differences_reports_extra_bullet_slug_in_profile(small_profile) -> None:
+    profile_exp = dataclasses.replace(
+        small_profile.experiences["org-a"],
+        bullets={**small_profile.experiences["org-a"].bullets, "a-extra": "Extra bullet in profile only"},
+    )
+    profile = dataclasses.replace(
+        small_profile,
+        experiences={**small_profile.experiences, "org-a": profile_exp},
+    )
+
+    differences = profile_content_differences(profile, small_profile)
+
+    assert any("experience 'org-a' has 4 bullets in profile, 3 in database" in diff for diff in differences)
+    assert any("'a-extra' missing from database" in diff for diff in differences)
+
+
+def test_profile_content_differences_reports_skill_group_item_change(small_profile) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        skills={**small_profile.skills, "languages": ("Python", "Go")},
+    )
+
+    differences = profile_content_differences(small_profile, db_profile)
+
+    assert any(
+        "skill group 'languages' items: profile has ('Python', 'Rust'), database has ('Python', 'Go')" in diff
+        for diff in differences
+    )
+
+
+def test_profile_drift_summary_falls_back_to_first_named_difference(small_profile) -> None:
+    db_profile = dataclasses.replace(
+        small_profile,
+        education=(Education("BU", "Boston, MA", "B.S. Underwater Basket Weaving", "2026", ("Systems",)),),
+    )
+
+    assert (
+        profile_drift_summary(small_profile, db_profile)
+        == "education 'BU' ('2026') degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'"
+    )

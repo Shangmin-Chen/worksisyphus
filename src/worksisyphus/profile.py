@@ -132,6 +132,219 @@ def profile_to_dict(profile: Profile) -> dict[str, Any]:
     }
 
 
+def _total_bullets(profile: Profile) -> int:
+    return sum(len(exp.bullets) for exp in profile.experiences.values()) + sum(
+        len(proj.bullets) for proj in profile.projects.values()
+    )
+
+
+def _append_field_difference(
+    differences: list[str],
+    prefix: str,
+    field_name: str,
+    profile_value: object,
+    db_value: object,
+) -> None:
+    if profile_value != db_value:
+        differences.append(f"{prefix} {field_name}: profile has {profile_value!r}, database has {db_value!r}")
+
+
+def _education_key(education: Education) -> tuple[str, str]:
+    return (education.institution, education.date)
+
+
+def _format_education_key(key: tuple[str, str]) -> str:
+    institution, date = key
+    return f"{institution!r} ({date!r})"
+
+
+def profile_content_differences(profile: Profile, db_profile: Profile) -> list[str]:
+    """Compare non-contact profile content and return actionable difference strings."""
+    differences: list[str] = []
+
+    profile_education = {_education_key(edu): edu for edu in profile.education}
+    db_education = {_education_key(edu): edu for edu in db_profile.education}
+    profile_education_keys = [_education_key(edu) for edu in profile.education]
+    db_education_keys = [_education_key(edu) for edu in db_profile.education]
+    profile_education_key_set = set(profile_education)
+    db_education_key_set = set(db_education)
+
+    if profile_education_key_set != db_education_key_set:
+        parts = [f"profile has {len(profile.education)} education record(s), database has {len(db_profile.education)}"]
+        missing_edu_from_profile = sorted(db_education_key_set - profile_education_key_set)
+        missing_edu_from_db = sorted(profile_education_key_set - db_education_key_set)
+        if missing_edu_from_profile:
+            parts.append(
+                f"{', '.join(_format_education_key(key) for key in missing_edu_from_profile)} missing from profile"
+            )
+        if missing_edu_from_db:
+            parts.append(
+                f"{', '.join(_format_education_key(key) for key in missing_edu_from_db)} missing from database"
+            )
+        differences.append(": ".join(parts))
+    elif profile_education_keys != db_education_keys:
+        profile_order = ", ".join(_format_education_key(key) for key in profile_education_keys)
+        db_order = ", ".join(_format_education_key(key) for key in db_education_keys)
+        differences.append(
+            f"education records are in a different order: profile has [{profile_order}], database has [{db_order}]"
+        )
+
+    for key in sorted(profile_education_key_set & db_education_key_set):
+        profile_edu = profile_education[key]
+        db_edu = db_education[key]
+        prefix = f"education {_format_education_key(key)}"
+        _append_field_difference(differences, prefix, "institution", profile_edu.institution, db_edu.institution)
+        _append_field_difference(differences, prefix, "location", profile_edu.location, db_edu.location)
+        _append_field_difference(differences, prefix, "degree", profile_edu.degree, db_edu.degree)
+        _append_field_difference(differences, prefix, "date", profile_edu.date, db_edu.date)
+        _append_field_difference(differences, prefix, "coursework", profile_edu.coursework, db_edu.coursework)
+
+    profile_experience_slugs = set(profile.experiences)
+    db_experience_slugs = set(db_profile.experiences)
+    if len(profile.experiences) != len(db_profile.experiences) or profile_experience_slugs != db_experience_slugs:
+        parts = [f"profile has {len(profile.experiences)} experiences, database has {len(db_profile.experiences)}"]
+        missing_exp_from_profile = sorted(db_experience_slugs - profile_experience_slugs)
+        missing_exp_from_db = sorted(profile_experience_slugs - db_experience_slugs)
+        if missing_exp_from_profile:
+            parts.append(f"{', '.join(repr(slug) for slug in missing_exp_from_profile)} missing from profile")
+        if missing_exp_from_db:
+            parts.append(f"{', '.join(repr(slug) for slug in missing_exp_from_db)} missing from database")
+        differences.append(": ".join(parts))
+
+    for slug in sorted(profile_experience_slugs & db_experience_slugs):
+        profile_exp = profile.experiences[slug]
+        db_exp = db_profile.experiences[slug]
+        prefix = f"experience {slug!r}"
+        _append_field_difference(differences, prefix, "role", profile_exp.role, db_exp.role)
+        _append_field_difference(differences, prefix, "org", profile_exp.org, db_exp.org)
+        _append_field_difference(differences, prefix, "location", profile_exp.location, db_exp.location)
+        _append_field_difference(differences, prefix, "date", profile_exp.date, db_exp.date)
+        profile_bullet_slugs = set(profile_exp.bullets)
+        db_bullet_slugs = set(db_exp.bullets)
+        if len(profile_exp.bullets) != len(db_exp.bullets) or profile_bullet_slugs != db_bullet_slugs:
+            message = (
+                f"experience {slug!r} has {len(profile_exp.bullets)} bullets in profile, "
+                f"{len(db_exp.bullets)} in database"
+            )
+            missing_exp_bullets_from_profile = sorted(db_bullet_slugs - profile_bullet_slugs)
+            missing_exp_bullets_from_db = sorted(profile_bullet_slugs - db_bullet_slugs)
+            if missing_exp_bullets_from_profile:
+                message += (
+                    f": {', '.join(repr(bullet_slug) for bullet_slug in missing_exp_bullets_from_profile)} "
+                    "missing from profile"
+                )
+            if missing_exp_bullets_from_db:
+                message += (
+                    f": {', '.join(repr(bullet_slug) for bullet_slug in missing_exp_bullets_from_db)} "
+                    "missing from database"
+                )
+            differences.append(message)
+        for bullet_slug in sorted(profile_bullet_slugs & db_bullet_slugs):
+            _append_field_difference(
+                differences,
+                f"experience {slug!r}.{bullet_slug!r}",
+                "text",
+                profile_exp.bullets[bullet_slug],
+                db_exp.bullets[bullet_slug],
+            )
+
+    profile_project_slugs = set(profile.projects)
+    db_project_slugs = set(db_profile.projects)
+    if len(profile.projects) != len(db_profile.projects) or profile_project_slugs != db_project_slugs:
+        parts = [f"profile has {len(profile.projects)} projects, database has {len(db_profile.projects)}"]
+        missing_proj_from_profile = sorted(db_project_slugs - profile_project_slugs)
+        missing_proj_from_db = sorted(profile_project_slugs - db_project_slugs)
+        if missing_proj_from_profile:
+            parts.append(f"{', '.join(repr(slug) for slug in missing_proj_from_profile)} missing from profile")
+        if missing_proj_from_db:
+            parts.append(f"{', '.join(repr(slug) for slug in missing_proj_from_db)} missing from database")
+        differences.append(": ".join(parts))
+
+    for slug in sorted(profile_project_slugs & db_project_slugs):
+        profile_proj = profile.projects[slug]
+        db_proj = db_profile.projects[slug]
+        prefix = f"project {slug!r}"
+        _append_field_difference(differences, prefix, "name", profile_proj.name, db_proj.name)
+        _append_field_difference(differences, prefix, "tech", profile_proj.tech, db_proj.tech)
+        _append_field_difference(differences, prefix, "date", profile_proj.date, db_proj.date)
+        profile_bullet_slugs = set(profile_proj.bullets)
+        db_bullet_slugs = set(db_proj.bullets)
+        if len(profile_proj.bullets) != len(db_proj.bullets) or profile_bullet_slugs != db_bullet_slugs:
+            message = (
+                f"project {slug!r} has {len(profile_proj.bullets)} bullets in profile, "
+                f"{len(db_proj.bullets)} in database"
+            )
+            missing_proj_bullets_from_profile = sorted(db_bullet_slugs - profile_bullet_slugs)
+            missing_proj_bullets_from_db = sorted(profile_bullet_slugs - db_bullet_slugs)
+            if missing_proj_bullets_from_profile:
+                message += (
+                    f": {', '.join(repr(bullet_slug) for bullet_slug in missing_proj_bullets_from_profile)} "
+                    "missing from profile"
+                )
+            if missing_proj_bullets_from_db:
+                message += (
+                    f": {', '.join(repr(bullet_slug) for bullet_slug in missing_proj_bullets_from_db)} "
+                    "missing from database"
+                )
+            differences.append(message)
+        for bullet_slug in sorted(profile_bullet_slugs & db_bullet_slugs):
+            _append_field_difference(
+                differences,
+                f"project {slug!r}.{bullet_slug!r}",
+                "text",
+                profile_proj.bullets[bullet_slug],
+                db_proj.bullets[bullet_slug],
+            )
+
+    profile_skill_groups = set(profile.skills)
+    db_skill_groups = set(db_profile.skills)
+    if profile_skill_groups != db_skill_groups:
+        parts = [f"profile has {len(profile.skills)} skill group(s), database has {len(db_profile.skills)}"]
+        missing_skill_groups_from_profile = sorted(db_skill_groups - profile_skill_groups)
+        missing_skill_groups_from_db = sorted(profile_skill_groups - db_skill_groups)
+        if missing_skill_groups_from_profile:
+            parts.append(
+                f"{', '.join(repr(group) for group in missing_skill_groups_from_profile)} missing from profile"
+            )
+        if missing_skill_groups_from_db:
+            parts.append(f"{', '.join(repr(group) for group in missing_skill_groups_from_db)} missing from database")
+        differences.append(": ".join(parts))
+    else:
+        for group in sorted(profile_skill_groups):
+            _append_field_difference(
+                differences,
+                f"skill group {group!r}",
+                "items",
+                profile.skills[group],
+                db_profile.skills[group],
+            )
+
+    return differences
+
+
+def profile_drift_summary(profile: Profile, db_profile: Profile) -> str | None:
+    """Return a short human-readable drift summary, or None when content matches."""
+    differences = profile_content_differences(profile, db_profile)
+    if not differences:
+        return None
+
+    profile_bullets = _total_bullets(profile)
+    db_bullets = _total_bullets(db_profile)
+    if profile_bullets < db_bullets:
+        delta = db_bullets - profile_bullets
+        return f"profile.json is {delta} bullet{'s' if delta != 1 else ''} behind the database"
+
+    if len(profile.experiences) < len(db_profile.experiences):
+        delta = len(db_profile.experiences) - len(profile.experiences)
+        return f"profile.json is {delta} experience{'s' if delta != 1 else ''} behind the database"
+
+    if len(profile.projects) < len(db_profile.projects):
+        delta = len(db_profile.projects) - len(profile.projects)
+        return f"profile.json is {delta} project{'s' if delta != 1 else ''} behind the database"
+
+    return differences[0]
+
+
 def profile_index(profile: Profile) -> str:
     """Human-readable slug index: everything a plan file can reference."""
     lines: list[str] = ["EXPERIENCES:"]
