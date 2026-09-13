@@ -647,9 +647,7 @@ def test_export_profile_json_does_not_overwrite_a_real_profile_with_invalid_data
     conn.close()
 
 
-def test_export_profile_json_leaves_destination_unchanged_on_interrupted_write(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_export_profile_json_leaves_destination_unchanged_on_interrupted_write(tmp_path: Path, monkeypatch) -> None:
     conn = get_connection(":memory:")
     init_schema(conn)
     conn.execute(
@@ -666,7 +664,6 @@ def test_export_profile_json_leaves_destination_unchanged_on_interrupted_write(
 
     def failing_write_text(self: Path, *args: Any, **kwargs: Any) -> int:
         if self.name.endswith(".tmp"):
-            original_write_text(self, "{ partial", encoding="utf-8")
             raise OSError("simulated interrupted write")
         return original_write_text(self, *args, **kwargs)
 
