@@ -49,6 +49,17 @@ def test_gpa_gate_catches_violations() -> None:
     assert not check_gpa_gate("Graduated with 3.85 / 4.0 GPA").passed
     assert not check_gpa_gate("GPA: 3.9").passed
     assert not check_gpa_gate("Cumulative grade point average: 3.7").passed
+    assert not check_gpa_gate("G.P.A. 3.8").passed
+    assert not check_gpa_gate("G. P. A.: 3.9").passed
+    assert not check_gpa_gate("g.p.a 3.7").passed
+    assert not check_gpa_gate("Grade-Point Average: 3.85").passed
+
+
+def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:
+    """Gating bare decimals would flag real metrics like '3.85x speedup'."""
+    assert check_gpa_gate("Achieved 3.85x speedup on the hot path").passed
+    assert check_gpa_gate("Reduced p99 latency to 3.8ms").passed
+    assert check_gpa_gate("Shipped 4.0 of the platform").passed
 
 
 def test_banned_content_gate_catches_piracy_and_fake_metrics() -> None:
@@ -69,6 +80,40 @@ def test_density_gate_catches_truncated_text() -> None:
     assert not check_density_gate("Too short", is_tailored=True).passed
     long_tailored = "word " * 400
     assert check_density_gate(long_tailored, is_tailored=True).passed
+
+
+def test_density_gate_is_strict_for_a_multi_page_expectation(tmp_path, monkeypatch) -> None:
+    """expected_pages must win over the filename heuristic for is_tailored.
+
+    A non-canonical filename used to force is_tailored=True regardless of expected_pages,
+    applying the lenient 350-word tailored floor to a document explicitly expected to be
+    the 3-page canonical (900-word floor). This proved the bug and now proves the fix.
+    """
+    import worksisyphus.gates as gates_module
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.gates import run_resume_gates
+
+    def fake_ats(pdf_path, **kwargs) -> ATSCheckResult:
+        return ATSCheckResult(
+            passed=True,
+            problems=(),
+            pages=kwargs.get("expected_pages") or 1,
+            word_count=500,
+            text="word " * 500,
+            warnings=(),
+        )
+
+    monkeypatch.setattr(gates_module, "check_pdf_ats", fake_ats)
+
+    pdf = tmp_path / "Some_Other_Name.pdf"
+
+    multi_page_gates, _ = run_resume_gates(pdf, candidate_name="Simon Chen", expected_pages=3)
+    density_gate = next(g for g in multi_page_gates if g.gate_name == "Content Density Gate")
+    assert not density_gate.passed
+
+    one_page_gates, _ = run_resume_gates(pdf, candidate_name="Simon Chen", expected_pages=1)
+    density_gate_one = next(g for g in one_page_gates if g.gate_name == "Content Density Gate")
+    assert density_gate_one.passed
 
 
 def test_employer_resume_filename_convention() -> None:

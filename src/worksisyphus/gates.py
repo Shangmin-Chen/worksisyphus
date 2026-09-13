@@ -25,7 +25,8 @@ BANNED_METRIC_PATTERNS = (
 
 GPA_PATTERNS = (
     r"\bgpa\b",
-    r"grade point average",
+    r"\bg\.\s*p\.\s*a\b\.?",
+    r"grade[\s\-]point average",
     r"\b[234]\.\d{1,2}\s*/\s*4(?:\.0)?\b",
 )
 
@@ -146,7 +147,10 @@ def run_resume_gates(
     )
 
     text = ats_res.text
-    is_tailored = (expected_pages == 1) or (pdf_path.stem != CANONICAL_STEM)
+    if expected_pages is not None:
+        is_tailored = expected_pages == 1
+    else:
+        is_tailored = pdf_path.stem != CANONICAL_STEM
 
     gates = (
         ats_gate,
