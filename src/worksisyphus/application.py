@@ -493,20 +493,17 @@ def backfill_evaluations(
     return scored
 
 
-def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> bool:
-    """Push local database state to Turso, reporting failure rather than swallowing it.
-
-    sync_to_turso signals failure by returning False rather than raising, so the return
-    value must be checked; the try/except only guards against unexpected import or call errors.
-    """
-    from .db import sync_to_turso
+def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False):
+    """Push local database state to Turso; returns TursoSyncResult with synced/detail."""
+    from .db import TursoSyncResult, sync_to_turso
 
     try:
         result = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
     except Exception as exc:
         log(f"Warning: Turso cloud sync failed: {exc}")
-        return False
-    return result.synced
+        return TursoSyncResult(synced=False, detail=f"failed ({exc})")
+    log(f"Turso cloud sync: {result.detail or ('synced' if result.synced else 'skipped / failed')}")
+    return result
 
 
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:

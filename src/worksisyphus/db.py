@@ -319,6 +319,41 @@ def _log_change(
         log_audit_event(conn, entity_type, entity_id, ACTION_UPDATE, commit=False, **kwargs)
 
 
+def _scan_application_folders(
+    applications_dir: Path,
+) -> list[tuple[Path, dict[str, Any], str, str, str]]:
+    """Read application folders from disk, failing closed before any database writes."""
+    application_rows: list[tuple[Path, dict[str, Any], str, str, str]] = []
+    malformed_meta: list[str] = []
+    if not applications_dir.is_dir():
+        return application_rows
+
+    for folder in sorted(applications_dir.iterdir()):
+        if not folder.is_dir() or folder.name.startswith("."):
+            continue
+        meta_file = folder / "meta.json"
+        jd_file = folder / "jd.txt"
+        plan_file = folder / "plan.json"
+        if not meta_file.is_file():
+            continue
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            malformed_meta.append(f"{folder.name}: {exc}")
+            continue
+        jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
+        plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
+        evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
+        application_rows.append((folder, meta, jd_text, plan_json, evaluation_json))
+
+    if malformed_meta:
+        details = "\n".join(f"  {entry}" for entry in malformed_meta)
+        raise ValueError(
+            "Refusing to seed the database: malformed application meta.json in:\n" + details
+        )
+    return application_rows
+
+
 #: What to do when profile.json exists but its contact block is scrubbed. The database is
 #: presumed *good* here -- it is the copy this refusal protects -- so the direction of repair
 #: is DB -> profile, the opposite of `_DB_CONTACT_RECOVERY_HINT`. Naming `db sync` here would
@@ -345,6 +380,7 @@ def seed_database(
         raise ValueError(f"Refusing to seed the database: {exc}") from exc
 
     data = profile_to_dict(loaded)
+    application_rows = _scan_application_folders(applications_dir)
 
     init_schema(conn)
 
@@ -559,33 +595,6 @@ def seed_database(
 
     # 6. Applications (merge from applications_dir without clobbering existing DB records)
     seen_applications: set[str] = set()
-    application_rows: list[tuple[Path, dict[str, Any], str, str, str]] = []
-    malformed_meta: list[str] = []
-    if applications_dir.is_dir():
-        for d in sorted(applications_dir.iterdir()):
-            if not d.is_dir() or d.name.startswith("."):
-                continue
-            meta_file = d / "meta.json"
-            jd_file = d / "jd.txt"
-            plan_file = d / "plan.json"
-            if not meta_file.is_file():
-                continue
-            try:
-                meta = json.loads(meta_file.read_text(encoding="utf-8"))
-            except Exception as exc:
-                malformed_meta.append(f"{d.name}: {exc}")
-                continue
-            jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
-            plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
-            evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
-            application_rows.append((d, meta, jd_text, plan_json, evaluation_json))
-
-    if malformed_meta:
-        details = "\n".join(f"  {entry}" for entry in malformed_meta)
-        raise ValueError(
-            "Refusing to seed the database: malformed application meta.json in:\n" + details
-        )
-
     for d, meta, jd_text, plan_json, evaluation_json in application_rows:
         conn.execute(
             """

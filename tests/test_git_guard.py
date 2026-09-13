@@ -240,3 +240,4 @@ def test_apply_completes_local_generation_even_if_cloud_sync_is_skipped(small_pr
     assert (folder / "meta.json").is_file()
     assert (folder / "plan.json").is_file()
     assert any("Turso cloud sync skipped" in log and "feat/foo" in log for log in logs)
+    assert any(log == "Turso cloud sync: skipped (Current branch is 'feat/foo')" for log in logs)

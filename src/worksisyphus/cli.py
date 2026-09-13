@@ -304,13 +304,14 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 elif args.db_action == "sync":
                     seed_database(conn)
+                    print("Seeded SQLite from profile.json")
                     turso_result = sync_to_turso(
                         allow_branch=args.allow_branch,
                         no_git_check=args.no_git_check,
                         log=print,
                     )
                     print(
-                        f"Synced profile.json to SQLite and Turso cloud ({turso_result.detail or ('synced' if turso_result.synced else 'skipped / failed')})"
+                        f"Turso cloud sync: {turso_result.detail or ('synced' if turso_result.synced else 'skipped / failed')}"
                     )
                 elif args.db_action == "export-profile":
                     destination = Path(args.output)

@@ -183,7 +183,9 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     # 6. Sync
     assert cli.main(["db", "sync"]) == 0
     sync_out = capsys.readouterr().out
-    assert "Synced profile.json to SQLite and Turso cloud" in sync_out
+    assert "Seeded SQLite from profile.json" in sync_out
+    assert "Turso cloud sync: synced" in sync_out
+    assert "Synced profile.json to SQLite and Turso cloud" not in sync_out
 
 
 def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:
