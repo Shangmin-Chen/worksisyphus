@@ -22,8 +22,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-TursoSyncOutcome = Literal["synced", "skipped", "failed"]
-
 from .profile import (
     Contact,
     Education,
@@ -34,6 +32,8 @@ from .profile import (
     profile_to_dict,
     validate_contact,
 )
+
+TursoSyncOutcome = Literal["synced", "skipped", "failed"]
 
 DEFAULT_DB_PATH = Path("worksisyphus.db")
 
