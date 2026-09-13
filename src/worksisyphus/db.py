@@ -123,6 +123,11 @@ SELECT COALESCE((
 
 _TURSO_SPINNER_PREFIXES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
+_TURSO_CONNECTING_BANNERS = (
+    "connecting to database",
+    "connecting to turso",
+)
+
 _SYNC_PROFILE_CANONICAL_PARTS: tuple[str, ...] = (
     """
     SELECT COALESCE((
@@ -233,7 +238,11 @@ def _is_turso_noise_line(line: str) -> bool:
         return True
     if any(stripped.startswith(prefix) for prefix in _TURSO_SPINNER_PREFIXES):
         return True
-    return "connecting" in stripped.lower()
+    first = stripped[0]
+    if "\u2800" <= first <= "\u28ff":
+        return True
+    lower = stripped.lower()
+    return any(lower.startswith(banner) for banner in _TURSO_CONNECTING_BANNERS)
 
 
 def _turso_shell_scalar(proc: subprocess.CompletedProcess) -> str:
