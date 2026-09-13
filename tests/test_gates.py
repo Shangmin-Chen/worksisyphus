@@ -61,6 +61,9 @@ def test_gpa_gate_catches_violations() -> None:
     assert not check_gpa_gate("C.G.P.A. 3.75").passed
     assert not check_gpa_gate("GPA3.8").passed
     assert not check_gpa_gate("CGPA3.85").passed
+    assert not check_gpa_gate("G.P.A3.8").passed
+    assert not check_gpa_gate("G P A3.8").passed
+    assert not check_gpa_gate("C.G.P.A3.85").passed
 
 
 def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:

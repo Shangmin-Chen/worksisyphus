@@ -28,8 +28,8 @@ GPA_PATTERNS = (
     r"\bgpa\s*[:.]?\s*\d",
     r"\bcgpa\b",
     r"\bcgpa\s*[:.]?\s*\d",
-    r"\bg[.\-\s]+p[.\-\s]+a\b\.?",
-    r"\bc[.\-\s]+g[.\-\s]+p[.\-\s]+a\b\.?",
+    r"\bg[.\-\s]+p[.\-\s]+a(?:\b|\.?\d)",
+    r"\bc[.\-\s]+g[.\-\s]+p[.\-\s]+a(?:\b|\.?\d)",
     r"grade[\s\-]point average",
     r"\b[234]\.\d{1,2}\s*/\s*4(?:\.0)?\b",
 )
