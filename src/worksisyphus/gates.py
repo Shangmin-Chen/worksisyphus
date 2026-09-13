@@ -23,19 +23,16 @@ BANNED_METRIC_PATTERNS = (
     r"100% incident resolution",
 )
 
-# Glued GPA2.0/CGPA2.0 is a grade by default; only a whitespace + product word is safe.
-_GPA20_PRODUCT_TAIL = r"(?!\s+(?:certification|module|platform|api|hardware|compatibility)\b)"
-
 GPA_PATTERNS = (
     r"\bgpa\b",
     r"\bgpa\s*[:._-]+\s*\d\.\d{1,3}\b",
     r"\bgpa(?![:._-])(?!2\.0\b)\d\.\d{1,3}\b",
-    rf"\bgpa2\.0{_GPA20_PRODUCT_TAIL}",
+    r"\bgpa2\.0",
     r"\bgpa[34](?!\d)\b",
     r"\bcgpa\b",
     r"\bcgpa\s*[:._-]+\s*\d\.\d{1,3}\b",
     r"\bcgpa(?![:._-])(?!2\.0\b)\d\.\d{1,3}\b",
-    rf"\bcgpa2\.0{_GPA20_PRODUCT_TAIL}",
+    r"\bcgpa2\.0",
     r"\bcgpa[34](?!\d)\b",
     r"\bg[.,/\-_\s]+p[.,/\-_\s]*a(?!\d{2,})(?:\b|\.?\d)",
     r"\bc[.,/\-_\s]+g[.,/\-_\s]+p[.,/\-_\s]*a(?!\d{2,})(?:\b|\.?\d)",
