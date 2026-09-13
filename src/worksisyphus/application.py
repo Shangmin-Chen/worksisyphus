@@ -32,6 +32,10 @@ Log = Callable[[str], None]
 
 _APP_FOLDER_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})_(?P<body>.+)$")
 _ORDINAL_TAIL_RE = re.compile(r"^(?P<base>.+)_(?P<n>\d+)$")
+_MAX_FOLDER_NAME_BYTES = 255
+# Room for `_9999999`, the largest suffix _allocate_target can append before the name
+# exceeds _MAX_FOLDER_NAME_BYTES when the base name is already at the pre-check cap.
+_ORDINAL_SUFFIX_MARGIN = 8
 
 
 def _silent(_: str) -> None:
@@ -266,6 +270,23 @@ def _allocate_target(applications_dir: Path, base_target: Path) -> Path:
     return target
 
 
+def _raise_if_folder_name_too_long(
+    folder_name: str,
+    *,
+    company: str,
+    role: str,
+    limit_bytes: int,
+    limit_reason: str,
+) -> None:
+    folder_name_bytes = len(folder_name.encode("utf-8"))
+    if folder_name_bytes > limit_bytes:
+        raise ValueError(
+            f"Company/role {company!r}/{role!r} produce a folder name too long for the "
+            f"filesystem ({folder_name_bytes} bytes; limit {limit_bytes} bytes, "
+            f"{limit_reason}). Shorten --company or --role."
+        )
+
+
 def apply(
     plan_text: str,
     jd_text: str,
@@ -313,16 +334,15 @@ def apply(
     # otherwise produce a folder name that os.replace rejects with ENAMETOOLONG deep inside the
     # publish retry loop, surfacing as an opaque OSError instead of a clear, actionable error.
     # A margin is reserved for the retry ordinal suffix (`_2`, `_3`, ...) that _allocate_target
-    # may append on a same-day re-apply.
-    _ordinal_suffix_margin = 8
-    max_folder_name_bytes = 255 - _ordinal_suffix_margin
-    folder_name_bytes = len(folder_name.encode("utf-8"))
-    if folder_name_bytes > max_folder_name_bytes:
-        raise ValueError(
-            f"Company/role {company!r}/{role!r} produce a folder name too long for the "
-            f"filesystem ({folder_name_bytes} bytes; limit {max_folder_name_bytes} bytes, "
-            "reserved for a retry suffix). Shorten --company or --role."
-        )
+    # may append on a same-day re-apply. The post-allocation check below catches suffixes that
+    # exceed that margin (e.g. `_10000000`) so ENAMETOOLONG never surfaces from os.replace.
+    _raise_if_folder_name_too_long(
+        folder_name,
+        company=company,
+        role=role,
+        limit_bytes=_MAX_FOLDER_NAME_BYTES - _ORDINAL_SUFFIX_MARGIN,
+        limit_reason="reserved for a retry suffix",
+    )
 
     base_target = applications_dir / folder_name
 
@@ -392,6 +412,13 @@ def apply(
         #    staged content it already paid for. Published folders are never mutated or consumed.
         while True:
             target_folder = _allocate_target(applications_dir, base_target)
+            _raise_if_folder_name_too_long(
+                target_folder.name,
+                company=company,
+                role=role,
+                limit_bytes=_MAX_FOLDER_NAME_BYTES,
+                limit_reason="including a retry suffix",
+            )
             # mkdtemp is 0700; widen to match a normally-created directory.
             os.chmod(staging_dir, 0o755)
             try:

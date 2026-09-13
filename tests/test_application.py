@@ -698,6 +698,47 @@ def test_apply_rejects_a_company_role_that_would_exceed_filesystem_folder_name_l
     assert not (tmp_path / "applications").exists() or list((tmp_path / "applications").iterdir()) == []
 
 
+def test_apply_rejects_allocated_folder_name_over_filesystem_limit(
+    small_profile, monkeypatch, tmp_path
+) -> None:
+    """A retry suffix beyond the pre-check margin must fail with the same clear error,
+    not ENAMETOOLONG deep inside os.replace."""
+    import worksisyphus.application as app_module
+
+    _patch_apply_pipeline(monkeypatch)
+    apps_dir = tmp_path / "applications"
+
+    # Base name at the pre-check cap (247 bytes); `_10000000` pushes the allocated name to 256.
+    date_prefix = "2026-08-20_"
+    role_suffix = "_swe"
+    slug_len = (
+        app_module._MAX_FOLDER_NAME_BYTES
+        - app_module._ORDINAL_SUFFIX_MARGIN
+        - len(date_prefix)
+        - len(role_suffix)
+    )
+    company_slug = "a" * slug_len
+    overlong_name = f"{date_prefix}{company_slug}{role_suffix}_10000000"
+
+    def allocate_overlong(_applications_dir, _base_target):
+        return apps_dir / overlong_name
+
+    monkeypatch.setattr(app_module, "_allocate_target", allocate_overlong)
+
+    with pytest.raises(ValueError, match="too long"):
+        apply(
+            plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+            jd_text="JD text",
+            company=company_slug,
+            when=date(2026, 8, 20),
+            profile=small_profile,
+            applications_dir=apps_dir,
+            sync_cloud=False,
+        )
+
+    assert not apps_dir.exists() or list(apps_dir.iterdir()) == []
+
+
 def test_list_applications_orders_newest_first_then_retry_order(tmp_path) -> None:
     apps_dir = tmp_path / "applications"
     for name in (
