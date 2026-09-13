@@ -27,7 +27,7 @@ class CompileResult:
     tex_path: Path
     pages: int
     overfull: tuple[str, ...] = ()
-    trimmed: tuple["TrimCut", ...] = ()
+    trimmed: tuple[TrimCut, ...] = ()
 
 
 def find_pdflatex() -> str:
