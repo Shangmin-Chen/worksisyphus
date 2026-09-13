@@ -60,6 +60,140 @@ def test_pydantic_models_and_schema_builder() -> None:
     assert "deductions" in schema["properties"]
 
 
+def test_evaluate_output_is_frozen() -> None:
+    """Characterization test: evaluate()'s output for these inputs is frozen, byte-for-byte.
+
+    HackerRankHiringAgent.evaluate() is a deliberate keyword-match stub (see hiring_agent.py's
+    module-level comments and CLAUDE.md's OUT-OF-SCOPE note). Its return value is frozen into
+    every applications/*/meta.json "evaluation" field and synced to Turso as the record of
+    record. Rewriting the stub's scoring semantics — the multipliers, the bonus/deduction
+    constants, the evidence strings, the category-key groupings — is a USER decision (an
+    escalated product decision), not something any workstream may do as a side effect of a
+    refactor.
+
+    These literals were captured by running evaluate() against the UNMODIFIED file, before any
+    other edit in this workstream. If this test fails, a change altered historical scoring
+    semantics: STOP and do not proceed, the fix is out of scope for this workstream.
+    """
+    resume = "Simon Chen built a production system on GitHub with low latency, high concurrency Rust engine."
+
+    expected = {
+        "software_engineer": {
+            "scores": {
+                "backend_systems": {
+                    "score": 37.6,
+                    "max": 40,
+                    "evidence": "Strong architecture, scale, and deployment track record in "
+                    "Backend & Distributed Systems.",
+                },
+                "data_algorithms": {
+                    "score": 32.9,
+                    "max": 35,
+                    "evidence": "Strong architecture, scale, and deployment track record in "
+                    "Algorithms & Data Engineering.",
+                },
+                "production_scale": {
+                    "score": 22.0,
+                    "max": 25,
+                    "evidence": "Quantified metrics and verified impact in Production Quality & Scale.",
+                },
+            },
+            "bonus_points": {
+                "total": 5.0,
+                "breakdown": "Verified performance benchmarks, high-impact systems, and production deployment.",
+            },
+            "deductions": {"total": 0.0, "reasons": "No fairness or content violations detected."},
+            "key_strengths": [
+                "Strong architectural depth tailored to Software Engineer (Full-Stack / Backend)",
+                "Defensible production impact with verified latency and throughput metrics",
+                "Clean technical communication without buzzword stuffing or filler",
+            ],
+            "areas_for_improvement": [
+                "Continue documenting scale and latency benchmarks on public repositories",
+            ],
+            "total_score": 97.5,
+            "max_possible": 100,
+            "role_title": "Software Engineer (Full-Stack / Backend)",
+        },
+        "quant_engineer": {
+            "scores": {
+                "quant_systems": {
+                    "score": 36.8,
+                    "max": 40,
+                    "evidence": "High-complexity engineering with verified technical depth in "
+                    "Low-Latency & Order Book Systems.",
+                },
+                "modeling_compute": {
+                    "score": 30.8,
+                    "max": 35,
+                    "evidence": "Quantified metrics and verified impact in Numerical & Data Modeling.",
+                },
+                "impact_metrics": {
+                    "score": 22.0,
+                    "max": 25,
+                    "evidence": "Quantified metrics and verified impact in Quantified PnL & Performance.",
+                },
+            },
+            "bonus_points": {
+                "total": 5.0,
+                "breakdown": "Verified performance benchmarks, high-impact systems, and production deployment.",
+            },
+            "deductions": {"total": 0.0, "reasons": "No fairness or content violations detected."},
+            "key_strengths": [
+                "Strong architectural depth tailored to Quantitative Software Engineer",
+                "Defensible production impact with verified latency and throughput metrics",
+                "Clean technical communication without buzzword stuffing or filler",
+            ],
+            "areas_for_improvement": [
+                "Continue documenting scale and latency benchmarks on public repositories",
+            ],
+            "total_score": 94.6,
+            "max_possible": 100,
+            "role_title": "Quantitative Software Engineer",
+        },
+        "software_engineering_intern": {
+            "scores": {
+                "open_source": {
+                    "score": 31.5,
+                    "max": 35,
+                    "evidence": "Demonstrated ownership and delivery in Open Source.",
+                },
+                "self_projects": {
+                    "score": 27.6,
+                    "max": 30,
+                    "evidence": "High-complexity engineering with verified technical depth in Self Projects.",
+                },
+                "production": {
+                    "score": 32.9,
+                    "max": 35,
+                    "evidence": "Strong architecture, scale, and deployment track record in Production Experience.",
+                },
+            },
+            "bonus_points": {
+                "total": 5.0,
+                "breakdown": "Verified performance benchmarks, high-impact systems, and production deployment.",
+            },
+            "deductions": {"total": 0.0, "reasons": "No fairness or content violations detected."},
+            "key_strengths": [
+                "Strong architectural depth tailored to Software Intern position at HackerRank",
+                "Defensible production impact with verified latency and throughput metrics",
+                "Clean technical communication without buzzword stuffing or filler",
+            ],
+            "areas_for_improvement": [
+                "Continue documenting scale and latency benchmarks on public repositories",
+            ],
+            "total_score": 97.0,
+            "max_possible": 100,
+            "role_title": "Software Intern position at HackerRank",
+        },
+    }
+
+    for role_name, expected_result in expected.items():
+        agent = HackerRankHiringAgent(role_name=role_name)
+        result = agent.evaluate(resume)
+        assert result == expected_result, f"evaluate() output changed for role {role_name!r}"
+
+
 def test_hackerrank_agent_evaluation_all_roles() -> None:
     sample_resume = """
     Simon Chen
