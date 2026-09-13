@@ -844,7 +844,7 @@ def test_seed_database_refuses_a_folder_missing_meta_json(tmp_path: Path) -> Non
     incomplete = apps / "2026-01-01_incomplete"
     incomplete.mkdir(parents=True)
 
-    with pytest.raises(ValueError, match="Missing meta.json"):
+    with pytest.raises(ValueError, match=r"Missing meta\.json"):
         seed_database(conn, profile_path=profile_file, applications_dir=apps)
     conn.close()
 
