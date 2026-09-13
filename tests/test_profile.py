@@ -158,8 +158,7 @@ def test_profile_content_differences_reports_education_degree_change(small_profi
     differences = profile_content_differences(small_profile, db_profile)
 
     assert any(
-        "education 'BU' ('2026') degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'"
-        in diff
+        "education 'BU' ('2026') degree: profile has 'BA CS', database has 'B.S. Underwater Basket Weaving'" in diff
         for diff in differences
     )
 

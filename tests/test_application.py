@@ -711,9 +711,7 @@ def test_profile_drift_runs_when_contact_cross_check_skips_after_db_load(small_p
 
     conn = get_connection(db_path)
     try:
-        conn.execute(
-            "UPDATE contact SET name = '', email = '', phone = '', website = '', github = '', linkedin = ''"
-        )
+        conn.execute("UPDATE contact SET name = '', email = '', phone = '', website = '', github = '', linkedin = ''")
         conn.commit()
     finally:
         conn.close()

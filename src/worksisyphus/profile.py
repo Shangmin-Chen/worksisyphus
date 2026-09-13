@@ -170,9 +170,7 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
     db_education_key_set = set(db_education)
 
     if profile_education_key_set != db_education_key_set:
-        parts = [
-            f"profile has {len(profile.education)} education record(s), database has {len(db_profile.education)}"
-        ]
+        parts = [f"profile has {len(profile.education)} education record(s), database has {len(db_profile.education)}"]
         missing_from_profile = sorted(db_education_key_set - profile_education_key_set)
         missing_from_db = sorted(profile_education_key_set - db_education_key_set)
         if missing_from_profile:
@@ -180,9 +178,7 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
                 f"{', '.join(_format_education_key(key) for key in missing_from_profile)} missing from profile"
             )
         if missing_from_db:
-            parts.append(
-                f"{', '.join(_format_education_key(key) for key in missing_from_db)} missing from database"
-            )
+            parts.append(f"{', '.join(_format_education_key(key) for key in missing_from_db)} missing from database")
         differences.append(": ".join(parts))
     elif profile_education_keys != db_education_keys:
         profile_order = ", ".join(_format_education_key(key) for key in profile_education_keys)
