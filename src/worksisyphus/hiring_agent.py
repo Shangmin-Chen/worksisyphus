@@ -256,7 +256,7 @@ def check_upstream_status() -> dict[str, Any]:
 
     try:
         manifest = json.loads(UPSTREAM_MANIFEST_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return _manifest_load_failure(exc)
 
     synced_commit = manifest.get("synced_commit", "unknown")
@@ -326,8 +326,7 @@ def check_upstream_status() -> dict[str, Any]:
                     remote_commit="rate_limited",
                     etag=cached_etag,
                     message=(
-                        f"GitHub API rate limit reached. Tracked upstream commit: {synced_commit[:7]} "
-                        "NOT verified."
+                        f"GitHub API rate limit reached. Tracked upstream commit: {synced_commit[:7]} NOT verified."
                     ),
                 )
             return _upstream_result(

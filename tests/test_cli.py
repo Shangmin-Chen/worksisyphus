@@ -297,7 +297,23 @@ def test_cli_evaluate_profile_with_jd(tmp_path, capsys) -> None:
     assert "Overall Match Score:" in out
 
 
-def test_cli_evaluate_check_upstream(capsys) -> None:
+def test_cli_evaluate_check_upstream(monkeypatch, capsys) -> None:
+    from worksisyphus import hiring_agent
+
+    def fake_check_upstream_status():
+        return {
+            "status": "synced",
+            "upstream_repo": "interviewstreet/hiring-agent",
+            "local_commit": "70fd3ea",
+            "remote_commit": "70fd3ea",
+            "synced_date": "2026-08-19T00:00:00Z",
+            "reference_role": "software_engineering_intern",
+            "custom_tracks": ["software_engineer"],
+            "message": "Local rubrics are up to date with HackerRank upstream.",
+        }
+
+    monkeypatch.setattr(hiring_agent, "check_upstream_status", fake_check_upstream_status)
+
     ret = cli.main(["evaluate", "--check-upstream"])
     assert ret == 0
     out = capsys.readouterr().out
@@ -326,6 +342,30 @@ def test_cli_evaluate_check_upstream_unreachable_exits_nonzero(monkeypatch, caps
     assert ret == 1
     out = capsys.readouterr().out
     assert "UNREACHABLE" in out
+    assert "NOT verified" in out
+
+
+def test_cli_evaluate_check_upstream_rate_limited_exits_nonzero(monkeypatch, capsys) -> None:
+    from worksisyphus import hiring_agent
+
+    def fake_check_upstream_status():
+        return {
+            "status": "rate_limited",
+            "upstream_repo": "interviewstreet/hiring-agent",
+            "local_commit": "70fd3ea",
+            "remote_commit": "rate_limited",
+            "synced_date": "2026-08-19T00:00:00Z",
+            "reference_role": "software_engineering_intern",
+            "custom_tracks": ["software_engineer"],
+            "message": "GitHub API rate limit reached. Tracked upstream commit: 70fd3ea NOT verified.",
+        }
+
+    monkeypatch.setattr(hiring_agent, "check_upstream_status", fake_check_upstream_status)
+
+    ret = cli.main(["evaluate", "--check-upstream"])
+    assert ret == 1
+    out = capsys.readouterr().out
+    assert "RATE_LIMITED" in out
     assert "NOT verified" in out
 
 

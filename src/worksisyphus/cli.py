@@ -400,7 +400,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Message:         {status.get('message')}")
                 print("=" * 68)
                 upstream_status = status.get("status", "")
-                if upstream_status in ("unreachable", "outdated"):
+                if upstream_status in ("unreachable", "outdated", "rate_limited"):
                     return 1
                 return 0
 

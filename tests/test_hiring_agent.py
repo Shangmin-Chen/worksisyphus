@@ -403,6 +403,19 @@ def test_check_upstream_status_manifest_load_failure(monkeypatch, tmp_path) -> N
     assert "passed" not in status["message"]
 
 
+def test_check_upstream_status_manifest_unicode_decode_failure(monkeypatch, tmp_path) -> None:
+    from worksisyphus import hiring_agent
+
+    manifest_path = tmp_path / "upstream_manifest.json"
+    manifest_path.write_bytes(b"\xff\xfe")
+    monkeypatch.setattr(hiring_agent, "UPSTREAM_MANIFEST_PATH", manifest_path)
+
+    status = hiring_agent.check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert "UnicodeDecodeError" in status["message"]
+    assert "NOT verified" in status["message"]
+
+
 def test_check_upstream_status_offline_timeout(monkeypatch) -> None:
     """A network timeout must NOT be reported as a passed verification (see step 2 of WS7)."""
     import requests
