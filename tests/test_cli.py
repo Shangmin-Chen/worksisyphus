@@ -321,6 +321,19 @@ def test_cli_evaluate_check_upstream(monkeypatch, capsys) -> None:
     assert "interviewstreet/hiring-agent" in out
 
 
+def test_cli_evaluate_check_upstream_untracked_exits_nonzero(monkeypatch, capsys, tmp_path) -> None:
+    from worksisyphus import hiring_agent
+
+    missing_manifest = tmp_path / "missing_upstream_manifest.json"
+    monkeypatch.setattr(hiring_agent, "UPSTREAM_MANIFEST_PATH", missing_manifest)
+
+    ret = cli.main(["evaluate", "--check-upstream"])
+    assert ret == 1
+    out = capsys.readouterr().out
+    assert "UNTRACKED" in out
+    assert "No upstream manifest file found" in out
+
+
 def test_cli_evaluate_check_upstream_unreachable_exits_nonzero(monkeypatch, capsys) -> None:
     from worksisyphus import hiring_agent
 
