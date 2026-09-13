@@ -121,10 +121,7 @@ def check_pdf_ats(
             problems.append(f"section header {section!r} did not extract")
 
     if not any(section in text for section in CONTENT_SECTION_CANDIDATES):
-        problems.append(
-            "no content section header extracted; expected at least one of "
-            f"{CONTENT_SECTION_CANDIDATES!r}"
-        )
+        problems.append(f"no content section header extracted; expected at least one of {CONTENT_SECTION_CANDIDATES!r}")
 
     if "(cid:" in text:
         problems.append("broken glyphs: extraction produced (cid:N) placeholders")
