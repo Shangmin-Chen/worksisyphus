@@ -165,8 +165,8 @@ def test_sync_to_turso_skips_when_git_guard_disallows(monkeypatch, tmp_path):
     )
 
     logs: list[str] = []
-    synced = sync_to_turso(db_path=fake_db, log=logs.append)
-    assert synced is False
+    result = sync_to_turso(db_path=fake_db, log=logs.append)
+    assert result.synced is False
     assert any("behind origin/main by 2 commits" in log for log in logs)
 
 
@@ -186,9 +186,9 @@ def test_sync_to_turso_bypasses_git_guard_when_no_git_check_set(monkeypatch, tmp
     monkeypatch.setenv("HOME", str(tmp_path))
 
     logs: list[str] = []
-    synced = sync_to_turso(db_path=fake_db, no_git_check=True, log=logs.append)
+    result = sync_to_turso(db_path=fake_db, no_git_check=True, log=logs.append)
     assert guard_called is False
-    assert synced is False
+    assert result.synced is False
     assert any("Turso CLI not found" in log for log in logs)
 
 
@@ -224,7 +224,7 @@ def test_apply_completes_local_generation_even_if_cloud_sync_is_skipped(small_pr
     init_schema(conn)
     conn.close()
 
-    folder, _res, _ats = apply(
+    folder, _res, _ats, _sync = apply(
         plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
         jd_text="Distributed systems",
         company="Acme Corp",
@@ -240,3 +240,4 @@ def test_apply_completes_local_generation_even_if_cloud_sync_is_skipped(small_pr
     assert (folder / "meta.json").is_file()
     assert (folder / "plan.json").is_file()
     assert any("Turso cloud sync skipped" in log and "feat/foo" in log for log in logs)
+    assert any(log == "Turso cloud sync: skipped (Current branch is 'feat/foo')" for log in logs)

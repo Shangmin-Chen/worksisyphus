@@ -753,6 +753,721 @@ def test_seed_deletes_ghost_application_rows_with_audit(tmp_path: Path) -> None:
     conn.close()
 
 
+def test_seed_refuses_malformed_meta_json(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    good = apps / "2026-08-01_acme_swe"
+    good.mkdir(parents=True)
+    (good / "meta.json").write_text(json.dumps({"company": "Acme", "status": "applied"}), encoding="utf-8")
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    baseline_contact = conn.execute("SELECT name, email FROM contact WHERE id = 1").fetchone()
+    baseline_apps = conn.execute("SELECT count(*) FROM applications").fetchone()[0]
+    baseline_events = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+    assert baseline_apps == 1
+
+    bad = apps / "2026-08-02_broken_swe"
+    bad.mkdir(parents=True)
+    (bad / "meta.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"malformed application meta\.json") as excinfo:
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    message = excinfo.value.args[0]
+    assert "2026-08-02_broken_swe" in message
+    assert conn.execute("SELECT name, email FROM contact WHERE id = 1").fetchone() == baseline_contact
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == baseline_apps
+    assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == baseline_events
+    conn.close()
+
+
+def test_seed_refuses_missing_meta_json(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    good = apps / "2026-08-01_acme_swe"
+    good.mkdir(parents=True)
+    (good / "meta.json").write_text(json.dumps({"company": "Acme", "status": "applied"}), encoding="utf-8")
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    baseline_contact = conn.execute("SELECT name, email FROM contact WHERE id = 1").fetchone()
+    baseline_apps = conn.execute("SELECT count(*) FROM applications").fetchone()[0]
+    baseline_events = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+    assert baseline_apps == 1
+
+    incomplete = apps / "2026-08-02_no_meta_swe"
+    incomplete.mkdir(parents=True)
+    (incomplete / "jd.txt").write_text("Some JD text", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"missing application meta\.json") as excinfo:
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    message = excinfo.value.args[0]
+    assert "2026-08-02_no_meta_swe" in message
+    assert "missing meta.json" in message
+    assert conn.execute("SELECT name, email FROM contact WHERE id = 1").fetchone() == baseline_contact
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == baseline_apps
+    assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == baseline_events
+    conn.close()
+
+
+def test_seed_refuses_non_object_meta_json(tmp_path: Path) -> None:
+    from worksisyphus.db import seed_database
+
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    good = apps / "2026-08-01_acme_swe"
+    good.mkdir(parents=True)
+    (good / "meta.json").write_text(json.dumps({"company": "Acme", "status": "applied"}), encoding="utf-8")
+
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    baseline_contact = conn.execute("SELECT name, email FROM contact WHERE id = 1").fetchone()
+    baseline_apps = conn.execute("SELECT count(*) FROM applications").fetchone()[0]
+    baseline_events = conn.execute("SELECT count(*) FROM audit_events").fetchone()[0]
+    assert baseline_apps == 1
+
+    bad = apps / "2026-08-02_array_meta"
+    bad.mkdir(parents=True)
+    (bad / "meta.json").write_text("[]", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"malformed application meta\.json") as excinfo:
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    message = excinfo.value.args[0]
+    assert "2026-08-02_array_meta" in message
+    assert "expected a JSON object" in message
+    assert conn.execute("SELECT name, email FROM contact WHERE id = 1").fetchone() == baseline_contact
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == baseline_apps
+    assert conn.execute("SELECT count(*) FROM audit_events").fetchone()[0] == baseline_events
+    conn.close()
+
+
+def test_decode_sqlite_unistr_handles_unicode_tex_and_backslashes() -> None:
+    from worksisyphus.db import decode_sqlite_unistr
+
+    assert decode_sqlite_unistr(r"line1\u000aline2") == "line1\nline2"
+    assert decode_sqlite_unistr(r"em-dash\u2014here") == "em-dash\u2014here"
+    assert decode_sqlite_unistr(r"TeX \$8K and 75\%") == r"TeX \$8K and 75\%"
+    assert decode_sqlite_unistr(r"path\\file") == r"path\file"
+
+
+def test_build_sync_sql_strips_unistr_calls() -> None:
+    from worksisyphus.db import build_sync_sql, decode_sqlite_unistr
+
+    dump = (
+        "PRAGMA foreign_keys=OFF;\n"
+        "BEGIN TRANSACTION;\n"
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, text TEXT);\n"
+        "INSERT INTO t VALUES(1,unistr('newline\\u000aand em\\u2014dash'));\n"
+        "INSERT INTO t VALUES(2,unistr('Saved \\$8K and 75\\%'));\n"
+        "COMMIT;\n"
+    )
+    sql = build_sync_sql(dump)
+    assert sql is not None
+    assert "unistr(" not in sql
+    assert "newline\nand em\u2014dash" in sql
+    assert decode_sqlite_unistr(r"Saved \$8K and 75\%") in sql
+    assert r"\$8K" in sql
+    assert r"\%" in sql
+
+
+def test_decode_unistr_sql_replays_into_sqlite(tmp_path: Path) -> None:
+    from worksisyphus.db import build_sync_sql, get_connection
+
+    dump = (
+        "PRAGMA foreign_keys=OFF;\n"
+        "BEGIN TRANSACTION;\n"
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, text TEXT);\n"
+        "INSERT INTO t VALUES(1,unistr('TeX \\$8K\\u000a75\\%'));\n"
+        "COMMIT;\n"
+    )
+    sql = build_sync_sql(dump)
+    assert sql is not None
+    db_file = tmp_path / "replay.db"
+    conn = get_connection(db_file)
+    conn.executescript(sql)
+    row = conn.execute("SELECT text FROM t WHERE id = 1").fetchone()[0]
+    assert row == r"TeX \$8K" + "\n" + r"75\%"
+    conn.close()
+
+
+def _sqlite_executing_fake_turso(db_path: Path):
+    import sqlite3
+    import subprocess
+
+    def fake_turso(cmd, *args, **kwargs):
+        inp = kwargs.get("input") or ""
+        if "DROP TABLE" in inp or inp.count("CREATE TABLE") > 2:
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        conn = sqlite3.connect(str(db_path))
+        try:
+            row = conn.execute(inp.strip().rstrip(";")).fetchone()
+            value = "" if row is None or row[0] is None else str(row[0])
+            return subprocess.CompletedProcess(cmd, 0, value + "\n", "")
+        finally:
+            conn.close()
+
+    return fake_turso
+
+
+def test_sync_to_turso_reports_missing_binary(tmp_path: Path, monkeypatch) -> None:
+    from worksisyphus.db import sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    fake_db.write_bytes(b"sqlite")
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: None)
+    logs: list[str] = []
+    result = sync_to_turso(db_path=fake_db, no_git_check=True, log=logs.append)
+    assert result.synced is False
+    assert any("Turso CLI not found" in log for log in logs)
+
+
+def test_sync_to_turso_rejects_auth_failure_with_exit_zero(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd, 0, "BEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER);\nCOMMIT;\n", ""
+        )
+
+    def fake_turso(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "You are not logged in, please login with turso auth login before running other commands.\n",
+            "",
+        )
+
+    logs: list[str] = []
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        log=logs.append,
+        sqlite3_runner=fake_sqlite3,
+        turso_runner=fake_turso,
+    )
+    assert result.synced is False
+    assert any("not logged in" in log for log in logs)
+
+
+def test_sync_to_turso_rejects_verify_mismatch_without_recording_last_sync(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import read_last_turso_sync, seed_database, sync_to_turso, turso_last_sync_path
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT);\n"
+            "INSERT INTO contact VALUES(1,'Simon Chen');\nCOMMIT;\n",
+            "",
+        )
+
+    monkeypatch.setattr(
+        "worksisyphus.db._verify_remote_fingerprint",
+        lambda *args, **kwargs: "fingerprint mismatch (header)",
+    )
+
+    def fake_turso(cmd, *args, **kwargs):
+        if kwargs.get("input"):
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=fake_turso,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is False
+    assert "verify" in result.detail
+    assert read_last_turso_sync(fake_db) is None
+    assert not turso_last_sync_path(fake_db).is_file()
+
+
+def test_sync_to_turso_surfaces_non_auth_push_failure(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT);\nCOMMIT;\n",
+            "",
+        )
+
+    def fake_turso(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, "Error: libSQL rejected statement\n", "shell failed\n")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=fake_turso,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is False
+    assert "libSQL rejected statement" in result.detail
+
+
+def test_sync_to_turso_records_last_sync_on_verified_success(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import read_last_turso_sync, seed_database, sync_to_turso, turso_last_sync_path
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    assert read_last_turso_sync(fake_db) is None
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT);\n"
+            "INSERT INTO contact VALUES(1,'Simon Chen');\nCOMMIT;\n",
+            "",
+        )
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=_sqlite_executing_fake_turso(fake_db),
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is True
+    assert turso_last_sync_path(fake_db).is_file()
+    assert read_last_turso_sync(fake_db) is not None
+
+
+def test_sync_to_turso_rejects_invalid_sync_sql_payload(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, "not a valid dump\n", "")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is False
+    assert result.detail == "failed (invalid sync SQL payload)"
+
+
+def test_sync_fingerprint_detects_jd_text_change_with_same_counts(tmp_path: Path) -> None:
+    from worksisyphus.db import _compute_sync_fingerprint, seed_database
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    apps = tmp_path / "applications"
+    app = apps / "2026-08-01_acme_swe"
+    app.mkdir(parents=True)
+    (app / "meta.json").write_text(json.dumps({"company": "Acme", "status": "applied"}), encoding="utf-8")
+    (app / "jd.txt").write_text("Original JD text", encoding="utf-8")
+    (app / "plan.json").write_text("{}", encoding="utf-8")
+
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+    first = _compute_sync_fingerprint(fake_db)
+
+    (app / "jd.txt").write_text("Revised JD text", encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+    second = _compute_sync_fingerprint(fake_db)
+
+    assert first.header == second.header
+    assert first.applications_digest != second.applications_digest
+
+
+def test_sync_fingerprint_detects_status_change_with_same_counts(tmp_path: Path) -> None:
+    from worksisyphus.db import _compute_sync_fingerprint, seed_database
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    apps = tmp_path / "applications"
+    app = apps / "2026-08-01_acme_swe"
+    app.mkdir(parents=True)
+    (app / "meta.json").write_text(
+        json.dumps({"company": "Acme", "role": "SWE", "date": "2026-08-01", "status": "applied"}),
+        encoding="utf-8",
+    )
+    (app / "jd.txt").write_text("Stable JD text", encoding="utf-8")
+    (app / "plan.json").write_text("{}", encoding="utf-8")
+
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+    first = _compute_sync_fingerprint(fake_db)
+
+    (app / "meta.json").write_text(
+        json.dumps({"company": "Acme", "role": "SWE", "date": "2026-08-01", "status": "phone_screen"}),
+        encoding="utf-8",
+    )
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+    second = _compute_sync_fingerprint(fake_db)
+
+    assert first.header == second.header
+    assert first.applications_digest != second.applications_digest
+
+
+def test_sync_fingerprint_detects_contact_phone_change(tmp_path: Path) -> None:
+    from worksisyphus.db import _compute_sync_fingerprint, seed_database
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_data = _fixture_data_with_deliverable_contact()
+    profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
+
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    first = _compute_sync_fingerprint(fake_db)
+
+    profile_data["contact"]["phone"] = "617-555-0199"
+    profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    second = _compute_sync_fingerprint(fake_db)
+
+    assert first.header != second.header
+    assert first.applications_digest == second.applications_digest
+    assert first.profile_digest == second.profile_digest
+
+
+def test_turso_shell_scalar_strips_spinner_prefix() -> None:
+    import subprocess
+
+    from worksisyphus.db import _turso_shell_scalar
+
+    proc = subprocess.CompletedProcess(
+        [],
+        0,
+        "⠋ Connecting to Turso...\nSimon Chen|simon.chen@fixture.test|617-266-1810\n",
+        "",
+    )
+    assert _turso_shell_scalar(proc) == "Simon Chen|simon.chen@fixture.test|617-266-1810"
+
+
+def test_turso_shell_scalar_strips_block_element_spinner_prefix() -> None:
+    import subprocess
+
+    from worksisyphus.db import _turso_shell_scalar
+
+    proc = subprocess.CompletedProcess(
+        [],
+        0,
+        "⣾  Connecting to database\nSimon Chen|simon.chen@fixture.test|617-266-1810\n",
+        "",
+    )
+    assert _turso_shell_scalar(proc) == "Simon Chen|simon.chen@fixture.test|617-266-1810"
+
+
+def test_turso_shell_scalar_preserves_connecting_in_payload() -> None:
+    import subprocess
+
+    from worksisyphus.db import _turso_shell_scalar
+
+    payload = (
+        "pb:spark-food-waste|waste-platform|Developed food waste reduction platform "
+        "connecting students with leftover event food|0"
+    )
+    proc = subprocess.CompletedProcess([], 0, payload + "\n", "")
+    assert _turso_shell_scalar(proc) == payload
+
+
+def test_turso_shell_scalar_preserves_auth_phrase_in_payload() -> None:
+    import subprocess
+
+    from worksisyphus.db import _turso_shell_scalar
+
+    payload = (
+        "2026-08-01_acme_swe|Acme|SWE|2026-08-01||applied|"
+        "The API returns authentication required when the token expires|{}|"
+    )
+    proc = subprocess.CompletedProcess([], 0, payload + "\n", "")
+    assert _turso_shell_scalar(proc) == payload
+
+
+def test_turso_shell_scalar_preserves_error_prefix_in_payload() -> None:
+    import subprocess
+
+    from worksisyphus.db import _turso_shell_scalar
+
+    payload = "eb:persephone|perf|Error: handling in production APIs|1"
+    proc = subprocess.CompletedProcess([], 0, payload + "\n", "")
+    assert _turso_shell_scalar(proc) == payload
+
+
+def test_sync_to_turso_rejects_verify_when_jd_text_differs_but_counts_match(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    apps = tmp_path / "applications"
+    app = apps / "2026-08-01_acme_swe"
+    app.mkdir(parents=True)
+    (app / "meta.json").write_text(json.dumps({"company": "Acme", "status": "applied"}), encoding="utf-8")
+    (app / "jd.txt").write_text("Local JD payload", encoding="utf-8")
+    (app / "plan.json").write_text("{}", encoding="utf-8")
+
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT, email TEXT);\n"
+            "CREATE TABLE applications (id TEXT PRIMARY KEY, jd_text TEXT NOT NULL DEFAULT '', plan_json TEXT NOT NULL DEFAULT '');\n"
+            "INSERT INTO contact VALUES(1,'Simon Chen','simon.chen@fixture.test');\n"
+            "INSERT INTO applications VALUES('2026-08-01_acme_swe','Local JD payload','{}');\n"
+            "COMMIT;\n",
+            "",
+        )
+
+    monkeypatch.setattr(
+        "worksisyphus.db._verify_remote_fingerprint",
+        lambda *args, **kwargs: "fingerprint mismatch (applications)",
+    )
+
+    def fake_turso(cmd, *args, **kwargs):
+        if kwargs.get("input"):
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=fake_turso,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is False
+    assert "verify" in result.detail
+
+
+def test_sync_fingerprint_detects_profile_bullet_change_with_same_counts(tmp_path: Path) -> None:
+    from worksisyphus.db import _compute_sync_fingerprint, seed_database
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_data = _fixture_data_with_deliverable_contact()
+    profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
+
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    first = _compute_sync_fingerprint(fake_db)
+
+    profile_data["experiences"]["ezesports"]["bullets"]["nextjs-migration"] = (
+        "Reworded bullet text for verify coverage."
+    )
+    profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+    second = _compute_sync_fingerprint(fake_db)
+
+    assert first.header == second.header
+    assert first.profile_digest != second.profile_digest
+
+
+def test_sync_to_turso_rejects_verify_when_profile_bullet_differs(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+    monkeypatch.setattr(
+        "worksisyphus.db._verify_remote_fingerprint",
+        lambda *args, **kwargs: "fingerprint mismatch (profile)",
+    )
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT, email TEXT);\n"
+            "INSERT INTO contact VALUES(1,'Simon Chen','simon.chen@fixture.test');\n"
+            "COMMIT;\n",
+            "",
+        )
+
+    def fake_turso(cmd, *args, **kwargs):
+        if kwargs.get("input"):
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=fake_turso,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is False
+    assert "profile" in result.detail
+
+
+def test_sync_to_turso_rejects_sqlite_dump_failure(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    fake_db.write_bytes(b"sqlite")
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(cmd, 1, "", "database disk image is malformed\n")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is False
+    assert "database disk image is malformed" in result.detail
+
+
+def test_sync_to_turso_allows_unistr_substring_in_string_literals(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso, turso_last_sync_path
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT, email TEXT);\n"
+            "INSERT INTO contact VALUES(1,'Simon Chen','simon.chen@fixture.test');\n"
+            "INSERT INTO notes VALUES(1,'docs mention unistr( for unicode literals');\n"
+            "COMMIT;\n",
+            "",
+        )
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=_sqlite_executing_fake_turso(fake_db),
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is True
+    assert turso_last_sync_path(fake_db).is_file()
+
+
+def test_sync_to_turso_rejects_push_error_with_exit_zero(tmp_path: Path, monkeypatch) -> None:
+    import subprocess
+
+    from worksisyphus.db import seed_database, sync_to_turso
+
+    fake_db = tmp_path / "worksisyphus.db"
+    profile_file = tmp_path / "profile.json"
+    profile_file.write_text(json.dumps(_fixture_data_with_deliverable_contact()), encoding="utf-8")
+    conn = get_connection(fake_db)
+    seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
+    conn.close()
+
+    monkeypatch.setattr("worksisyphus.db.find_turso_cli", lambda: "/fake/turso")
+
+    def fake_sqlite3(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(
+            cmd,
+            0,
+            "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER, name TEXT, email TEXT);\n"
+            "INSERT INTO contact VALUES(1,'Simon Chen','simon.chen@fixture.test');\n"
+            "COMMIT;\n",
+            "",
+        )
+
+    def fake_turso(cmd, *args, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0, "Error: no such function: unistr\n", "")
+
+    result = sync_to_turso(
+        db_path=fake_db,
+        no_git_check=True,
+        turso_runner=fake_turso,
+        sqlite3_runner=fake_sqlite3,
+    )
+    assert result.synced is False
+    assert "unistr" in result.detail
+
+
 def test_seed_skips_dot_directories_even_with_meta(tmp_path: Path) -> None:
     """Staging residue that died after meta-write must never become an application row."""
     from worksisyphus.db import seed_database

@@ -59,6 +59,23 @@ def _fit_column(value: object, width: int) -> str:
     return text if len(text) <= width else f"{text[: width - 1]}…"
 
 
+def _turso_sync_exit_code(result) -> int:
+    """Return 1 for real Turso push failures; expected skips stay exit 0."""
+    from .db import TursoSyncResult
+
+    if not isinstance(result, TursoSyncResult):
+        raise TypeError(f"expected TursoSyncResult, got {type(result)!r}")
+    return 1 if result.outcome == "failed" else 0
+
+
+def _turso_sync_detail(result) -> str:
+    from .db import TursoSyncResult
+
+    if not isinstance(result, TursoSyncResult):
+        raise TypeError(f"expected TursoSyncResult, got {type(result)!r}")
+    return result.detail or ("synced" if result.synced else "skipped / failed")
+
+
 def _add_git_sync_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--allow-branch", action="store_true", help="Allow cloud sync on non-main branches.")
     parser.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
@@ -200,7 +217,7 @@ def main(argv: list[str] | None = None) -> int:
                 best_plan, _, _ = optimize_plan(profile, jd_text, role_name=args.role or "software_engineer")
                 plan_text = json.dumps(best_plan, indent=2)
 
-            folder, _compile_res, ats_res = apply_app(
+            folder, _compile_res, ats_res, sync_result = apply_app(
                 plan_text=plan_text,
                 jd_text=jd_text,
                 company=args.company,
@@ -215,7 +232,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ATS check: {'passed' if ats_res.passed else 'failed'} ({ats_res.word_count} words extracted)")
             for warning in ats_res.warnings:
                 print(f"WARN: {warning}")
+            if sync_result is not None:
+                print(f"Turso cloud sync: {_turso_sync_detail(sync_result)}")
             print(f"Application created: {folder}")
+            if sync_result is not None and _turso_sync_exit_code(sync_result):
+                return 1
         elif args.command == "status":
             apps = list_applications()
             if args.company:
@@ -246,7 +267,7 @@ def main(argv: list[str] | None = None) -> int:
                         f"{attempt_cell:<5} {app.get('folder', '')}"
                     )
         elif args.command == "update-status":
-            folder, old_status, new_status = update_application_status(
+            folder, old_status, new_status, sync_result = update_application_status(
                 args.app,
                 args.status,
                 sync_cloud=not args.no_sync,
@@ -255,6 +276,10 @@ def main(argv: list[str] | None = None) -> int:
                 log=print,
             )
             print(f"Updated {folder.name}: {old_status} -> {new_status}")
+            if sync_result is not None:
+                print(f"Turso cloud sync: {_turso_sync_detail(sync_result)}")
+                if _turso_sync_exit_code(sync_result):
+                    return 1
         elif args.command == "backfill-evals":
             from .application import backfill_evaluations
             from .db import DEFAULT_DB_PATH, get_connection, seed_database, sync_to_turso
@@ -268,21 +293,27 @@ def main(argv: list[str] | None = None) -> int:
                     seed_database(conn)
                 finally:
                     conn.close()
+                sync_exit = 0
                 if not args.no_sync:
-                    ok = sync_to_turso(
+                    turso_result = sync_to_turso(
                         allow_branch=args.allow_branch,
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    print(f"Turso cloud sync: {'synced' if ok else 'skipped / failed'}")
+                    print(f"Turso cloud sync: {_turso_sync_detail(turso_result)}")
+                    sync_exit = _turso_sync_exit_code(turso_result)
                 print(f"Scored {len(scored)} application(s).")
+                if sync_exit:
+                    return 1
         elif args.command == "db":
             from .db import (
                 DEFAULT_DB_PATH,
                 export_profile_json,
+                find_turso_cli,
                 get_audit_history,
                 get_connection,
                 load_profile_from_db,
+                read_last_turso_sync,
                 seed_database,
                 sync_to_turso,
             )
@@ -292,22 +323,25 @@ def main(argv: list[str] | None = None) -> int:
                 if args.db_action == "init":
                     seed_database(conn)
                     print(f"Initialized and seeded {DEFAULT_DB_PATH}")
-                    turso_ok = sync_to_turso(
+                    turso_result = sync_to_turso(
                         allow_branch=args.allow_branch,
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
+                    print(f"Turso cloud sync: {_turso_sync_detail(turso_result)}")
+                    if _turso_sync_exit_code(turso_result):
+                        return 1
                 elif args.db_action == "sync":
                     seed_database(conn)
-                    turso_ok = sync_to_turso(
+                    print("Seeded SQLite from profile.json")
+                    turso_result = sync_to_turso(
                         allow_branch=args.allow_branch,
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    print(
-                        f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
-                    )
+                    print(f"Turso cloud sync: {_turso_sync_detail(turso_result)}")
+                    if _turso_sync_exit_code(turso_result):
+                        return 1
                 elif args.db_action == "export-profile":
                     destination = Path(args.output)
                     if destination.exists() and not args.force:
@@ -344,6 +378,10 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     print(f"Tracked Applications: {app_count}")
                     print(f"Audit Events: {event_count}")
+                    turso_cli = find_turso_cli()
+                    print(f"Turso CLI: {'found' if turso_cli else 'not found'}")
+                    last_sync = read_last_turso_sync(DEFAULT_DB_PATH)
+                    print(f"Last Turso sync: {last_sync or 'never'}")
                 elif args.db_action == "history":
                     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='audit_events'")
                     if not cur.fetchone():

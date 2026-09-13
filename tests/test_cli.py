@@ -72,7 +72,7 @@ def test_update_status_reports_transition(monkeypatch, capsys, tmp_path) -> None
     monkeypatch.setattr(
         cli,
         "update_application_status",
-        lambda app, status, **kwargs: (folder, "applied", status),
+        lambda app, status, **kwargs: (folder, "applied", status, None),
     )
 
     assert cli.main(["update-status", "--app", folder.name, "--status", "phone_screen"]) == 0
@@ -96,7 +96,12 @@ def test_cli_apply_with_plan(monkeypatch, tmp_path, capsys) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         pdf = folder / "Simon_Chen_Resume.pdf"
         pdf.write_bytes(b"%PDF-fake")
-        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
+        return (
+            folder,
+            CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1),
+            ATSCheckResult(True, (), 1, 500, "text"),
+            None,
+        )
 
     monkeypatch.setattr(cli, "apply_app", fake_apply)
     monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
@@ -123,7 +128,11 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
 
     test_db = tmp_path / "test.db"
     monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
-    monkeypatch.setattr(db, "sync_to_turso", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        db,
+        "sync_to_turso",
+        lambda *args, **kwargs: db.TursoSyncResult(synced=True, outcome="synced", detail="synced"),
+    )
 
     # `db init` and `db sync` read profile.json from the working directory. Run them against
     # a profile this test owns: they used to silently seed from tests/fixtures/profile.json
@@ -169,6 +178,8 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     status_out = capsys.readouterr().out
     assert "Database:" in status_out
     assert "Contact:" in status_out
+    assert "Turso CLI:" in status_out
+    assert "Last Turso sync:" in status_out
 
     # 5. History after init
     assert cli.main(["db", "history"]) == 0
@@ -179,7 +190,154 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     # 6. Sync
     assert cli.main(["db", "sync"]) == 0
     sync_out = capsys.readouterr().out
-    assert "Synced profile.json to SQLite and Turso cloud" in sync_out
+    assert "Seeded SQLite from profile.json" in sync_out
+    assert "Turso cloud sync: synced" in sync_out
+    assert "Synced profile.json to SQLite and Turso cloud" not in sync_out
+
+
+def _write_minimal_profile(tmp_path: Path) -> None:
+    Path("profile.json").write_text(
+        json.dumps(
+            {
+                "contact": {
+                    "name": "Real Person",
+                    "email": "real.person@fastmail.dev",
+                    "phone": "617-266-1810",
+                    "website": "",
+                    "github": "",
+                    "linkedin": "",
+                },
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("command", [["db", "init"], ["db", "sync"]])
+def test_cli_db_commands_report_turso_sync_failure(monkeypatch, tmp_path, capsys, command: list[str]) -> None:
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr(
+        db,
+        "sync_to_turso",
+        lambda *args, **kwargs: db.TursoSyncResult(synced=False, outcome="failed", detail="failed (auth expired)"),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_profile(tmp_path)
+
+    assert cli.main(command) == 1
+    out = capsys.readouterr().out
+    assert "Turso cloud sync: failed (auth expired)" in out
+    assert "Synced profile.json to SQLite and Turso cloud" not in out
+
+
+def test_cli_backfill_evals_reports_turso_sync_failure(monkeypatch, tmp_path, capsys) -> None:
+    from worksisyphus import application, db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_profile(tmp_path)
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr(
+        db,
+        "sync_to_turso",
+        lambda *args, **kwargs: db.TursoSyncResult(synced=False, outcome="failed", detail="failed (network timeout)"),
+    )
+    monkeypatch.setattr(
+        application,
+        "backfill_evaluations",
+        lambda *args, **kwargs: [("2026-01-01_acme_swe", 82.0)],
+    )
+
+    assert cli.main(["backfill-evals"]) == 1
+    out = capsys.readouterr().out
+    assert "Turso cloud sync: failed (network timeout)" in out
+    assert "Synced profile.json to SQLite and Turso cloud" not in out
+    assert "Scored 1 application(s)." in out
+
+
+def test_cli_apply_returns_nonzero_on_turso_push_failure(monkeypatch, tmp_path, capsys) -> None:
+    import io
+
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.compiler import CompileResult
+    from worksisyphus.db import TursoSyncResult
+
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+
+    def fake_apply(*args, **kwargs):
+        folder = tmp_path / "applications" / "2026-08-20_primitive_product-engineer"
+        folder.mkdir(parents=True, exist_ok=True)
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        return (
+            folder,
+            CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1),
+            ATSCheckResult(True, (), 1, 500, "text"),
+            TursoSyncResult(synced=False, outcome="failed", detail="failed (auth expired)"),
+        )
+
+    monkeypatch.setattr(cli, "apply_app", fake_apply)
+    monkeypatch.setattr("sys.stdin", io.StringIO("JD text content"))
+
+    assert cli.main(["apply", "--company", "Primitive", "--role", "Product Engineer", "--jd", "-", "--plan", plan]) == 1
+    out = capsys.readouterr().out
+    assert "Application created:" in out
+
+
+def test_turso_sync_exit_code_failed_with_empty_detail() -> None:
+    from worksisyphus.cli import _turso_sync_exit_code
+    from worksisyphus.db import TursoSyncResult
+
+    assert _turso_sync_exit_code(TursoSyncResult(synced=False, outcome="failed", detail="")) == 1
+    assert _turso_sync_exit_code(TursoSyncResult(synced=False, outcome="skipped", detail="")) == 0
+    assert _turso_sync_exit_code(TursoSyncResult(synced=False, outcome="skipped", detail="skipped / failed")) == 0
+
+
+def test_cli_db_sync_failed_with_empty_detail_exits_one(monkeypatch, tmp_path, capsys) -> None:
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr(
+        db,
+        "sync_to_turso",
+        lambda *args, **kwargs: db.TursoSyncResult(synced=False, outcome="failed", detail=""),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_profile(tmp_path)
+
+    assert cli.main(["db", "sync"]) == 1
+    out = capsys.readouterr().out
+    assert "Turso cloud sync: skipped / failed" in out
+
+
+def test_cli_update_status_returns_nonzero_on_turso_push_failure(monkeypatch, capsys, tmp_path) -> None:
+    from worksisyphus.db import TursoSyncResult
+
+    folder = tmp_path / "2026-08-05_dirac_full-stack-engineer"
+    monkeypatch.setattr(
+        cli,
+        "update_application_status",
+        lambda app, status, **kwargs: (
+            folder,
+            "applied",
+            status,
+            TursoSyncResult(synced=False, outcome="failed", detail="failed (network timeout)"),
+        ),
+    )
+
+    assert cli.main(["update-status", "--app", folder.name, "--status", "phone_screen"]) == 1
+    out = capsys.readouterr().out
+    assert "Updated 2026-08-05_dirac_full-stack-engineer: applied -> phone_screen" in out
 
 
 def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:
@@ -190,9 +348,9 @@ def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypat
 
     pushes: list[int] = []
 
-    def _fake_sync(*args: object, **kwargs: object) -> bool:
+    def _fake_sync(*args: object, **kwargs: object) -> db.TursoSyncResult:
         pushes.append(1)
-        return True
+        return db.TursoSyncResult(synced=True, outcome="synced", detail="synced")
 
     monkeypatch.setattr(db, "sync_to_turso", _fake_sync)
 
@@ -351,7 +509,12 @@ def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
         folder.mkdir(parents=True, exist_ok=True)
         pdf = folder / "Simon_Chen_Resume.pdf"
         pdf.write_bytes(b"%PDF-fake")
-        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
+        return (
+            folder,
+            CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1),
+            ATSCheckResult(True, (), 1, 500, "text"),
+            None,
+        )
 
     monkeypatch.setattr(cli, "apply_app", fake_apply)
     monkeypatch.setattr("sys.stdin", io.StringIO("Full-stack engineer building with Python and TypeScript."))

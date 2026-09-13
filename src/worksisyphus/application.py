@@ -17,6 +17,7 @@ from typing import Any
 
 from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
+from .db import TursoSyncResult
 from .gates import run_resume_gates
 from .pipeline import tailor
 from .profile import DEFAULT_PROFILE_PATH, Contact, Profile, load_profile, validate_contact
@@ -245,8 +246,13 @@ def apply(
     allow_branch: bool = False,
     no_git_check: bool = False,
     log: Log = _silent,
-) -> tuple[Path, CompileResult, ATSCheckResult]:
-    """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync."""
+) -> tuple[Path, CompileResult, ATSCheckResult, TursoSyncResult | None]:
+    """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync.
+
+    Local apply (PDF, folder, SQLite write) is fatal on failure. Cloud sync is attempted when
+    enabled; the CLI exits 1 on Turso push failure even though the local application folder
+    may already exist.
+    """
     if not jd_text.strip():
         raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
     if not company.strip():
@@ -356,7 +362,7 @@ def apply(
 
     compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
-    # 5. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
+    # 5. Database persistence (fatal on failure) and cloud sync (CLI exits 1 on push failure)
     from .db import get_connection, save_application_to_db
 
     if resolved_db_path is not None and resolved_db_path.is_file():
@@ -379,10 +385,11 @@ def apply(
         finally:
             conn.close()
 
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
+        sync_result = _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check) if sync_cloud else None
+    else:
+        sync_result = None
 
-    return target_folder, compile_result, ats_result
+    return target_folder, compile_result, ats_result, sync_result
 
 
 def evaluate_application(
@@ -493,20 +500,17 @@ def backfill_evaluations(
     return scored
 
 
-def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> bool:
-    """Push local database state to Turso, reporting failure rather than swallowing it.
-
-    sync_to_turso signals failure by returning False rather than raising, so the return
-    value must be checked; the try/except only guards against unexpected import or call errors.
-    """
+def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> TursoSyncResult:
+    """Push local database state to Turso; returns TursoSyncResult with synced/detail."""
     from .db import sync_to_turso
 
     try:
-        synced = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
+        result = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
     except Exception as exc:
         log(f"Warning: Turso cloud sync failed: {exc}")
-        return False
-    return synced
+        return TursoSyncResult(synced=False, outcome="failed", detail=f"failed ({exc})")
+    log(f"Turso cloud sync: {result.detail or ('synced' if result.synced else 'skipped / failed')}")
+    return result
 
 
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
@@ -571,10 +575,10 @@ def update_application_status(
     allow_branch: bool = False,
     no_git_check: bool = False,
     log: Log = _silent,
-) -> tuple[Path, str, str]:
+) -> tuple[Path, str, str, TursoSyncResult | None]:
     """Atomically update status in an application's meta.json.
 
-    Returns (folder_path, old_status, new_status).
+    Returns (folder_path, old_status, new_status, turso_sync_result).
     """
     if new_status not in STATUSES:
         raise ValueError(f"Invalid status {new_status!r}. Must be one of: {', '.join(STATUSES)}")
@@ -604,7 +608,8 @@ def update_application_status(
         finally:
             conn.close()
 
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
+        sync_result = _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check) if sync_cloud else None
+    else:
+        sync_result = None
 
-    return target_folder, old_status, new_status
+    return target_folder, old_status, new_status, sync_result

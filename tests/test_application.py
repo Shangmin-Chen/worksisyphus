@@ -46,7 +46,7 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
     plan_text = json.dumps({"experiences": {"org-a": ["a1"]}, "projects": {"proj1": ["p1"]}})
     apps_dir = tmp_path / "applications"
 
-    folder, _comp_res, ats_res = apply(
+    folder, _comp_res, ats_res, _sync = apply(
         plan_text=plan_text,
         jd_text="Backend engineer role",
         company="Acme Corp",
@@ -193,7 +193,7 @@ def test_apply_can_be_retried_immediately_after_failure(small_profile, monkeypat
         "run_resume_gates",
         lambda *a, **kw: ((GateResult("ATS", True, ()),), ATSCheckResult(True, (), 1, 100, "text")),
     )
-    folder, compile_res, _ats = apply(**kwargs)
+    folder, compile_res, _ats, _sync = apply(**kwargs)
     assert folder == apps_dir / "2026-08-20_acme-corp_product-engineer"
     # The returned compile result points at the published PDF, not a staging path that no longer exists.
     assert compile_res.pdf_path == folder / "Simon_Chen_Resume.pdf"
@@ -278,9 +278,9 @@ def test_apply_same_day_second_attempt_allocates_suffix(small_profile, monkeypat
         sync_cloud=False,
     )
 
-    first, _, _ = apply(**kwargs)
-    second, _, _ = apply(**kwargs)
-    third, _, _ = apply(**kwargs)
+    first, _, _, _ = apply(**kwargs)
+    second, _, _, _ = apply(**kwargs)
+    third, _, _, _ = apply(**kwargs)
 
     assert [folder.name for folder in (first, second, third)] == [
         "2026-08-20_acme_swe",
@@ -298,7 +298,7 @@ def test_apply_never_mutates_a_published_folder(small_profile, monkeypatch, tmp_
     plan_text = json.dumps({"experiences": {"org-a": ["a1"]}})
     apps_dir = tmp_path / "applications"
 
-    first, _, _ = apply(
+    first, _, _, _ = apply(
         plan_text=plan_text,
         jd_text="JD text",
         company="Acme",
@@ -366,7 +366,7 @@ def test_apply_retries_next_suffix_when_target_claimed_concurrently(small_profil
         sync_cloud=False,
     )
     apply(**common)  # claims the plain slot
-    folder, _, _ = apply(**common)
+    folder, _, _, _ = apply(**common)
     assert folder.name == "2026-08-20_acme_swe_3"
 
 
@@ -430,7 +430,7 @@ def test_list_and_update_application_status(small_profile, monkeypatch, tmp_path
     )
 
     apps_dir = tmp_path / "applications"
-    folder, _, _ = apply(
+    folder, _, _, _ = apply(
         plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
         jd_text="jd text",
         company="Acme",
@@ -445,7 +445,7 @@ def test_list_and_update_application_status(small_profile, monkeypatch, tmp_path
     assert app_list[0]["company"] == "Acme"
     assert app_list[0]["status"] == "applied"
 
-    target, old, new = update_application_status(
+    target, old, new, _sync = update_application_status(
         "acme_swe", "phone_screen", applications_dir=apps_dir, sync_cloud=False
     )
     assert target == folder
@@ -473,7 +473,7 @@ def test_update_status_rejects_ambiguous_stem_and_partial_match(small_profile, m
     )
 
     apps_dir = tmp_path / "applications"
-    first, _, _ = apply(
+    first, _, _, _ = apply(
         plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
         jd_text="jd",
         company="Acme",
@@ -483,7 +483,7 @@ def test_update_status_rejects_ambiguous_stem_and_partial_match(small_profile, m
         applications_dir=apps_dir,
         sync_cloud=False,
     )
-    second, _, _ = apply(
+    second, _, _, _ = apply(
         plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
         jd_text="jd",
         company="Acme",
@@ -501,7 +501,7 @@ def test_update_status_rejects_ambiguous_stem_and_partial_match(small_profile, m
     with pytest.raises(ValueError, match="must not be empty"):
         update_application_status("", "phone_screen", applications_dir=apps_dir, sync_cloud=False)
 
-    target, old, new = update_application_status(
+    target, old, new, _sync = update_application_status(
         first.name, "phone_screen", applications_dir=apps_dir, sync_cloud=False
     )
     assert (target, old, new) == (first, "applied", "phone_screen")
@@ -546,7 +546,7 @@ def test_apply_records_the_hackerrank_evaluation(small_profile, monkeypatch, tmp
     monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
     monkeypatch.setattr(app_module, "run_resume_gates", _fake_gates_ok())
 
-    folder, _c, _a = apply(
+    folder, _c, _a, _sync = apply(
         plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
         jd_text="React frontend, Python backend, and infrastructure.",
         company="Acme Corp",

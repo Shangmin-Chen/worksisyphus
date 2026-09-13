@@ -10,14 +10,17 @@ Provides:
 
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import shutil
 import sqlite3
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .profile import (
     Contact,
@@ -30,7 +33,330 @@ from .profile import (
     validate_contact,
 )
 
+TursoSyncOutcome = Literal["synced", "skipped", "failed"]
+
 DEFAULT_DB_PATH = Path("worksisyphus.db")
+
+_TURSO_AUTH_MARKERS = (
+    "not logged in",
+    "please login",
+    "turso auth login",
+    "authentication required",
+    "unauthorized",
+)
+
+
+@dataclass(frozen=True)
+class TursoSyncResult:
+    """Outcome of a Turso cloud push attempt."""
+
+    synced: bool
+    outcome: TursoSyncOutcome
+    detail: str = ""
+
+
+def turso_last_sync_path(db_path: Path | str = DEFAULT_DB_PATH) -> Path:
+    """Sidecar file recording the last verified Turso push timestamp."""
+    return Path(f"{db_path}.turso-last-sync")
+
+
+def find_turso_cli() -> str | None:
+    """Return the Turso CLI path if installed, else None."""
+    home_turso = Path.home() / ".turso" / "turso"
+    return shutil.which("turso") or (str(home_turso) if home_turso.is_file() else None)
+
+
+def read_last_turso_sync(db_path: Path | str = DEFAULT_DB_PATH) -> str | None:
+    """Return the ISO timestamp of the last verified push, or None if never synced."""
+    sidecar = turso_last_sync_path(db_path)
+    if not sidecar.is_file():
+        return None
+    text = sidecar.read_text(encoding="utf-8").strip()
+    return text or None
+
+
+def _record_last_turso_sync(db_path: Path) -> None:
+    turso_last_sync_path(db_path).write_text(datetime.now(UTC).isoformat() + "\n", encoding="utf-8")
+
+
+def _turso_text_indicates_auth_failure(text: str) -> bool:
+    lowered = text.lower()
+    return any(marker in lowered for marker in _TURSO_AUTH_MARKERS)
+
+
+def _turso_push_output_indicates_auth_failure(stdout: str, stderr: str) -> bool:
+    return _turso_text_indicates_auth_failure(f"{stdout}\n{stderr}")
+
+
+def _turso_query_output_indicates_auth_failure(stdout: str, stderr: str) -> bool:
+    """Detect auth failures from stderr and CLI banner lines only, not query payload stdout."""
+    if _turso_text_indicates_auth_failure(stderr):
+        return True
+    for line in stdout.splitlines():
+        if not _is_turso_noise_line(line):
+            continue
+        if _turso_text_indicates_auth_failure(line):
+            return True
+    return False
+
+
+def _first_auth_failure_line(stdout: str, stderr: str, *, query_mode: bool) -> str | None:
+    sources = [stderr]
+    if query_mode:
+        sources.extend(line for line in stdout.splitlines() if _is_turso_noise_line(line))
+    else:
+        sources.append(stdout)
+    for source in sources:
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped and _turso_text_indicates_auth_failure(stripped):
+                return stripped
+    return None
+
+
+def _turso_push_output_indicates_error(stdout: str, stderr: str) -> str | None:
+    """Return a human-readable error when Turso push printed failure text despite exit 0."""
+    if _turso_push_output_indicates_auth_failure(stdout, stderr):
+        return _first_auth_failure_line(stdout, stderr, query_mode=False) or "Turso CLI is not authenticated"
+    for line in f"{stdout}\n{stderr}".splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("error:"):
+            return stripped
+    return None
+
+
+def _turso_query_output_indicates_error(stdout: str, stderr: str) -> str | None:
+    """Return a CLI error for verify/scalar reads without scanning query payload stdout."""
+    if _turso_query_output_indicates_auth_failure(stdout, stderr):
+        return _first_auth_failure_line(stdout, stderr, query_mode=True) or "Turso CLI is not authenticated"
+    for line in stderr.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith("error:"):
+            return stripped
+    for line in stdout.splitlines():
+        if not _is_turso_noise_line(line):
+            continue
+        stripped = line.strip()
+        if stripped.lower().startswith("error:"):
+            return stripped
+    return None
+
+
+_SYNC_HEADER_SQL = """
+SELECT COALESCE((SELECT name FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT email FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT phone FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT website FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT github FROM contact WHERE id = 1), '')
+|| '|' || COALESCE((SELECT linkedin FROM contact WHERE id = 1), '')
+|| '|' || (SELECT COUNT(*) FROM applications)
+|| '|' || (
+    (SELECT COUNT(*) FROM experience_bullets)
+    + (SELECT COUNT(*) FROM project_bullets)
+)
+"""
+
+_SYNC_APPLICATIONS_CANONICAL_SQL = """
+SELECT COALESCE((
+    SELECT GROUP_CONCAT(
+        id || char(31) || company || char(31) || role || char(31) || date || char(31) || source_url
+            || char(31) || status || char(31) || jd_text || char(31) || plan_json || char(31) || evaluation_json,
+        char(30) ORDER BY id
+    )
+    FROM applications
+), '')
+"""
+
+_TURSO_SPINNER_PREFIXES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+
+_TURSO_CONNECTING_BANNERS = (
+    "connecting to database",
+    "connecting to turso",
+)
+
+_SYNC_PROFILE_CANONICAL_PARTS: tuple[str, ...] = (
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'edu:' || institution || char(31) || location || char(31) || degree || char(31) || date
+                || char(31) || coursework || char(31) || sort_order,
+            char(10) ORDER BY sort_order, id
+        )
+        FROM education
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'exp:' || slug || char(31) || role || char(31) || org || char(31) || location || char(31) || date
+                || char(31) || sort_order,
+            char(10) ORDER BY sort_order, slug
+        )
+        FROM experiences
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'eb:' || experience_slug || char(31) || slug || char(31) || text || char(31) || sort_order,
+            char(10) ORDER BY experience_slug, slug
+        )
+        FROM experience_bullets
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'proj:' || slug || char(31) || name || char(31) || tech || char(31) || date || char(31) || sort_order,
+            char(10) ORDER BY sort_order, slug
+        )
+        FROM projects
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'pb:' || project_slug || char(31) || slug || char(31) || text || char(31) || sort_order,
+            char(10) ORDER BY project_slug, slug
+        )
+        FROM project_bullets
+    ), '')
+    """,
+    """
+    SELECT COALESCE((
+        SELECT GROUP_CONCAT(
+            'sk:' || group_name || char(31) || item || char(31) || sort_order,
+            char(10) ORDER BY group_name, sort_order, item
+        )
+        FROM skills
+    ), '')
+    """,
+)
+
+
+@dataclass(frozen=True)
+class SyncFingerprint:
+    """Compact post-push verify token: header counts plus content digests."""
+
+    header: str
+    applications_digest: str
+    profile_digest: str
+
+
+def _digest_payload(payload: str) -> str:
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _fetch_sync_header(conn: sqlite3.Connection) -> str:
+    row = conn.execute(_SYNC_HEADER_SQL).fetchone()
+    return row[0] if row else "|||||||0"
+
+
+def _fetch_applications_canonical(conn: sqlite3.Connection) -> str:
+    row = conn.execute(_SYNC_APPLICATIONS_CANONICAL_SQL).fetchone()
+    return row[0] if row else ""
+
+
+def _fetch_profile_canonical(conn: sqlite3.Connection) -> str:
+    chunks: list[str] = []
+    for sql in _SYNC_PROFILE_CANONICAL_PARTS:
+        row = conn.execute(sql).fetchone()
+        if row and row[0]:
+            chunks.append(row[0])
+    return "\n".join(chunks)
+
+
+def _compute_sync_fingerprint(db_path: Path) -> SyncFingerprint:
+    conn = sqlite3.connect(str(db_path))
+    try:
+        return SyncFingerprint(
+            header=_fetch_sync_header(conn),
+            applications_digest=_digest_payload(_fetch_applications_canonical(conn)),
+            profile_digest=_digest_payload(_fetch_profile_canonical(conn)),
+        )
+    finally:
+        conn.close()
+
+
+def _is_turso_noise_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    if any(stripped.startswith(prefix) for prefix in _TURSO_SPINNER_PREFIXES):
+        return True
+    first = stripped[0]
+    if "\u2800" <= first <= "\u28ff":
+        return True
+    lower = stripped.lower()
+    return any(lower.startswith(banner) for banner in _TURSO_CONNECTING_BANNERS)
+
+
+def _turso_shell_scalar(proc: subprocess.CompletedProcess) -> str:
+    error = _turso_query_output_indicates_error(proc.stdout, proc.stderr)
+    if proc.returncode != 0 or error:
+        message = error or proc.stderr.strip() or proc.stdout.strip()
+        raise RuntimeError(message or f"Turso command exited with code {proc.returncode}")
+    lines = proc.stdout.splitlines()
+    while lines and _is_turso_noise_line(lines[0]):
+        lines.pop(0)
+    while lines and _is_turso_noise_line(lines[-1]):
+        lines.pop()
+    if not lines:
+        return ""
+    return "\n".join(lines)
+
+
+def _run_turso_query(
+    run_turso: Callable[..., subprocess.CompletedProcess],
+    turso_bin: str,
+    turso_db_name: str,
+    sql: str,
+) -> str:
+    proc = run_turso(
+        [turso_bin, "db", "shell", turso_db_name],
+        input=sql.strip().rstrip(";") + ";\n",
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return _turso_shell_scalar(proc)
+
+
+def _fetch_remote_profile_canonical(
+    run_turso: Callable[..., subprocess.CompletedProcess],
+    turso_bin: str,
+    turso_db_name: str,
+) -> str:
+    chunks: list[str] = []
+    for sql in _SYNC_PROFILE_CANONICAL_PARTS:
+        chunk = _run_turso_query(run_turso, turso_bin, turso_db_name, sql)
+        if chunk:
+            chunks.append(chunk)
+    return "\n".join(chunks)
+
+
+def _verify_remote_fingerprint(
+    run_turso: Callable[..., subprocess.CompletedProcess],
+    turso_bin: str,
+    turso_db_name: str,
+    expected: SyncFingerprint,
+) -> str | None:
+    """Return a human-readable verify error, or None when remote matches expected."""
+    try:
+        remote_header = _run_turso_query(run_turso, turso_bin, turso_db_name, _SYNC_HEADER_SQL)
+        remote_apps = _run_turso_query(run_turso, turso_bin, turso_db_name, _SYNC_APPLICATIONS_CANONICAL_SQL)
+        remote_profile = _fetch_remote_profile_canonical(run_turso, turso_bin, turso_db_name)
+    except RuntimeError as exc:
+        return str(exc)
+
+    if remote_header != expected.header:
+        return "fingerprint mismatch (header)"
+    if _digest_payload(remote_apps) != expected.applications_digest:
+        return "fingerprint mismatch (applications)"
+    if _digest_payload(remote_profile) != expected.profile_digest:
+        return "fingerprint mismatch (profile)"
+    return None
+
 
 ACTION_APPLY = "APPLY"
 ACTION_STATUS_CHANGE = "STATUS_CHANGE"
@@ -234,6 +560,52 @@ def _log_change(
         log_audit_event(conn, entity_type, entity_id, ACTION_UPDATE, commit=False, **kwargs)
 
 
+def _scan_application_folders(
+    applications_dir: Path,
+) -> list[tuple[Path, dict[str, Any], str, str, str]]:
+    """Read application folders from disk, failing closed before any database writes."""
+    application_rows: list[tuple[Path, dict[str, Any], str, str, str]] = []
+    malformed_meta: list[str] = []
+    missing_meta: list[str] = []
+    if not applications_dir.is_dir():
+        return application_rows
+
+    for folder in sorted(applications_dir.iterdir()):
+        if not folder.is_dir() or folder.name.startswith("."):
+            continue
+        meta_file = folder / "meta.json"
+        jd_file = folder / "jd.txt"
+        plan_file = folder / "plan.json"
+        if not meta_file.is_file():
+            missing_meta.append(folder.name)
+            continue
+        try:
+            meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except Exception as exc:
+            malformed_meta.append(f"{folder.name}: {exc}")
+            continue
+        if not isinstance(meta, dict):
+            malformed_meta.append(f"{folder.name}: expected a JSON object")
+            continue
+        jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
+        plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
+        evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
+        application_rows.append((folder, meta, jd_text, plan_json, evaluation_json))
+
+    if missing_meta or malformed_meta:
+        entries = [f"  {name}: missing meta.json" for name in missing_meta]
+        entries.extend(f"  {entry}" for entry in malformed_meta)
+        details = "\n".join(entries)
+        if missing_meta and malformed_meta:
+            header = "Refusing to seed the database: application folder problems in:"
+        elif missing_meta:
+            header = "Refusing to seed the database: missing application meta.json in:"
+        else:
+            header = "Refusing to seed the database: malformed application meta.json in:"
+        raise ValueError(f"{header}\n{details}")
+    return application_rows
+
+
 #: What to do when profile.json exists but its contact block is scrubbed. The database is
 #: presumed *good* here -- it is the copy this refusal protects -- so the direction of repair
 #: is DB -> profile, the opposite of `_DB_CONTACT_RECOVERY_HINT`. Naming `db sync` here would
@@ -260,6 +632,7 @@ def seed_database(
         raise ValueError(f"Refusing to seed the database: {exc}") from exc
 
     data = profile_to_dict(loaded)
+    application_rows = _scan_application_folders(applications_dir)
 
     init_schema(conn)
 
@@ -474,61 +847,45 @@ def seed_database(
 
     # 6. Applications (merge from applications_dir without clobbering existing DB records)
     seen_applications: set[str] = set()
-    if applications_dir.is_dir():
-        for d in sorted(applications_dir.iterdir()):
-            if not d.is_dir() or d.name.startswith("."):
-                continue
-            meta_file = d / "meta.json"
-            jd_file = d / "jd.txt"
-            plan_file = d / "plan.json"
-            if not meta_file.is_file():
-                continue
-            try:
-                meta = json.loads(meta_file.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            # Strip to the same canonical form apply() stores, so DB and disk compare exactly.
-            jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
-            plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
-            evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO applications
-                    (id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    d.name,
-                    meta.get("company", ""),
-                    meta.get("role", ""),
-                    meta.get("date", ""),
-                    meta.get("source_url", ""),
-                    meta.get("status", "applied"),
-                    jd_text,
-                    plan_json,
-                    evaluation_json,
-                ),
-            )
-            seen_applications.add(d.name)
-            _log_change(
-                conn,
-                prior_applications,
+    for d, meta, jd_text, plan_json, evaluation_json in application_rows:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO applications
+                (id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
                 d.name,
-                (
-                    meta.get("company", ""),
-                    meta.get("role", ""),
-                    meta.get("date", ""),
-                    meta.get("source_url", ""),
-                    meta.get("status", "applied"),
-                    jd_text,
-                    plan_json,
-                    evaluation_json,
-                ),
-                "application",
-                d.name,
-                action_new=ACTION_APPLY,
-                metadata=meta,
-            )
+                meta.get("company", ""),
+                meta.get("role", ""),
+                meta.get("date", ""),
+                meta.get("source_url", ""),
+                meta.get("status", "applied"),
+                jd_text,
+                plan_json,
+                evaluation_json,
+            ),
+        )
+        seen_applications.add(d.name)
+        _log_change(
+            conn,
+            prior_applications,
+            d.name,
+            (
+                meta.get("company", ""),
+                meta.get("role", ""),
+                meta.get("date", ""),
+                meta.get("source_url", ""),
+                meta.get("status", "applied"),
+                jd_text,
+                plan_json,
+                evaluation_json,
+            ),
+            "application",
+            d.name,
+            action_new=ACTION_APPLY,
+            metadata=meta,
+        )
 
     # 6b. Ghost rows. A DB application whose folder no longer exists on disk (partial restore,
     #     manual removal) would otherwise survive every reseed and trip the FS<->DB consistency
@@ -747,6 +1104,91 @@ DROP TABLE IF EXISTS contact;
 """
 
 _TRANSACTION_MARKER = "BEGIN TRANSACTION;"
+_UNISTR_PREFIX = "unistr("
+
+
+def decode_sqlite_unistr(literal: str) -> str:
+    """Decode the string body of a sqlite3 unistr('...') literal.
+
+    SQLite understands exactly ``\\uXXXX``, ``\\UXXXXXXXX``, and ``\\\\``; any other backslash
+    sequence is preserved verbatim so TeX escapes like ``\\$`` and ``\\%`` survive decoding.
+    """
+    result: list[str] = []
+    index = 0
+    while index < len(literal):
+        char = literal[index]
+        if char != "\\":
+            result.append(char)
+            index += 1
+            continue
+        if index + 1 >= len(literal):
+            result.append("\\")
+            index += 1
+            continue
+        nxt = literal[index + 1]
+        if nxt == "\\":
+            result.append("\\")
+            index += 2
+            continue
+        if nxt == "u" and index + 5 < len(literal):
+            hex_digits = literal[index + 2 : index + 6]
+            if re.fullmatch(r"[0-9A-Fa-f]{4}", hex_digits):
+                result.append(chr(int(hex_digits, 16)))
+                index += 6
+                continue
+        if nxt == "U" and index + 9 < len(literal):
+            hex_digits = literal[index + 2 : index + 10]
+            if re.fullmatch(r"[0-9A-Fa-f]{8}", hex_digits):
+                result.append(chr(int(hex_digits, 16)))
+                index += 10
+                continue
+        result.append("\\")
+        result.append(nxt)
+        index += 2
+    return "".join(result)
+
+
+def _sql_string_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def decode_unistr_in_sql(sql: str) -> str:
+    """Replace sqlite3 ``unistr('...')`` calls with plain SQL string literals libSQL accepts."""
+    output: list[str] = []
+    index = 0
+    while index < len(sql):
+        if not sql.startswith(_UNISTR_PREFIX, index):
+            output.append(sql[index])
+            index += 1
+            continue
+        cursor = index + len(_UNISTR_PREFIX)
+        while cursor < len(sql) and sql[cursor].isspace():
+            cursor += 1
+        if cursor >= len(sql) or sql[cursor] != "'":
+            output.append(sql[index])
+            index += 1
+            continue
+        cursor += 1
+        literal_chars: list[str] = []
+        while cursor < len(sql):
+            char = sql[cursor]
+            if char == "'":
+                if cursor + 1 < len(sql) and sql[cursor + 1] == "'":
+                    literal_chars.append("'")
+                    cursor += 2
+                    continue
+                cursor += 1
+                break
+            literal_chars.append(char)
+            cursor += 1
+        while cursor < len(sql) and sql[cursor].isspace():
+            cursor += 1
+        if cursor < len(sql) and sql[cursor] == ")":
+            cursor += 1
+        decoded = decode_sqlite_unistr("".join(literal_chars))
+        output.append(_sql_string_literal(decoded))
+        index = cursor
+    return "".join(output)
 
 
 def build_sync_sql(dump_sql: str) -> str | None:
@@ -761,7 +1203,8 @@ def build_sync_sql(dump_sql: str) -> str | None:
     if _TRANSACTION_MARKER not in dump_sql:
         return None
     head, _, tail = dump_sql.partition(_TRANSACTION_MARKER)
-    return head + _TRANSACTION_MARKER + "\n" + DROP_ALL_SQL + tail
+    combined = head + _TRANSACTION_MARKER + "\n" + DROP_ALL_SQL + tail
+    return decode_unistr_in_sql(combined)
 
 
 def sync_to_turso(
@@ -770,46 +1213,77 @@ def sync_to_turso(
     allow_branch: bool = False,
     no_git_check: bool = False,
     log: Callable[[str], None] = lambda _: None,
-) -> bool:
+    turso_runner: Callable[..., subprocess.CompletedProcess] | None = None,
+    sqlite3_runner: Callable[..., subprocess.CompletedProcess] | None = None,
+) -> TursoSyncResult:
     """Push local SQLite database state to Turso cloud via Turso CLI, protected by git freshness."""
+    db_path = Path(db_path)
+    run_turso = turso_runner or subprocess.run
+    run_sqlite3 = sqlite3_runner or subprocess.run
+
     if not no_git_check:
         from .git_guard import check_git_freshness_for_sync
 
         freshness = check_git_freshness_for_sync(allow_branch=allow_branch)
         if not freshness.allowed:
+            detail = f"skipped ({freshness.reason})"
             log(f"Warning: Turso cloud sync skipped: {freshness.reason}")
-            return False
+            return TursoSyncResult(synced=False, outcome="skipped", detail=detail)
 
-    home_turso = Path.home() / ".turso" / "turso"
-    turso_bin = shutil.which("turso") or (str(home_turso) if home_turso.is_file() else None)
+    turso_bin = find_turso_cli()
     if not turso_bin:
+        detail = "skipped (Turso CLI not found)"
         log("Warning: Turso CLI not found; cloud sync skipped.")
-        return False
+        return TursoSyncResult(synced=False, outcome="skipped", detail=detail)
     if not db_path.is_file():
+        detail = f"skipped (database file not found at {db_path})"
         log(f"Warning: Database file not found at {db_path}; cloud sync skipped.")
-        return False
+        return TursoSyncResult(synced=False, outcome="skipped", detail=detail)
     try:
-        dump_proc = subprocess.run(
+        dump_proc = run_sqlite3(
             ["sqlite3", str(db_path), ".dump"],
             capture_output=True,
             text=True,
-            check=True,
         )
+        if dump_proc.returncode != 0 or not dump_proc.stdout.strip():
+            message = dump_proc.stderr.strip() or f"sqlite3 .dump exited with code {dump_proc.returncode}"
+            detail = f"failed ({message})"
+            log(f"Warning: Turso cloud sync failed: {message}")
+            return TursoSyncResult(synced=False, outcome="failed", detail=detail)
         full_sync_sql = build_sync_sql(dump_proc.stdout)
         if full_sync_sql is None:
-            log("Warning: Failed to construct valid sync SQL payload; cloud sync skipped.")
-            return False
-        proc = subprocess.run(
+            detail = "failed (invalid sync SQL payload)"
+            log("Warning: Turso cloud sync failed: invalid sync SQL payload.")
+            return TursoSyncResult(synced=False, outcome="failed", detail=detail)
+
+        fingerprint = _compute_sync_fingerprint(db_path)
+        push_proc = run_turso(
             [turso_bin, "db", "shell", turso_db_name],
             input=full_sync_sql,
             capture_output=True,
             text=True,
             timeout=30,
         )
-        if proc.returncode != 0:
-            log(f"Warning: Turso command exited with code {proc.returncode}: {proc.stderr.strip()}")
-            return False
-        return True
+        push_error = _turso_push_output_indicates_error(push_proc.stdout, push_proc.stderr)
+        if push_proc.returncode != 0 or push_error:
+            message = push_error or push_proc.stderr.strip() or push_proc.stdout.strip()
+            detail = f"failed ({message})"
+            if push_proc.returncode != 0:
+                log(f"Warning: Turso command exited with code {push_proc.returncode}: {message}")
+            else:
+                log(f"Warning: Turso cloud sync failed: {message}")
+            return TursoSyncResult(synced=False, outcome="failed", detail=detail)
+
+        verify_error = _verify_remote_fingerprint(run_turso, turso_bin, turso_db_name, fingerprint)
+        if verify_error:
+            detail = f"failed (remote verify: {verify_error})"
+            log(f"Warning: Turso cloud sync verify failed: {verify_error}")
+            return TursoSyncResult(synced=False, outcome="failed", detail=detail)
+
+        _record_last_turso_sync(db_path)
+        detail = "synced"
+        return TursoSyncResult(synced=True, outcome="synced", detail=detail)
     except Exception as exc:
+        detail = f"failed ({exc})"
         log(f"Warning: Turso cloud sync failed with exception: {exc}")
-        return False
+        return TursoSyncResult(synced=False, outcome="failed", detail=detail)
