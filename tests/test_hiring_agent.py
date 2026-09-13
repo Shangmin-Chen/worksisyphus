@@ -195,6 +195,13 @@ def test_evaluate_output_is_frozen() -> None:
 
 
 def test_hackerrank_agent_evaluation_all_roles() -> None:
+    """Assert the CONTRACT evaluate() must honor, not the stub's fixed constants.
+
+    The previous version of this test only asserted total_score >= 80, which a stub that
+    always returns ~88-96% of max plus a fixed +5 bonus can never fail. These assertions are
+    derived from each role's own rubric, so they fail if evaluate() ever returns scores outside
+    the categories/bounds the rubric declares.
+    """
     sample_resume = """
     Simon Chen
     Experience: Lead Software Engineer at EZ Esports building distributed real-time platforms.
@@ -212,9 +219,18 @@ def test_hackerrank_agent_evaluation_all_roles() -> None:
     ):
         agent = HackerRankHiringAgent(role_name=role_name)
         result = agent.evaluate(sample_resume)
-        assert result["total_score"] >= 80
-        assert "scores" in result
-        assert len(result["scores"]) == 3
+
+        expected_max = sum(c.max for c in agent.role.categories)
+        assert result["max_possible"] == expected_max
+        assert result["total_score"] <= agent.role.max_final_score
+        assert result["total_score"] >= agent.role.min_final_score
+
+        assert set(result["scores"].keys()) == {c.key for c in agent.role.categories}
+        for cat in agent.role.categories:
+            cat_result = result["scores"][cat.key]
+            assert cat_result["max"] == cat.max
+            assert 0 <= cat_result["score"] <= cat.max
+
         report = format_hackerrank_report(result, role_name=role_name)
         assert "HACKERRANK HIRING AGENT SCORECARD" in report
         assert "CATEGORY SCORE BREAKDOWN:" in report
@@ -329,6 +345,7 @@ def test_check_upstream_status_403_rate_limited(monkeypatch) -> None:
 
 
 def test_check_upstream_status_offline_timeout(monkeypatch) -> None:
+    """A network timeout must NOT be reported as a passed verification (see step 2 of WS7)."""
     import requests
 
     from worksisyphus.hiring_agent import check_upstream_status
@@ -339,9 +356,11 @@ def test_check_upstream_status_offline_timeout(monkeypatch) -> None:
     monkeypatch.setattr(requests, "get", fake_get)
 
     status = check_upstream_status()
-    assert status["status"] == "cached"
+    assert status["status"] == "unreachable"
     assert status["remote_commit"] == "offline"
-    assert "offline verification passed" in status["message"]
+    assert "passed" not in status["message"]
+    assert "NOT verified" in status["message"]
+    assert "Timeout" in status["message"]
 
 
 def test_check_upstream_status_token_ingestion(monkeypatch) -> None:
@@ -438,3 +457,107 @@ def test_load_role_normalizes_slug() -> None:
 
     role = load_role("Product Engineer")
     assert role.name == "product_engineer"
+
+
+def test_check_upstream_status_reports_an_unreachable_upstream(monkeypatch) -> None:
+    """A raised exception (network error, DNS failure, bad JSON, ...) must be reported as
+    unreachable and NOT verified -- never as a passed check. MUST FAIL before step 2's fix."""
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    def fake_get(*args, **kwargs):
+        raise requests.exceptions.RequestException("boom")
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert "passed" not in status["message"]
+    for key in (
+        "status",
+        "upstream_repo",
+        "local_commit",
+        "remote_commit",
+        "synced_date",
+        "reference_role",
+        "custom_tracks",
+        "message",
+    ):
+        assert key in status
+
+
+def test_check_upstream_status_reports_an_unexpected_http_status(monkeypatch) -> None:
+    """A status code not in {304, 200, 403} (e.g. a 500) must be reported as unreachable, not as
+    an implicit pass-through to the old 'cached'/'offline verification passed' fallback."""
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 500
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert "500" in status["message"]
+    assert "passed" not in status["message"]
+
+
+def test_parse_env_tokens_ignores_comments_and_blank_lines() -> None:
+    from worksisyphus.hiring_agent import _parse_env_tokens
+
+    text = """
+    # a comment line
+
+    SOME_OTHER_VAR=irrelevant
+    GITHUB_TOKEN=ghp_abc123
+    """
+    assert _parse_env_tokens(text) == "ghp_abc123"
+    assert _parse_env_tokens("# only comments\n\n") is None
+
+
+def test_get_github_token_returns_none_for_an_unreadable_env(monkeypatch, tmp_path) -> None:
+    from pathlib import Path as PathClass
+
+    from worksisyphus.hiring_agent import _get_github_token
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("GITHUB_TOKEN=irrelevant\n", encoding="utf-8")
+
+    def raising_read_text(self, *args, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(PathClass, "read_text", raising_read_text)
+
+    assert _get_github_token() is None
+
+
+def test_calculate_final_score_rejects_a_category_without_a_score() -> None:
+    """A category dict missing 'score' must raise, not silently contribute 0 to the total that
+    gets written into meta.json. MUST FAIL before step 4's fix."""
+    agent = HackerRankHiringAgent(role_name="software_engineering_intern")
+    eval_dict = {
+        "scores": {"open_source": {"max": 40, "evidence": "e"}},
+        "bonus_points": {"total": 0.0},
+        "deductions": {"total": 0.0},
+    }
+    with pytest.raises(ValueError, match="missing a numeric 'score'"):
+        agent._calculate_final_score(eval_dict)
+
+
+def test_format_report_renders_a_synthesized_role_without_a_rubric_directory() -> None:
+    """A free-text role title with no curated rubric directory must not crash
+    format_hackerrank_report after evaluate() already succeeded. MUST FAIL before step 6's fix."""
+    agent = HackerRankHiringAgent("Founding Product Engineer", jd_text="Build things with Python.")
+    result = agent.evaluate("Simon Chen built production systems with Python and Kubernetes.")
+
+    report = format_hackerrank_report(result, role_name="Founding Product Engineer")
+    assert "HACKERRANK HIRING AGENT SCORECARD" in report
+    for cat in agent.role.categories:
+        assert cat.label in report
