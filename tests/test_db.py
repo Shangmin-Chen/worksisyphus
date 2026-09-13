@@ -33,6 +33,15 @@ DELIVERABLE_CONTACT = {
 }
 
 
+@pytest.fixture()
+def memory_conn():
+    conn = get_connection(":memory:")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
 def _fixture_data_with_deliverable_contact(source: Path | None = None) -> dict[str, Any]:
     """The full test fixture, with its scrubbed contact block swapped for a deliverable one.
 
@@ -51,8 +60,8 @@ def _fixture_data_with_deliverable_contact(source: Path | None = None) -> dict[s
     return data
 
 
-def test_init_schema_creates_tables() -> None:
-    conn = get_connection(":memory:")
+def test_init_schema_creates_tables(memory_conn) -> None:
+    conn = memory_conn
     init_schema(conn)
     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
     tables = {row[0] for row in cur.fetchall()}
@@ -70,7 +79,7 @@ def test_init_schema_creates_tables() -> None:
     assert expected.issubset(tables)
 
 
-def test_seed_and_load_profile(tmp_path: Path) -> None:
+def test_seed_and_load_profile(tmp_path: Path, memory_conn) -> None:
     """Structural round-trip: everything written by a seed comes back out of the database.
 
     The contact block here is deliberately *not* a placeholder. It used to read
@@ -129,7 +138,7 @@ def test_seed_and_load_profile(tmp_path: Path) -> None:
     }
     profile_file.write_text(json.dumps(profile_data), encoding="utf-8")
 
-    conn = get_connection(":memory:")
+    conn = memory_conn
     seed_database(conn, profile_path=profile_file, applications_dir=tmp_path / "apps")
 
     profile = load_profile_from_db(conn)
@@ -145,8 +154,8 @@ def test_seed_and_load_profile(tmp_path: Path) -> None:
     assert profile.skills["languages"] == ("Python", "Rust")
 
 
-def test_audit_event_logging() -> None:
-    conn = get_connection(":memory:")
+def test_audit_event_logging(memory_conn) -> None:
+    conn = memory_conn
     init_schema(conn)
 
     log_audit_event(
@@ -171,8 +180,8 @@ def test_audit_event_logging() -> None:
     assert ev["timestamp"] is not None
 
 
-def test_application_tracking_in_db() -> None:
-    conn = get_connection(":memory:")
+def test_application_tracking_in_db(memory_conn) -> None:
+    conn = memory_conn
     init_schema(conn)
 
     save_application_to_db(
@@ -210,8 +219,8 @@ def test_application_tracking_in_db() -> None:
     assert history[0]["new_value"] == "phone_screen"
 
 
-def test_export_profile_json(tmp_path: Path) -> None:
-    conn = get_connection(":memory:")
+def test_export_profile_json(tmp_path: Path, memory_conn) -> None:
+    conn = memory_conn
     init_schema(conn)
     # A deliverable contact block: export refuses to write anything less (see the
     # placeholder tests below), so the happy path needs real-shaped details.
@@ -229,8 +238,8 @@ def test_export_profile_json(tmp_path: Path) -> None:
     assert loaded["contact"]["name"] == "Jane Roe"
 
 
-def test_schema_indexes_created() -> None:
-    conn = get_connection(":memory:")
+def test_schema_indexes_created(memory_conn) -> None:
+    conn = memory_conn
     init_schema(conn)
     cur = conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
     indexes = {row[0] for row in cur.fetchall()}
@@ -239,8 +248,8 @@ def test_schema_indexes_created() -> None:
     assert "idx_applications_date" in indexes
 
 
-def test_get_audit_history_filtered() -> None:
-    conn = get_connection(":memory:")
+def test_get_audit_history_filtered(memory_conn) -> None:
+    conn = memory_conn
     init_schema(conn)
     log_audit_event(conn, "project", "p1", "INSERT")
     log_audit_event(conn, "experience", "e1", "INSERT")
@@ -254,7 +263,7 @@ def test_get_audit_history_filtered() -> None:
     assert len(all_events) == 3
 
 
-def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
+def test_real_profile_json_roundtrip_through_db(tmp_path: Path, memory_conn) -> None:
     """Everything profile.json holds must survive a trip through the database unchanged.
 
     Read back with ``profile_to_dict`` rather than ``export_profile_json``: on CI there is no
@@ -279,7 +288,7 @@ def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
         )
     real_data = json.loads(real_profile_path.read_text(encoding="utf-8"))
 
-    conn = get_connection(":memory:")
+    conn = memory_conn
     seed_database(conn, profile_path=real_profile_path, applications_dir=tmp_path / "apps")
 
     exported_data = profile_to_dict(load_profile_from_db(conn))
@@ -765,4 +774,51 @@ def test_seed_skips_dot_directories_even_with_meta(tmp_path: Path) -> None:
 
     seed_database(conn, profile_path=profile_file, applications_dir=apps)
     assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 0
+    conn.close()
+
+
+def test_seed_database_refuses_a_corrupt_application_meta_json(tmp_path: Path) -> None:
+    """A folder with unparseable meta.json must fail loudly, naming the folder, not be skipped."""
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    bad = apps / "2026-01-01_x_swe"
+    bad.mkdir(parents=True)
+    (bad / "meta.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json") as excinfo:
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert bad.name in str(excinfo.value) or str(bad) in str(excinfo.value)
+    conn.close()
+
+
+def test_seed_database_leaves_the_database_untouched_when_a_meta_json_is_corrupt(tmp_path: Path) -> None:
+    """The corrupt-folder raise must happen before conn.commit(), so a good prior seed survives."""
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    for name in ("2026-01-01_good_one", "2026-01-02_good_two"):
+        folder = apps / name
+        folder.mkdir(parents=True)
+        (folder / "meta.json").write_text(json.dumps({"company": "Good", "status": "applied"}), encoding="utf-8")
+    seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 2
+
+    corrupt = apps / "2026-01-03_bad_one"
+    corrupt.mkdir(parents=True)
+    (corrupt / "meta.json").write_text("{not json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json"):
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
+    assert conn.execute("SELECT count(*) FROM applications").fetchone()[0] == 2
+    conn.close()
+
+
+def test_seed_database_refuses_a_meta_json_that_is_not_an_object(tmp_path: Path) -> None:
+    conn, profile_file = _seed_fixture(tmp_path)
+    apps = tmp_path / "applications"
+    bad = apps / "2026-01-01_not_an_object"
+    bad.mkdir(parents=True)
+    (bad / "meta.json").write_text(json.dumps([1, 2, 3]), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="expected a JSON object"):
+        seed_database(conn, profile_path=profile_file, applications_dir=apps)
     conn.close()
