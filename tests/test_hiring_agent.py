@@ -60,7 +60,148 @@ def test_pydantic_models_and_schema_builder() -> None:
     assert "deductions" in schema["properties"]
 
 
+def test_evaluate_output_is_frozen() -> None:
+    """Characterization test: evaluate()'s output for these inputs is frozen, byte-for-byte.
+
+    HackerRankHiringAgent.evaluate() is a deliberate keyword-match stub (see hiring_agent.py's
+    module-level comments and CLAUDE.md's OUT-OF-SCOPE note). Its return value is frozen into
+    every applications/*/meta.json "evaluation" field and synced to Turso as the record of
+    record. Rewriting the stub's scoring semantics — the multipliers, the bonus/deduction
+    constants, the evidence strings, the category-key groupings — is a USER decision (an
+    escalated product decision), not something any workstream may do as a side effect of a
+    refactor.
+
+    These literals were captured by running evaluate() against the UNMODIFIED file, before any
+    other edit in this workstream. If this test fails, a change altered historical scoring
+    semantics: STOP and do not proceed, the fix is out of scope for this workstream.
+    """
+    resume = "Simon Chen built a production system on GitHub with low latency, high concurrency Rust engine."
+
+    expected = {
+        "software_engineer": {
+            "scores": {
+                "backend_systems": {
+                    "score": 37.6,
+                    "max": 40,
+                    "evidence": "Strong architecture, scale, and deployment track record in "
+                    "Backend & Distributed Systems.",
+                },
+                "data_algorithms": {
+                    "score": 32.9,
+                    "max": 35,
+                    "evidence": "Strong architecture, scale, and deployment track record in "
+                    "Algorithms & Data Engineering.",
+                },
+                "production_scale": {
+                    "score": 22.0,
+                    "max": 25,
+                    "evidence": "Quantified metrics and verified impact in Production Quality & Scale.",
+                },
+            },
+            "bonus_points": {
+                "total": 5.0,
+                "breakdown": "Verified performance benchmarks, high-impact systems, and production deployment.",
+            },
+            "deductions": {"total": 0.0, "reasons": "No fairness or content violations detected."},
+            "key_strengths": [
+                "Strong architectural depth tailored to Software Engineer (Full-Stack / Backend)",
+                "Defensible production impact with verified latency and throughput metrics",
+                "Clean technical communication without buzzword stuffing or filler",
+            ],
+            "areas_for_improvement": [
+                "Continue documenting scale and latency benchmarks on public repositories",
+            ],
+            "total_score": 97.5,
+            "max_possible": 100,
+            "role_title": "Software Engineer (Full-Stack / Backend)",
+        },
+        "quant_engineer": {
+            "scores": {
+                "quant_systems": {
+                    "score": 36.8,
+                    "max": 40,
+                    "evidence": "High-complexity engineering with verified technical depth in "
+                    "Low-Latency & Order Book Systems.",
+                },
+                "modeling_compute": {
+                    "score": 30.8,
+                    "max": 35,
+                    "evidence": "Quantified metrics and verified impact in Numerical & Data Modeling.",
+                },
+                "impact_metrics": {
+                    "score": 22.0,
+                    "max": 25,
+                    "evidence": "Quantified metrics and verified impact in Quantified PnL & Performance.",
+                },
+            },
+            "bonus_points": {
+                "total": 5.0,
+                "breakdown": "Verified performance benchmarks, high-impact systems, and production deployment.",
+            },
+            "deductions": {"total": 0.0, "reasons": "No fairness or content violations detected."},
+            "key_strengths": [
+                "Strong architectural depth tailored to Quantitative Software Engineer",
+                "Defensible production impact with verified latency and throughput metrics",
+                "Clean technical communication without buzzword stuffing or filler",
+            ],
+            "areas_for_improvement": [
+                "Continue documenting scale and latency benchmarks on public repositories",
+            ],
+            "total_score": 94.6,
+            "max_possible": 100,
+            "role_title": "Quantitative Software Engineer",
+        },
+        "software_engineering_intern": {
+            "scores": {
+                "open_source": {
+                    "score": 31.5,
+                    "max": 35,
+                    "evidence": "Demonstrated ownership and delivery in Open Source.",
+                },
+                "self_projects": {
+                    "score": 27.6,
+                    "max": 30,
+                    "evidence": "High-complexity engineering with verified technical depth in Self Projects.",
+                },
+                "production": {
+                    "score": 32.9,
+                    "max": 35,
+                    "evidence": "Strong architecture, scale, and deployment track record in Production Experience.",
+                },
+            },
+            "bonus_points": {
+                "total": 5.0,
+                "breakdown": "Verified performance benchmarks, high-impact systems, and production deployment.",
+            },
+            "deductions": {"total": 0.0, "reasons": "No fairness or content violations detected."},
+            "key_strengths": [
+                "Strong architectural depth tailored to Software Intern position at HackerRank",
+                "Defensible production impact with verified latency and throughput metrics",
+                "Clean technical communication without buzzword stuffing or filler",
+            ],
+            "areas_for_improvement": [
+                "Continue documenting scale and latency benchmarks on public repositories",
+            ],
+            "total_score": 97.0,
+            "max_possible": 100,
+            "role_title": "Software Intern position at HackerRank",
+        },
+    }
+
+    for role_name, expected_result in expected.items():
+        agent = HackerRankHiringAgent(role_name=role_name)
+        result = agent.evaluate(resume)
+        assert result == expected_result, f"evaluate() output changed for role {role_name!r}"
+
+
 def test_hackerrank_agent_evaluation_all_roles() -> None:
+    """Assert the CONTRACT evaluate() must honor, not the stub's fixed constants.
+
+    The previous version of this test only asserted total_score >= 80, which a stub that
+    always returns ~88-96% of max plus a fixed +5 bonus can never fail. These assertions are
+    derived from each role's own rubric, so they fail if evaluate() ever returns scores outside
+    the categories/bounds the rubric declares.
+    """
     sample_resume = """
     Simon Chen
     Experience: Lead Software Engineer at EZ Esports building distributed real-time platforms.
@@ -78,9 +219,18 @@ def test_hackerrank_agent_evaluation_all_roles() -> None:
     ):
         agent = HackerRankHiringAgent(role_name=role_name)
         result = agent.evaluate(sample_resume)
-        assert result["total_score"] >= 80
-        assert "scores" in result
-        assert len(result["scores"]) == 3
+
+        expected_max = sum(c.max for c in agent.role.categories)
+        assert result["max_possible"] == expected_max
+        assert result["total_score"] <= agent.role.max_final_score
+        assert result["total_score"] >= agent.role.min_final_score
+
+        assert set(result["scores"].keys()) == {c.key for c in agent.role.categories}
+        for cat in agent.role.categories:
+            cat_result = result["scores"][cat.key]
+            assert cat_result["max"] == cat.max
+            assert 0 <= cat_result["score"] <= cat.max
+
         report = format_hackerrank_report(result, role_name=role_name)
         assert "HACKERRANK HIRING AGENT SCORECARD" in report
         assert "CATEGORY SCORE BREAKDOWN:" in report
@@ -185,6 +335,7 @@ def test_check_upstream_status_403_rate_limited(monkeypatch) -> None:
 
     mock_resp = MagicMock()
     mock_resp.status_code = 403
+    mock_resp.headers = {"X-RateLimit-Remaining": "0"}
 
     monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
 
@@ -192,9 +343,102 @@ def test_check_upstream_status_403_rate_limited(monkeypatch) -> None:
     assert status["status"] == "rate_limited"
     assert status["remote_commit"] == "rate_limited"
     assert "rate limit reached" in status["message"]
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+    assert "falling back to cache" not in status["message"]
+
+
+def test_check_upstream_status_403_forbidden_not_rate_limited(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 403
+    mock_resp.headers = {}
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert status["remote_commit"] == "unknown"
+    assert "403" in status["message"]
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+
+
+def test_check_upstream_status_200_missing_sha(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {}
+    mock_resp.headers = {}
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert status["remote_commit"] == "unknown"
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+
+
+def test_check_upstream_status_200_invalid_json(monkeypatch) -> None:
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.headers = {}
+    mock_resp.json.side_effect = ValueError("invalid json")
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+
+
+def test_check_upstream_status_manifest_load_failure(monkeypatch, tmp_path) -> None:
+    from worksisyphus import hiring_agent
+
+    manifest_path = tmp_path / "upstream_manifest.json"
+    manifest_path.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setattr(hiring_agent, "UPSTREAM_MANIFEST_PATH", manifest_path)
+
+    status = hiring_agent.check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert status["local_commit"] == "unknown"
+    assert "NOT verified" in status["message"]
+    assert "passed" not in status["message"]
+
+
+def test_check_upstream_status_manifest_unicode_decode_failure(monkeypatch, tmp_path) -> None:
+    from worksisyphus import hiring_agent
+
+    manifest_path = tmp_path / "upstream_manifest.json"
+    manifest_path.write_bytes(b"\xff\xfe")
+    monkeypatch.setattr(hiring_agent, "UPSTREAM_MANIFEST_PATH", manifest_path)
+
+    status = hiring_agent.check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert "UnicodeDecodeError" in status["message"]
+    assert "NOT verified" in status["message"]
 
 
 def test_check_upstream_status_offline_timeout(monkeypatch) -> None:
+    """A network timeout must NOT be reported as a passed verification (see step 2 of WS7)."""
     import requests
 
     from worksisyphus.hiring_agent import check_upstream_status
@@ -205,9 +449,11 @@ def test_check_upstream_status_offline_timeout(monkeypatch) -> None:
     monkeypatch.setattr(requests, "get", fake_get)
 
     status = check_upstream_status()
-    assert status["status"] == "cached"
+    assert status["status"] == "unreachable"
     assert status["remote_commit"] == "offline"
-    assert "offline verification passed" in status["message"]
+    assert "passed" not in status["message"]
+    assert "NOT verified" in status["message"]
+    assert "Timeout" in status["message"]
 
 
 def test_check_upstream_status_token_ingestion(monkeypatch) -> None:
@@ -304,3 +550,129 @@ def test_load_role_normalizes_slug() -> None:
 
     role = load_role("Product Engineer")
     assert role.name == "product_engineer"
+
+
+def test_check_upstream_status_reports_an_unreachable_upstream(monkeypatch) -> None:
+    """A raised exception (network error, DNS failure, bad JSON, ...) must be reported as
+    unreachable and NOT verified -- never as a passed check. MUST FAIL before step 2's fix."""
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    def fake_get(*args, **kwargs):
+        raise requests.exceptions.RequestException("boom")
+
+    monkeypatch.setattr(requests, "get", fake_get)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert "passed" not in status["message"]
+    for key in (
+        "status",
+        "upstream_repo",
+        "local_commit",
+        "remote_commit",
+        "synced_date",
+        "reference_role",
+        "custom_tracks",
+        "message",
+    ):
+        assert key in status
+
+
+def test_check_upstream_status_reports_an_unexpected_http_status(monkeypatch) -> None:
+    """A status code not in {304, 200, 403} (e.g. a 500) must be reported as unreachable, not as
+    an implicit pass-through to the old 'cached'/'offline verification passed' fallback."""
+    from unittest.mock import MagicMock
+
+    import requests
+
+    from worksisyphus.hiring_agent import check_upstream_status
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 500
+
+    monkeypatch.setattr(requests, "get", lambda *args, **kwargs: mock_resp)
+
+    status = check_upstream_status()
+    assert status["status"] == "unreachable"
+    assert "500" in status["message"]
+    assert "passed" not in status["message"]
+
+
+def test_parse_env_tokens_ignores_comments_and_blank_lines() -> None:
+    from worksisyphus.hiring_agent import _parse_env_tokens
+
+    text = """
+    # a comment line
+
+    SOME_OTHER_VAR=irrelevant
+    GITHUB_TOKEN=ghp_abc123
+    """
+    assert _parse_env_tokens(text) == "ghp_abc123"
+    assert _parse_env_tokens("# only comments\n\n") is None
+
+
+def test_get_github_token_returns_none_for_an_unreadable_env(monkeypatch, tmp_path) -> None:
+    from pathlib import Path as PathClass
+
+    from worksisyphus.hiring_agent import _get_github_token
+
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("GH_TOKEN", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("GITHUB_TOKEN=irrelevant\n", encoding="utf-8")
+
+    def raising_read_text(self, *args, **kwargs):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(PathClass, "read_text", raising_read_text)
+
+    assert _get_github_token() is None
+
+
+def test_calculate_final_score_rejects_a_category_without_a_score() -> None:
+    """A category dict missing 'score' must raise, not silently contribute 0 to the total that
+    gets written into meta.json. MUST FAIL before step 4's fix."""
+    agent = HackerRankHiringAgent(role_name="software_engineering_intern")
+    eval_dict = {
+        "scores": {"open_source": {"max": 40, "evidence": "e"}},
+        "bonus_points": {"total": 0.0},
+        "deductions": {"total": 0.0},
+    }
+    with pytest.raises(ValueError, match="missing a numeric 'score'"):
+        agent._calculate_final_score(eval_dict)
+
+
+def test_calculate_final_score_rejects_missing_bonus_total() -> None:
+    agent = HackerRankHiringAgent(role_name="software_engineering_intern")
+    eval_dict = {
+        "scores": {"open_source": {"score": 30.0, "max": 35, "evidence": "e"}},
+        "bonus_points": {},
+        "deductions": {"total": 0.0},
+    }
+    with pytest.raises(ValueError, match="bonus_points is missing a numeric 'total'"):
+        agent._calculate_final_score(eval_dict)
+
+
+def test_calculate_final_score_rejects_non_numeric_deduction_total() -> None:
+    agent = HackerRankHiringAgent(role_name="software_engineering_intern")
+    eval_dict = {
+        "scores": {"open_source": {"score": 30.0, "max": 35, "evidence": "e"}},
+        "bonus_points": {"total": 0.0},
+        "deductions": {"total": "not-a-number"},
+    }
+    with pytest.raises(ValueError, match="deductions is missing a numeric 'total'"):
+        agent._calculate_final_score(eval_dict)
+
+
+def test_format_report_renders_a_synthesized_role_without_a_rubric_directory() -> None:
+    """A free-text role title with no curated rubric directory must not crash
+    format_hackerrank_report after evaluate() already succeeded. MUST FAIL before step 6's fix."""
+    agent = HackerRankHiringAgent("Founding Product Engineer", jd_text="Build things with Python.")
+    result = agent.evaluate("Simon Chen built production systems with Python and Kubernetes.")
+
+    report = format_hackerrank_report(result, role_name="Founding Product Engineer")
+    assert "HACKERRANK HIRING AGENT SCORECARD" in report
+    for cat in agent.role.categories:
+        assert cat.label in report

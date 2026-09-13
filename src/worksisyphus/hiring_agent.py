@@ -13,6 +13,40 @@ from pydantic import BaseModel, Field, create_model
 ROLES_DIR = Path(__file__).parent / "roles"
 UPSTREAM_MANIFEST_PATH = ROLES_DIR / "upstream_manifest.json"
 
+# HackerRankHiringAgent.evaluate() category-key -> multiplier groupings. This is a deliberate
+# keyword-match STUB (see class docstring / CLAUDE.md OUT-OF-SCOPE note): rewriting these values
+# is an escalated product decision for the user, not a refactor. Named here only to remove the
+# bare-float if/elif chain; every value and the branch ORDER below are unchanged from the
+# original stub, and test_evaluate_output_is_frozen in tests/test_hiring_agent.py proves it.
+OPEN_SOURCE_KEYS = frozenset({"open_source", "product_velocity"})
+OPEN_SOURCE_SIGNALS = ("github", "production")
+OPEN_SOURCE_HIT, OPEN_SOURCE_MISS = 0.90, 0.75
+
+COMPLEXITY_KEYS = frozenset(
+    {"self_projects", "agentic_systems", "systems_complexity", "quant_systems", "model_pipelines"}
+)
+COMPLEXITY_SIGNALS = ("latency", "concurrency", "engine")
+COMPLEXITY_HIT, COMPLEXITY_MISS = 0.92, 0.80
+
+# NOTE: "production" is a SIGNAL STRING in OPEN_SOURCE_SIGNALS above, and a distinct CATEGORY KEY
+# here. The if/elif chain in evaluate() checks OPEN_SOURCE_KEYS, then COMPLEXITY_KEYS, then
+# ARCHITECTURE_KEYS, in that exact order -- do not reorder.
+ARCHITECTURE_KEYS = frozenset(
+    {
+        "production",
+        "fullstack_arch",
+        "evals_latency",
+        "inference_compute",
+        "architecture_scale",
+        "numerical_compute",
+        "backend_systems",
+        "data_algorithms",
+    }
+)
+ARCHITECTURE_MULTIPLIER = 0.94
+
+DEFAULT_MULTIPLIER = 0.88
+
 
 @dataclass(frozen=True)
 class Category:
@@ -141,6 +175,21 @@ Provide strict, objective scores with cited evidence in valid JSON format.
     )
 
 
+def _parse_env_tokens(text: str) -> str | None:
+    """Extract a GITHUB_TOKEN or GH_TOKEN value from .env-file text, ignoring comments/blanks."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            k, v = line.split("=", 1)
+            if k.strip() in ("GITHUB_TOKEN", "GH_TOKEN"):
+                val = v.strip().strip("'\"")
+                if val:
+                    return val
+    return None
+
+
 def _get_github_token() -> str | None:
     """Retrieve GitHub token from environment or local .env file."""
     import os
@@ -151,19 +200,50 @@ def _get_github_token() -> str | None:
     env_file = Path(".env")
     if env_file.is_file():
         try:
-            for line in env_file.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line or line.startswith("#"):
-                    continue
-                if "=" in line:
-                    k, v = line.split("=", 1)
-                    if k.strip() in ("GITHUB_TOKEN", "GH_TOKEN"):
-                        val = v.strip().strip("'\"")
-                        if val:
-                            return val
-        except Exception:
-            pass
+            text = env_file.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return None
+        return _parse_env_tokens(text)
     return None
+
+
+def _upstream_result(
+    manifest: dict[str, Any],
+    *,
+    status: str,
+    remote_commit: str,
+    message: str,
+    etag: str | None,
+) -> dict[str, Any]:
+    """Build the eight-key upstream-status dict that cli.py reads (status, upstream_repo,
+    local_commit, remote_commit, synced_date, reference_role, custom_tracks, message)."""
+    synced_commit = manifest.get("synced_commit", "unknown")
+    return {
+        "status": status,
+        "upstream_repo": manifest.get("upstream_repo", "interviewstreet/hiring-agent"),
+        "local_commit": synced_commit[:7],
+        "remote_commit": remote_commit,
+        "synced_date": manifest.get("synced_date"),
+        "reference_role": manifest.get("upstream_reference_role"),
+        "custom_tracks": manifest.get("custom_tracks", []),
+        "etag": etag,
+        "message": message,
+    }
+
+
+def _manifest_load_failure(exc: BaseException) -> dict[str, Any]:
+    """Structured upstream status when the local manifest cannot be read or parsed."""
+    return {
+        "status": "unreachable",
+        "upstream_repo": "interviewstreet/hiring-agent",
+        "local_commit": "unknown",
+        "remote_commit": "unknown",
+        "synced_date": None,
+        "reference_role": None,
+        "custom_tracks": [],
+        "etag": None,
+        "message": f"Failed to load upstream manifest ({type(exc).__name__}: {exc}); tracked commit NOT verified.",
+    }
 
 
 def check_upstream_status() -> dict[str, Any]:
@@ -174,7 +254,11 @@ def check_upstream_status() -> dict[str, Any]:
             "message": "No upstream manifest file found.",
         }
 
-    manifest = json.loads(UPSTREAM_MANIFEST_PATH.read_text(encoding="utf-8"))
+    try:
+        manifest = json.loads(UPSTREAM_MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        return _manifest_load_failure(exc)
+
     synced_commit = manifest.get("synced_commit", "unknown")
     upstream_repo = manifest.get("upstream_repo", "interviewstreet/hiring-agent")
     cached_etag = manifest.get("etag")
@@ -196,65 +280,88 @@ def check_upstream_status() -> dict[str, Any]:
         resp = requests.get(url, headers=headers, timeout=2)
 
         if resp.status_code == 304:
-            return {
-                "status": "synced",
-                "upstream_repo": upstream_repo,
-                "local_commit": synced_commit[:7],
-                "remote_commit": synced_commit[:7],
-                "synced_date": manifest.get("synced_date"),
-                "reference_role": manifest.get("upstream_reference_role"),
-                "custom_tracks": manifest.get("custom_tracks", []),
-                "etag": cached_etag,
-                "message": "Local rubrics are up to date with HackerRank upstream (ETag verified 304 Not Modified).",
-            }
+            return _upstream_result(
+                manifest,
+                status="synced",
+                remote_commit=synced_commit[:7],
+                etag=cached_etag,
+                message="Local rubrics are up to date with HackerRank upstream (ETag verified 304 Not Modified).",
+            )
 
         if resp.status_code == 200:
-            data = resp.json()
+            try:
+                data = resp.json()
+            except (ValueError, json.JSONDecodeError) as exc:
+                return _upstream_result(
+                    manifest,
+                    status="unreachable",
+                    remote_commit="unknown",
+                    etag=cached_etag,
+                    message=(
+                        f"Upstream returned invalid JSON ({type(exc).__name__}: {exc}); "
+                        f"tracked commit {synced_commit[:7]} NOT verified."
+                    ),
+                )
             remote_commit = data.get("sha", "")
+            if not remote_commit:
+                return _upstream_result(
+                    manifest,
+                    status="unreachable",
+                    remote_commit="unknown",
+                    etag=cached_etag,
+                    message=(
+                        f"Upstream returned HTTP 200 without a commit SHA; "
+                        f"tracked commit {synced_commit[:7]} NOT verified."
+                    ),
+                )
             remote_etag = resp.headers.get("ETag") or cached_etag
-            is_synced = bool(
-                remote_commit and (remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit))
-            )
-            return {
-                "status": "synced" if is_synced else "outdated",
-                "upstream_repo": upstream_repo,
-                "local_commit": synced_commit[:7],
-                "remote_commit": remote_commit[:7] if remote_commit else "unknown",
-                "synced_date": manifest.get("synced_date"),
-                "reference_role": manifest.get("upstream_reference_role"),
-                "custom_tracks": manifest.get("custom_tracks", []),
-                "etag": remote_etag,
-                "message": "Local rubrics are up to date with HackerRank upstream."
+            is_synced = bool(remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit))
+            return _upstream_result(
+                manifest,
+                status="synced" if is_synced else "outdated",
+                remote_commit=remote_commit[:7] if remote_commit else "unknown",
+                etag=remote_etag,
+                message="Local rubrics are up to date with HackerRank upstream."
                 if is_synced
                 else f"Upstream update available ({synced_commit[:7]} -> {remote_commit[:7]}).",
-            }
+            )
 
         if resp.status_code == 403:
-            return {
-                "status": "rate_limited",
-                "upstream_repo": upstream_repo,
-                "local_commit": synced_commit[:7],
-                "remote_commit": "rate_limited",
-                "synced_date": manifest.get("synced_date"),
-                "reference_role": manifest.get("upstream_reference_role"),
-                "custom_tracks": manifest.get("custom_tracks", []),
-                "etag": cached_etag,
-                "message": f"GitHub API rate limit reached. Tracked upstream commit: {synced_commit[:7]} (falling back to cache).",
-            }
-    except Exception:
-        pass
+            remaining = resp.headers.get("X-RateLimit-Remaining")
+            if remaining is not None and remaining == "0":
+                return _upstream_result(
+                    manifest,
+                    status="rate_limited",
+                    remote_commit="rate_limited",
+                    etag=cached_etag,
+                    message=(
+                        f"GitHub API rate limit reached. Tracked upstream commit: {synced_commit[:7]} NOT verified."
+                    ),
+                )
+            return _upstream_result(
+                manifest,
+                status="unreachable",
+                remote_commit="unknown",
+                etag=cached_etag,
+                message=f"Upstream returned HTTP 403 (forbidden); tracked commit {synced_commit[:7]} NOT verified.",
+            )
 
-    return {
-        "status": "cached",
-        "upstream_repo": upstream_repo,
-        "local_commit": synced_commit[:7],
-        "remote_commit": "offline",
-        "synced_date": manifest.get("synced_date"),
-        "reference_role": manifest.get("upstream_reference_role"),
-        "custom_tracks": manifest.get("custom_tracks", []),
-        "etag": cached_etag,
-        "message": f"Tracked upstream commit: {synced_commit[:7]} (offline verification passed).",
-    }
+        return _upstream_result(
+            manifest,
+            status="unreachable",
+            remote_commit="unknown",
+            etag=cached_etag,
+            message=f"Upstream returned HTTP {resp.status_code}; tracked commit {synced_commit[:7]} NOT verified.",
+        )
+    except Exception as exc:
+        return _upstream_result(
+            manifest,
+            status="unreachable",
+            remote_commit="offline",
+            etag=cached_etag,
+            message=f"Upstream check failed ({type(exc).__name__}: {exc}); falling back to the tracked commit "
+            f"{synced_commit[:7]}, which was NOT verified.",
+        )
 
 
 def build_evaluation_model(role: Role) -> type[BaseModel]:
@@ -300,34 +407,25 @@ class HackerRankHiringAgent:
 
         for cat in self.role.categories:
             key = cat.key
-            if key in ("open_source", "product_velocity"):
+            if key in OPEN_SOURCE_KEYS:
                 score = (
-                    round(cat.max * 0.90, 1)
-                    if ("github" in lower or "production" in lower)
-                    else round(cat.max * 0.75, 1)
+                    round(cat.max * OPEN_SOURCE_HIT, 1)
+                    if any(sig in lower for sig in OPEN_SOURCE_SIGNALS)
+                    else round(cat.max * OPEN_SOURCE_MISS, 1)
                 )
                 evidence = f"Demonstrated ownership and delivery in {cat.label}."
-            elif key in ("self_projects", "agentic_systems", "systems_complexity", "quant_systems", "model_pipelines"):
+            elif key in COMPLEXITY_KEYS:
                 score = (
-                    round(cat.max * 0.92, 1)
-                    if ("latency" in lower or "concurrency" in lower or "engine" in lower)
-                    else round(cat.max * 0.80, 1)
+                    round(cat.max * COMPLEXITY_HIT, 1)
+                    if any(sig in lower for sig in COMPLEXITY_SIGNALS)
+                    else round(cat.max * COMPLEXITY_MISS, 1)
                 )
                 evidence = f"High-complexity engineering with verified technical depth in {cat.label}."
-            elif key in (
-                "production",
-                "fullstack_arch",
-                "evals_latency",
-                "inference_compute",
-                "architecture_scale",
-                "numerical_compute",
-                "backend_systems",
-                "data_algorithms",
-            ):
-                score = round(cat.max * 0.94, 1)
+            elif key in ARCHITECTURE_KEYS:
+                score = round(cat.max * ARCHITECTURE_MULTIPLIER, 1)
                 evidence = f"Strong architecture, scale, and deployment track record in {cat.label}."
             else:
-                score = round(cat.max * 0.88, 1)
+                score = round(cat.max * DEFAULT_MULTIPLIER, 1)
                 evidence = f"Quantified metrics and verified impact in {cat.label}."
 
             scores[key] = {
@@ -357,11 +455,20 @@ class HackerRankHiringAgent:
     def _calculate_final_score(self, eval_dict: dict[str, Any]) -> dict[str, Any]:
         """Calculate the total score, category totals, and final percentage."""
         scores = eval_dict.get("scores", {})
-        cat_total = sum(float(c.get("score", 0)) for c in scores.values())
+        try:
+            cat_total = sum(float(c["score"]) for c in scores.values())
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"Category score dict is missing a numeric 'score': {exc}") from exc
         max_possible = sum(cat.max for cat in self.role.categories)
 
-        bonus = float(eval_dict.get("bonus_points", {}).get("total", 0))
-        deductions = float(eval_dict.get("deductions", {}).get("total", 0))
+        try:
+            bonus = float(eval_dict.get("bonus_points", {})["total"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"bonus_points is missing a numeric 'total': {exc}") from exc
+        try:
+            deductions = float(eval_dict.get("deductions", {})["total"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"deductions is missing a numeric 'total': {exc}") from exc
 
         final_score = max(
             self.role.min_final_score,
@@ -376,18 +483,32 @@ class HackerRankHiringAgent:
 
 def format_hackerrank_report(eval_data: dict[str, Any], role_name: str) -> str:
     """Format the 1:1 HackerRank evaluation output into an official terminal scorecard."""
-    role = load_role(role_name)
+    try:
+        role = load_role(role_name)
+        position_title = role.position_title
+        max_final_score = role.max_final_score
+        categories = role.categories
+    except FileNotFoundError:
+        # A synthesized (JD-derived) rubric has no directory on disk (load_role only persists
+        # curated rubrics); render straight from the evaluation result instead of re-deriving one.
+        position_title = eval_data.get("role_title", role_name.replace("_", " ").title())
+        max_final_score = 110
+        categories = [
+            Category(key=k, label=k.replace("_", " ").title(), max=int(v.get("max", 0)))
+            for k, v in eval_data.get("scores", {}).items()
+        ]
+
     lines = [
         "=" * 68,
-        f"HACKERRANK HIRING AGENT SCORECARD: {role.position_title.upper()}",
+        f"HACKERRANK HIRING AGENT SCORECARD: {position_title.upper()}",
         "=" * 68,
-        f"Overall Candidate Score: {eval_data.get('total_score', 0):.1f} / {role.max_final_score} points",
+        f"Overall Candidate Score: {eval_data.get('total_score', 0):.1f} / {max_final_score} points",
         "-" * 68,
         "CATEGORY SCORE BREAKDOWN:",
     ]
 
     scores = eval_data.get("scores", {})
-    for cat in role.categories:
+    for cat in categories:
         cat_data = scores.get(cat.key, {})
         score_val = cat_data.get("score", 0)
         max_val = cat_data.get("max", cat.max)
