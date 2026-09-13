@@ -142,6 +142,20 @@ CREATE TABLE IF NOT EXISTS applications (
 CREATE INDEX IF NOT EXISTS idx_audit_events_entity ON audit_events (entity_type, id DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events (timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_applications_date ON applications (date DESC);
+
+-- audit_events is documented as an append-only audit trail; enforce that mechanically
+-- (CLAUDE.md: enforce a constraint in code, not in a comment) rather than by convention alone.
+CREATE TRIGGER IF NOT EXISTS trg_audit_events_no_update
+BEFORE UPDATE ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit_events is append-only: UPDATE is not permitted');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_audit_events_no_delete
+BEFORE DELETE ON audit_events
+BEGIN
+    SELECT RAISE(ABORT, 'audit_events is append-only: DELETE is not permitted');
+END;
 """
 
 
@@ -234,10 +248,146 @@ def _log_change(
         log_audit_event(conn, entity_type, entity_id, ACTION_UPDATE, commit=False, **kwargs)
 
 
-#: What to do when profile.json exists but its contact block is scrubbed. The database is
-#: presumed *good* here -- it is the copy this refusal protects -- so the direction of repair
-#: is DB -> profile, the opposite of `_DB_CONTACT_RECOVERY_HINT`. Naming `db sync` here would
-#: be actively destructive: it is the command that just failed, and re-running it is exactly
+_BULLET_TABLES = ("experience_bullets", "project_bullets")
+_BULLET_FK_COLUMNS = ("experience_slug", "project_slug")
+
+
+def _seed_bullets(
+    conn: sqlite3.Connection,
+    table: str,
+    fk_column: str,
+    entity_type: str,
+    owner_slug: str,
+    bullets: dict[str, str],
+    prior: dict[Any, tuple[Any, ...]],
+    seen: set[Any],
+) -> None:
+    """Insert one owner's bullets and audit-log genuine changes.
+
+    `table` and `fk_column` are interpolated into SQL below. Both are module-local literals
+    (never user input), but membership is asserted against a frozen tuple so a typo fails
+    loudly here instead of producing a confusing runtime SQL error.
+    """
+    assert table in _BULLET_TABLES, f"unknown bullet table: {table!r}"
+    assert fk_column in _BULLET_FK_COLUMNS, f"unknown bullet fk column: {fk_column!r}"
+    for j, (b_slug, b_text) in enumerate(bullets.items()):
+        conn.execute(
+            f"""
+            INSERT INTO {table} ({fk_column}, slug, text, sort_order)
+            VALUES (?, ?, ?, ?)
+            """,
+            (owner_slug, b_slug, b_text, j),
+        )
+        seen.add((owner_slug, b_slug))
+        _log_change(
+            conn,
+            prior,
+            (owner_slug, b_slug),
+            (b_text, j),
+            entity_type,
+            f"{owner_slug}.{b_slug}",
+            new_value=b_text,
+        )
+
+
+def _load_application_meta(app_dir: Path) -> dict[str, Any]:
+    """Read and validate an application folder's meta.json.
+
+    Kept local to db.py (not imported from application.py) so the store layer stays
+    independent of the lifecycle path. Uses the same message prefix as application.py.
+    """
+    meta_file = app_dir / "meta.json"
+    if not meta_file.is_file():
+        raise ValueError(f"Missing meta.json in {app_dir}; the application folder is incomplete.")
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Invalid meta.json in {app_dir}: {exc}") from exc
+    if not isinstance(meta, dict):
+        raise ValueError(f"Invalid meta.json in {app_dir}: expected a JSON object.")
+    return meta
+
+
+def _preflight_application_metas(applications_dir: Path) -> None:
+    """Validate every application meta.json before seed_database mutates the schema."""
+    if not applications_dir.is_dir():
+        return
+    for d in sorted(applications_dir.iterdir()):
+        if not d.is_dir() or d.name.startswith("."):
+            continue
+        _load_application_meta(d)
+
+
+def _seed_applications(
+    conn: sqlite3.Connection,
+    applications_dir: Path,
+    prior_applications: dict[Any, tuple[Any, ...]],
+) -> None:
+    """Merge applications/ folders on disk into the applications table.
+
+    Runs inside seed_database's transaction: the ghost-row deletion below must commit
+    together with everything else, or a partial reseed could leave the DB and the audit
+    trail disagreeing about which applications exist.
+    """
+    seen_applications: set[str] = set()
+    if applications_dir.is_dir():
+        for d in sorted(applications_dir.iterdir()):
+            if not d.is_dir() or d.name.startswith("."):
+                continue
+            meta = _load_application_meta(d)
+            jd_file = d / "jd.txt"
+            plan_file = d / "plan.json"
+            # Strip to the same canonical form apply() stores, so DB and disk compare exactly.
+            jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
+            plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
+            evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO applications
+                    (id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    d.name,
+                    meta.get("company", ""),
+                    meta.get("role", ""),
+                    meta.get("date", ""),
+                    meta.get("source_url", ""),
+                    meta.get("status", "applied"),
+                    jd_text,
+                    plan_json,
+                    evaluation_json,
+                ),
+            )
+            seen_applications.add(d.name)
+            _log_change(
+                conn,
+                prior_applications,
+                d.name,
+                (
+                    meta.get("company", ""),
+                    meta.get("role", ""),
+                    meta.get("date", ""),
+                    meta.get("source_url", ""),
+                    meta.get("status", "applied"),
+                    jd_text,
+                    plan_json,
+                    evaluation_json,
+                ),
+                "application",
+                d.name,
+                action_new=ACTION_APPLY,
+                metadata=meta,
+            )
+
+    # Ghost rows. A DB application whose folder no longer exists on disk (partial restore,
+    # manual removal) would otherwise survive every reseed and trip the FS<->DB consistency
+    # test; delete it inside the same transaction, with an audit event like other removals.
+    for removed_id in sorted(set(prior_applications) - seen_applications):
+        conn.execute("DELETE FROM applications WHERE id = ?", (removed_id,))
+        log_audit_event(conn, "application", removed_id, ACTION_DELETE, commit=False)
+
+
 def seed_database(
     conn: sqlite3.Connection,
     profile_path: Path = Path("profile.json"),
@@ -258,6 +408,8 @@ def seed_database(
         validate_contact(loaded.contact, source=str(profile_path))
     except ValueError as exc:
         raise ValueError(f"Refusing to seed the database: {exc}") from exc
+
+    _preflight_application_metas(applications_dir)
 
     data = profile_to_dict(loaded)
 
@@ -374,24 +526,16 @@ def seed_database(
             slug,
             metadata=exp,
         )
-        for j, (b_slug, b_text) in enumerate(exp.get("bullets", {}).items()):
-            conn.execute(
-                """
-                INSERT INTO experience_bullets (experience_slug, slug, text, sort_order)
-                VALUES (?, ?, ?, ?)
-                """,
-                (slug, b_slug, b_text, j),
-            )
-            seen_exp_bullets.add((slug, b_slug))
-            _log_change(
-                conn,
-                prior_exp_bullets,
-                (slug, b_slug),
-                (b_text, j),
-                "experience_bullet",
-                f"{slug}.{b_slug}",
-                new_value=b_text,
-            )
+        _seed_bullets(
+            conn,
+            "experience_bullets",
+            "experience_slug",
+            "experience_bullet",
+            slug,
+            exp.get("bullets", {}),
+            prior_exp_bullets,
+            seen_exp_bullets,
+        )
 
     # 4. Projects & bullets
     conn.execute("DELETE FROM project_bullets")
@@ -414,24 +558,16 @@ def seed_database(
             slug,
             metadata=proj,
         )
-        for j, (b_slug, b_text) in enumerate(proj.get("bullets", {}).items()):
-            conn.execute(
-                """
-                INSERT INTO project_bullets (project_slug, slug, text, sort_order)
-                VALUES (?, ?, ?, ?)
-                """,
-                (slug, b_slug, b_text, j),
-            )
-            seen_proj_bullets.add((slug, b_slug))
-            _log_change(
-                conn,
-                prior_proj_bullets,
-                (slug, b_slug),
-                (b_text, j),
-                "project_bullet",
-                f"{slug}.{b_slug}",
-                new_value=b_text,
-            )
+        _seed_bullets(
+            conn,
+            "project_bullets",
+            "project_slug",
+            "project_bullet",
+            slug,
+            proj.get("bullets", {}),
+            prior_proj_bullets,
+            seen_proj_bullets,
+        )
 
     # 5. Skills
     conn.execute("DELETE FROM skills")
@@ -472,70 +608,9 @@ def seed_database(
             entity_id = ".".join(removed) if isinstance(removed, tuple) else str(removed)
             log_audit_event(conn, entity_type, entity_id, ACTION_DELETE, commit=False)
 
-    # 6. Applications (merge from applications_dir without clobbering existing DB records)
-    seen_applications: set[str] = set()
-    if applications_dir.is_dir():
-        for d in sorted(applications_dir.iterdir()):
-            if not d.is_dir() or d.name.startswith("."):
-                continue
-            meta_file = d / "meta.json"
-            jd_file = d / "jd.txt"
-            plan_file = d / "plan.json"
-            if not meta_file.is_file():
-                continue
-            try:
-                meta = json.loads(meta_file.read_text(encoding="utf-8"))
-            except Exception:
-                continue
-            # Strip to the same canonical form apply() stores, so DB and disk compare exactly.
-            jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
-            plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
-            evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO applications
-                    (id, company, role, date, source_url, status, jd_text, plan_json, evaluation_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    d.name,
-                    meta.get("company", ""),
-                    meta.get("role", ""),
-                    meta.get("date", ""),
-                    meta.get("source_url", ""),
-                    meta.get("status", "applied"),
-                    jd_text,
-                    plan_json,
-                    evaluation_json,
-                ),
-            )
-            seen_applications.add(d.name)
-            _log_change(
-                conn,
-                prior_applications,
-                d.name,
-                (
-                    meta.get("company", ""),
-                    meta.get("role", ""),
-                    meta.get("date", ""),
-                    meta.get("source_url", ""),
-                    meta.get("status", "applied"),
-                    jd_text,
-                    plan_json,
-                    evaluation_json,
-                ),
-                "application",
-                d.name,
-                action_new=ACTION_APPLY,
-                metadata=meta,
-            )
-
-    # 6b. Ghost rows. A DB application whose folder no longer exists on disk (partial restore,
-    #     manual removal) would otherwise survive every reseed and trip the FS<->DB consistency
-    #     test; delete it inside the same transaction, with an audit event like other removals.
-    for removed_id in sorted(set(prior_applications) - seen_applications):
-        conn.execute("DELETE FROM applications WHERE id = ?", (removed_id,))
-        log_audit_event(conn, "application", removed_id, ACTION_DELETE, commit=False)
+    # 6. Applications (merge from applications_dir without clobbering existing DB records;
+    #    includes ghost-row deletion, in the same transaction).
+    _seed_applications(conn, applications_dir, prior_applications)
 
     conn.commit()
 

@@ -525,7 +525,7 @@ def list_applications(applications_dir: Path | None = None) -> list[dict[str, st
             raise ValueError(f"Missing meta.json in {folder}; the application folder is incomplete.")
         try:
             data = json.loads(meta_file.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
+        except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
             raise ValueError(f"Invalid meta.json in {folder}: {exc}") from exc
         if not isinstance(data, dict):
             raise ValueError(f"Invalid meta.json in {folder}: expected a JSON object.")
