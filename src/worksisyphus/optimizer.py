@@ -258,21 +258,27 @@ def _text_match_variants(text: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(v for v in (lower, spaced, hyphened) if v))
 
 
-def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
-    """Whole-token keyword search over already-lowercased text.
+def _mentions_literal(text_lower: str, keywords: tuple[str, ...]) -> bool:
+    """Whole-token keyword search on literal lowercased JD text.
 
     Plain substring matching is unusable here: 'ui' occurs inside 'building', 'ux' inside
     'luxury', 'quant' inside 'quantify'. Word boundaries are expressed with alphanumeric
     lookarounds rather than \\b so that keywords ending in punctuation ('c++', 'next.js')
-    still match.
+    still match. Separator variants are not applied — synthesizing hyphens from spaced JD
+    prose (e.g. ``low latency customer support`` -> ``low-latency``) would false-positive.
+    """
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", text_lower) for kw in keywords)
 
-    Checks separator variants (spaces, hyphens, underscores) so role titles like
-    ``Front-End Engineer`` still hit ``front-end`` and ``Low Latency Engineer`` hits
-    ``low-latency``.
+
+def _mentions_role(role_name: str, keywords: tuple[str, ...]) -> bool:
+    """Whole-token keyword search with separator variants for role titles.
+
+    Apply-style titles like ``Front-End Engineer`` normalize to spaced forms that miss
+    hyphenated keywords unless hyphenated and original forms are also checked.
     """
     return any(
         re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", variant)
-        for variant in _text_match_variants(text)
+        for variant in _text_match_variants(role_name)
         for kw in keywords
     )
 
@@ -294,22 +300,21 @@ def apply_selection_guardrails(
     jd_lower = jd_text.lower()
 
     # 1. BU IT gate: only selected for IT/support/security roles
-    is_it_role = _mentions(jd_lower, IT_KEYWORDS) or _mentions(role_name, IT_KEYWORDS)
+    is_it_role = _mentions_literal(jd_lower, IT_KEYWORDS) or _mentions_role(role_name, IT_KEYWORDS)
     filtered_exp = [e for e in experiences if e.slug != BU_IT_SLUG or is_it_role]
 
-    is_systems_quant = _mentions(jd_lower, SYSTEMS_QUANT_KEYWORDS) or _mentions(role_name, SYSTEMS_QUANT_KEYWORDS)
-    is_engineering = (
-        is_systems_quant
-        or _mentions(jd_lower, ENGINEERING_KEYWORDS)
-        or _mentions(role_name, ENGINEERING_KEYWORDS)
-    )
+    jd_is_systems_quant = _mentions_literal(jd_lower, SYSTEMS_QUANT_KEYWORDS)
+    jd_is_engineering = jd_is_systems_quant or _mentions_literal(jd_lower, ENGINEERING_KEYWORDS)
+    is_systems_quant = jd_is_systems_quant or _mentions_role(role_name, SYSTEMS_QUANT_KEYWORDS)
+    is_engineering = is_systems_quant or jd_is_engineering or _mentions_role(role_name, ENGINEERING_KEYWORDS)
 
     # 2. Weak-project gate. The rule is "the JD *is* a mobile / civic / blockchain role", not
     #    "the JD mentions the word" -- a backend posting that happens to say "mobile clients" must
     #    not admit fitness-tracker as filler. The role title is the strongest signal, so it can
-    #    admit a domain even when the posting also reads as engineering-heavy.
+    #    admit a domain even when the posting also reads as engineering-heavy. Only JD-derived
+    #    engineering suppresses JD domain keywords; a backend role title must not block a civic JD.
     def _is_role(keywords: tuple[str, ...]) -> bool:
-        return _mentions(role_name, keywords) or (_mentions(jd_lower, keywords) and not is_engineering)
+        return _mentions_role(role_name, keywords) or (_mentions_literal(jd_lower, keywords) and not jd_is_engineering)
 
     has_mobile = _is_role(MOBILE_KEYWORDS)
     has_civic = _is_role(CIVIC_KEYWORDS)
@@ -318,11 +323,9 @@ def apply_selection_guardrails(
     # 3. Personal-website gate: frontend/fullstack/web-infra/edge only; never quant/systems/infra.
     # A frontend role title alone cannot override an engineering JD — the posting must also
     # signal frontend/fullstack work, or personal-website weakens backend/systems resumes.
-    jd_has_frontend = _mentions(jd_lower, FRONTEND_KEYWORDS)
-    is_frontend_web = jd_has_frontend or _mentions(role_name, FRONTEND_KEYWORDS)
-    allow_personal_website = (
-        is_frontend_web and not is_systems_quant and not (is_engineering and not jd_has_frontend)
-    )
+    jd_has_frontend = _mentions_literal(jd_lower, FRONTEND_KEYWORDS)
+    is_frontend_web = jd_has_frontend or _mentions_role(role_name, FRONTEND_KEYWORDS)
+    allow_personal_website = is_frontend_web and not is_systems_quant and not (is_engineering and not jd_has_frontend)
 
     filtered_proj = [
         p

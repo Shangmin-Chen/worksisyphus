@@ -7,14 +7,17 @@ import json
 import pytest
 
 from worksisyphus.evaluator import selection_to_plain_text
+from worksisyphus.hiring_agent import HackerRankHiringAgent
 from worksisyphus.optimizer import (
     GUARDED_SLUGS,
     OptimizerError,
     ScoredBullet,
     ScoredEntry,
+    apply_selection_guardrails,
     format_optimization_report,
     generate_candidate_plans,
     optimize_plan,
+    score_and_rank_entries,
     solve_line_budget_knapsack,
 )
 from worksisyphus.profile import Contact, Education, Experience, Profile, Project
@@ -255,6 +258,25 @@ def test_quant_role_never_admits_personal_website_even_from_the_role_title(real_
 
 def test_civic_jd_admits_spark_food_waste(real_profile: Profile) -> None:
     civic_jd = "Non-profit climate and food waste platform engineer."
+    candidates = generate_candidate_plans(real_profile, civic_jd, role_name="software_engineer")
+    all_projects = {p for c in candidates for p in c.get("projects", {})}
+    assert "spark-food-waste" in all_projects
+
+
+def test_civic_jd_admits_spark_food_waste_with_engineering_role_title(real_profile: Profile) -> None:
+    """An engineering role title must not suppress JD-side civic domain keywords."""
+    civic_jd = "Non-profit climate and food waste platform engineer."
+    agent = HackerRankHiringAgent(role_name="backend_engineer", jd_text=civic_jd)
+    _exps, projs = score_and_rank_entries(real_profile, agent)
+    _filtered_exps, filtered_projs = apply_selection_guardrails(
+        _exps, projs, civic_jd, role_name="backend_engineer"
+    )
+    assert any(p.slug == "spark-food-waste" for p in filtered_projs)
+
+
+def test_jd_literal_matching_avoids_spaced_low_latency_false_positive(real_profile: Profile) -> None:
+    """Spaced JD prose must not synthesize hyphenated engineering keywords via variants."""
+    civic_jd = "Non-profit climate and food waste platform with low latency delivery."
     candidates = generate_candidate_plans(real_profile, civic_jd, role_name="software_engineer")
     all_projects = {p for c in candidates for p in c.get("projects", {})}
     assert "spark-food-waste" in all_projects
