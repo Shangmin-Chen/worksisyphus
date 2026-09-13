@@ -626,6 +626,25 @@ def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatc
     assert backfill_evaluations(applications_dir=apps) == []
 
 
+def test_backfill_skips_unparseable_resume_pdf(small_profile, monkeypatch, tmp_path) -> None:
+    from worksisyphus.application import backfill_evaluations
+
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_oldco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(json.dumps({"company": "OldCo", "role": "SWE", "status": "applied"}))
+    (folder / "jd.txt").write_text("Python backend engineer.")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"not a pdf")
+
+    logs: list[str] = []
+
+    scored = backfill_evaluations(applications_dir=apps, log=logs.append)
+
+    assert scored == []
+    assert "could not extract resume text" in logs[0]
+    assert "evaluation" not in json.loads((folder / "meta.json").read_text())
+
+
 def test_parse_app_folder_handles_legacy_names() -> None:
     # Legacy pre-#34 stems with literal underscores and hyphen-digits are never ordinals.
     assert parse_app_folder("2026-07-09_bosch_software_engineer_ii") == (

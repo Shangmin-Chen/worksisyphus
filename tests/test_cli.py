@@ -271,6 +271,17 @@ def test_cli_evaluate_missing_app_error(capsys) -> None:
     assert "error:" in err
 
 
+def test_cli_evaluate_hackerrank_rejects_unparseable_pdf(tmp_path, capsys) -> None:
+    pdf = tmp_path / "broken.pdf"
+    pdf.write_bytes(b"not a pdf")
+
+    ret = cli.main(["evaluate", "--hackerrank", "--resume", str(pdf), "--role", "software_engineer"])
+
+    assert ret == 1
+    err = capsys.readouterr().err
+    assert "error: could not extract resume text" in err
+
+
 def test_cli_evaluate_hackerrank_mode(capsys) -> None:
     ret = cli.main(["evaluate", "--hackerrank", "--role", "startup_product_engineer"])
     assert ret == 0

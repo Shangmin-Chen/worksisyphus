@@ -51,6 +51,16 @@ class ATSCheckResult(NamedTuple):
     warnings: tuple[str, ...] = ()
 
 
+def scoring_text(result: ATSCheckResult) -> str | None:
+    """Return extracted text for evaluator paths, or None when extraction failed.
+
+    Callers that only need pdfminer output must not treat an empty string as a real resume:
+    check_pdf_ats no longer raises on malformed PDFs, so a failed extraction yields
+    passed=False and text="" — scoring that produces a bogus low score.
+    """
+    return result.text if result.text.strip() else None
+
+
 def check_pdf_ats(
     pdf_path: Path,
     name: str = "",
