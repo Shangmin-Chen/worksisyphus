@@ -242,14 +242,30 @@ def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypat
     assert "contact" not in tables, "a refused seed must not leave a half-built database behind"
 
 
-def test_db_sync_survives_turso_sync_exception(monkeypatch, tmp_path, capsys) -> None:
-    """An exception escaping sync_to_turso must not fail the whole `db sync` command.
+_MINIMAL_VALID_PROFILE = {
+    "contact": {
+        "name": "Real Person",
+        "email": "real.person@fastmail.dev",
+        "phone": "617-266-1810",
+        "website": "",
+        "github": "",
+        "linkedin": "",
+    },
+    "education": [],
+    "experiences": {},
+    "projects": {},
+    "skills": {},
+}
 
-    Before this guard, cli.py called sync_to_turso directly with no try/except, so an exception
-    raised inside it (a network error, an unexpected Turso CLI failure, ...) propagated to
-    main()'s top-level handler, which printed a generic "error: ..." and returned 1 -- even
-    though the local seed into SQLite had already succeeded. The fix catches it and reports a
-    plain sync failure instead, mirroring application.py's _sync_cloud.
+
+def test_db_sync_fails_closed_on_turso_sync_exception(monkeypatch, tmp_path, capsys) -> None:
+    """`db sync`'s only job is the Turso push, so a failed push must fail the whole command.
+
+    An exception escaping sync_to_turso (network error, unexpected Turso CLI failure, ...) is
+    caught, logged with its message, and normalized to a plain False -- but for `db sync`, unlike
+    `db init` below, that False is this command's failure mode, not a warning: syncing is the
+    entire point, so a caller checking `$?` (a script, a CI step) must never see exit 0 when
+    nothing reached Turso. This pins exit 1 and the printed reason for the exception case.
     """
     from worksisyphus import db
 
@@ -262,31 +278,43 @@ def test_db_sync_survives_turso_sync_exception(monkeypatch, tmp_path, capsys) ->
     monkeypatch.setattr(db, "sync_to_turso", _boom)
 
     monkeypatch.chdir(tmp_path)
-    Path("profile.json").write_text(
-        json.dumps(
-            {
-                "contact": {
-                    "name": "Real Person",
-                    "email": "real.person@fastmail.dev",
-                    "phone": "617-266-1810",
-                    "website": "",
-                    "github": "",
-                    "linkedin": "",
-                },
-                "education": [],
-                "experiences": {},
-                "projects": {},
-                "skills": {},
-            }
-        ),
-        encoding="utf-8",
-    )
+    Path("profile.json").write_text(json.dumps(_MINIMAL_VALID_PROFILE), encoding="utf-8")
 
     ret = cli.main(["db", "sync"])
+    captured = capsys.readouterr()
+    assert ret == 1
+    assert "Warning: Turso cloud sync failed: network unreachable" in captured.out
+    assert "Synced profile.json to SQLite and Turso cloud (skipped / failed)" in captured.out
+    assert captured.err.startswith("error: ")
+    assert "Turso cloud sync did not complete" in captured.err
+
+
+def test_db_init_survives_turso_sync_exception(monkeypatch, tmp_path, capsys) -> None:
+    """Companion to the `db sync` test above, pinning the intentional asymmetry between the two.
+
+    `db init`'s job is create-and-seed; the Turso push alongside it is a documented bonus
+    (application.py's "cloud sync (reported, non-fatal)" pattern), so the same exception that
+    fails `db sync` must leave `db init` at exit 0 with a warning, not fail it.
+    """
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+
+    def _boom(*args: object, **kwargs: object) -> bool:
+        raise RuntimeError("network unreachable")
+
+    monkeypatch.setattr(db, "sync_to_turso", _boom)
+
+    monkeypatch.chdir(tmp_path)
+    Path("profile.json").write_text(json.dumps(_MINIMAL_VALID_PROFILE), encoding="utf-8")
+
+    ret = cli.main(["db", "init"])
+    captured = capsys.readouterr()
     assert ret == 0
-    out = capsys.readouterr().out
-    assert "Warning: Turso cloud sync failed: network unreachable" in out
-    assert "Synced profile.json to SQLite and Turso cloud (skipped / failed)" in out
+    assert "Initialized and seeded" in captured.out
+    assert "Warning: Turso cloud sync failed: network unreachable" in captured.out
+    assert "Turso cloud sync: skipped / failed" in captured.out
 
 
 def test_cli_evaluate_with_stdin_and_resume(capsys, monkeypatch, delivered_pdf) -> None:

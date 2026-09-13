@@ -101,16 +101,21 @@ def _add_git_sync_flags(parser: argparse.ArgumentParser) -> None:
 
 
 def _sync_cloud_and_report(*, allow_branch: bool, no_git_check: bool) -> bool:
-    """Push to Turso, catching unexpected errors so a sync hiccup can't fail an already-successful command.
+    """Push to Turso, catching unexpected errors so an exception always surfaces as a plain False.
 
     sync_to_turso already reports *why* it skipped or failed (git-guard blocked, Turso CLI
-    missing, network error, ...) through the ``log`` callback passed in below -- that reason is
-    what distinguishes "blocked by git state" from "Turso unreachable" in the printed log, rather
-    than collapsing both into the same generic boolean. Mirrors application.py's ``_sync_cloud``:
-    the try/except around the call means an exception escaping sync_to_turso is logged with its
-    reason and treated as a plain sync failure, instead of propagating to main()'s top-level
-    handler and reporting the whole command as failed (exit 1) even though the local work (a
-    compiled resume, a seeded database, ...) already succeeded.
+    missing, network error, ...) through the ``log`` callback passed in below, so that reason
+    -- distinguishing "blocked by git state" from "Turso unreachable" -- already reaches the
+    printed log without any extra plumbing here. The try/except only normalizes the *unexpected*
+    case: an exception escaping sync_to_turso is logged with its message and turned into a
+    return value like any other failure, instead of propagating raw.
+
+    This function does not decide whether that False is fatal -- callers do. For backfill-evals
+    and `db init`, local work is the point and the cloud push is a documented bonus on top of it
+    (application.py's "cloud sync (reported, non-fatal)" pattern), so a False here is a warning,
+    not a command failure. `db sync` is different: syncing IS the whole job, so its caller below
+    turns a False from this function into exit 1 -- see the fail-closed history in db.py
+    (61acb90, 81500c8, e92de45) that this mirrors for the one command whose only purpose is sync.
     """
     from .db import sync_to_turso
 
@@ -357,6 +362,16 @@ def main(argv: list[str] | None = None) -> int:
                     print(
                         f"Synced profile.json to SQLite and Turso cloud ({'synced' if turso_ok else 'skipped / failed'})"
                     )
+                    if not turso_ok:
+                        # Unlike `db init`, this command's only job is the Turso push: the local
+                        # seed above is a means, not the goal. Fail closed so a caller that checks
+                        # $? (a script, a CI step) can never read exit 0 as "synced" when nothing
+                        # reached Turso -- the reason for the miss is already in the log above.
+                        print(
+                            "error: Turso cloud sync did not complete; profile.json was not synced.",
+                            file=sys.stderr,
+                        )
+                        return 1
                 elif args.db_action == "export-profile":
                     destination = Path(args.output)
                     if destination.exists() and not args.force:
