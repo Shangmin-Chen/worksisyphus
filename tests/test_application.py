@@ -672,9 +672,7 @@ def test_list_applications_still_reports_a_corrupt_meta_json(tmp_path) -> None:
     assert "2026-07-11_acme_swe" in str(excinfo.value)
 
 
-def test_apply_rejects_a_company_role_that_would_exceed_filesystem_folder_name_limits(
-    small_profile, tmp_path
-) -> None:
+def test_apply_rejects_a_company_role_that_would_exceed_filesystem_folder_name_limits(small_profile, tmp_path) -> None:
     """slugify() has no max length; an extreme --company/--role must fail with a clear error
     before compilation, not surface as an opaque ENAMETOOLONG deep inside the publish retry loop."""
     with pytest.raises(ValueError, match="too long"):
