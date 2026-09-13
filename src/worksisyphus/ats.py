@@ -14,6 +14,33 @@ MERGED_DATE_RE = re.compile(
     r"[A-Za-z]{3,}(?:January|February|March|April|May|June|July|August|September|October|November|December) 20\d\d"
 )
 
+# renderer.py emits, unconditionally-then-conditionally:
+#   if profile.education:      -> "Education"
+#   if selection.experiences:  -> "Experience"
+#   if selection.projects:     -> "Projects"
+#   if selection.skills:       -> "Technical Skills"
+# "Education" is always required: it comes straight from profile.json, not a plan selection.
+# "Technical Skills" is ALSO hard-required here even though it is technically selection-driven:
+# an audit of every published plan (applications/*/plan.json, 52/52) found zero plans with an
+# empty `skills` list -- plans: 52 | missing skills: 0 | missing experiences: 0 | missing
+# projects: 0. On the real delivery path a resume with no Technical Skills header has never
+# happened; treating it as optional would only hide a genuine extraction failure (the header
+# silently failing to extract) behind whatever else happened to render. Keep it required so
+# that failure mode still trips the gate.
+# "Experience" and "Projects" are the genuinely conditional pair: plan.py enforces "at least
+# one of experiences/projects" on every plan, so exactly one of the two headers is sometimes
+# absent by design (a projects-only plan has no "Experience" header at all) -- ats.py has no
+# visibility into the Selection that produced the PDF, so it cannot know which of the two was
+# *intended*, only that plan.py guarantees at least one always is. Require at least one rather
+# than both, so a valid projects-only (or experience-only) plan is not rejected.
+# Do NOT relax this further to "any one of the four" -- that was tried and reverted: it let a
+# Technical Skills extraction failure pass silently as long as Experience or Projects still
+# extracted, which is a real coverage loss on every one of the 52/52 plans that actually have
+# a Technical Skills section, traded for a projects-only case that -- while valid -- has never
+# occurred in practice. See git history for the reverted single-bucket version.
+ALWAYS_REQUIRED_SECTIONS = ("Education", "Technical Skills")
+CONTENT_SECTION_CANDIDATES = ("Experience", "Projects")
+
 
 class ATSCheckResult(NamedTuple):
     passed: bool
@@ -22,6 +49,16 @@ class ATSCheckResult(NamedTuple):
     word_count: int
     text: str
     warnings: tuple[str, ...] = ()
+
+
+def scoring_text(result: ATSCheckResult) -> str | None:
+    """Return extracted text for evaluator paths, or None when extraction failed.
+
+    Callers that only need pdfminer output must not treat an empty string as a real resume:
+    check_pdf_ats no longer raises on malformed PDFs, so a failed extraction yields
+    passed=False and text="" — scoring that produces a bogus low score.
+    """
+    return result.text if result.text.strip() else None
 
 
 def check_pdf_ats(
@@ -53,9 +90,24 @@ def check_pdf_ats(
             warnings=(),
         )
 
-    text = extract_text(pdf_path)
-    with pdf_path.open("rb") as fh:
-        pages = sum(1 for _ in PDFPage.get_pages(fh))
+    try:
+        text = extract_text(pdf_path)
+        with pdf_path.open("rb") as fh:
+            pages = sum(1 for _ in PDFPage.get_pages(fh))
+    except Exception as exc:
+        # pdfminer raises a wide, unstable family of exceptions on truncated or non-PDF input
+        # (PDFSyntaxError, PSEOF, struct.error, AssertionError, ...). Catching broadly here is
+        # deliberate: it converts an unparseable file into an explicit FAILURE, never a pass, so
+        # this stays fail-closed all the way through run_resume_gates (empty text also fails the
+        # Content Density Gate) instead of raising out of apply's staging block.
+        return ATSCheckResult(
+            passed=False,
+            problems=(f"could not parse PDF {pdf_path}: {type(exc).__name__}: {exc}",),
+            pages=0,
+            word_count=0,
+            text="",
+            warnings=(),
+        )
 
     problems: list[str] = []
     is_canonical = pdf_path.stem == CANONICAL_STEM
@@ -74,9 +126,12 @@ def check_pdf_ats(
         if needle not in text:
             problems.append(f"contact {label} {needle!r} did not extract")
 
-    for section in ("Education", "Experience", "Technical Skills"):
+    for section in ALWAYS_REQUIRED_SECTIONS:
         if section not in text:
             problems.append(f"section header {section!r} did not extract")
+
+    if not any(section in text for section in CONTENT_SECTION_CANDIDATES):
+        problems.append(f"no content section header extracted; expected at least one of {CONTENT_SECTION_CANDIDATES!r}")
 
     if "(cid:" in text:
         problems.append("broken glyphs: extraction produced (cid:N) placeholders")

@@ -373,7 +373,7 @@ def main(argv: list[str] | None = None) -> int:
                 conn.close()
         elif args.command == "evaluate":
             from .application import resolve_application_folder
-            from .ats import check_pdf_ats
+            from .ats import check_pdf_ats, scoring_text
             from .evaluator import (
                 evaluate_pdf_against_jd,
                 evaluate_resume_text,
@@ -415,7 +415,15 @@ def main(argv: list[str] | None = None) -> int:
                 pdf_path = app_path / "Simon_Chen_Resume.pdf"
                 role_label = app_path.name
                 if pdf_path.is_file():
-                    resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
+                    if args.hackerrank:
+                        ats = check_pdf_ats(pdf_path, name=profile.contact.name)
+                        extracted: str | None = scoring_text(ats)
+                        if extracted is None:
+                            detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
+                            raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
+                        resume_text = extracted
+                    else:
+                        resume_text = ""
             else:
                 if not args.jd and not args.hackerrank:
                     raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
@@ -431,7 +439,15 @@ def main(argv: list[str] | None = None) -> int:
                     pdf_path = Path(args.resume)
                     role_label = pdf_path.stem
                     if pdf_path.is_file():
-                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
+                        if args.hackerrank:
+                            ats = check_pdf_ats(pdf_path, name=profile.contact.name)
+                            extracted = scoring_text(ats)
+                            if extracted is None:
+                                detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
+                                raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
+                            resume_text = extracted
+                        else:
+                            resume_text = ""
                 elif args.plan:
                     plan_text = _read_plan(args.plan)
                     selection = parse_plan(plan_text, profile)
@@ -443,7 +459,15 @@ def main(argv: list[str] | None = None) -> int:
                     pdf_path = _latest_application_pdf()
                     if pdf_path is not None and pdf_path.is_file():
                         role_label = pdf_path.parent.name
-                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
+                        if args.hackerrank:
+                            ats = check_pdf_ats(pdf_path, name=profile.contact.name)
+                            extracted = scoring_text(ats)
+                            if extracted is None:
+                                detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
+                                raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
+                            resume_text = extracted
+                        else:
+                            resume_text = ""
                     else:
                         from .selection import full_selection
 
