@@ -67,6 +67,7 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
     assert meta["company"] == "Acme Corp"
     assert meta["role"] == "Product Engineer"
     assert meta["status"] == "applied"
+    assert meta["trimmed"] == []
 
 
 def test_apply_rejects_when_quality_gate_fails_and_cleans_up_atomically(small_profile, monkeypatch, tmp_path) -> None:
@@ -530,6 +531,48 @@ def _fake_gates_ok():
         (GateResult("ATS", True, ()),),
         ATSCheckResult(True, (), 1, 400, "Simon Chen Python React distributed systems latency"),
     )
+
+
+def test_apply_records_trim_cuts_in_meta_json(small_profile, monkeypatch, tmp_path) -> None:
+    pages_by_call = [2, 1]
+    compile_calls = {"n": 0}
+
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        compile_calls["n"] += 1
+        pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"%PDF-fake")
+        return CompileResult(
+            pdf_path=pdf_path,
+            tex_path=tex_dir / f"{name}.tex",
+            pages=pages_by_call[compile_calls["n"] - 1],
+        )
+
+    import worksisyphus.application as app_module
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipe_module, "load_profile", lambda _path: small_profile)
+    monkeypatch.setattr(app_module, "run_resume_gates", _fake_gates_ok())
+
+    plan_text = json.dumps(
+        {
+            "experiences": {"org-a": ["a1", "a2", "a3"], "org-b": ["b1", "b2"]},
+            "projects": {"proj1": ["p1", "p2", "p3"], "proj2": ["q1"]},
+        }
+    )
+    folder, _comp_res, _ats = apply(
+        plan_text=plan_text,
+        jd_text="Backend engineer role",
+        company="Acme Corp",
+        role="Product Engineer",
+        when=date(2026, 8, 20),
+        profile=small_profile,
+        applications_dir=tmp_path / "applications",
+        sync_cloud=False,
+    )
+
+    meta = json.loads((folder / "meta.json").read_text())
+    assert meta["trimmed"] == [{"kind": "project", "slug": "proj2"}]
 
 
 def test_apply_records_the_hackerrank_evaluation(small_profile, monkeypatch, tmp_path) -> None:
