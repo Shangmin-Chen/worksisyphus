@@ -434,7 +434,9 @@ def main(argv: list[str] | None = None) -> int:
             pdf_path: Path | None = None
             role_label = "Target Role"
             fallback_notice: str | None = None
-            candidate_name, candidate_email, candidate_phone = _candidate_contact()
+            candidate_name = ""
+            candidate_email = ""
+            candidate_phone = ""
 
             if args.app:
                 app_path = resolve_application_folder(args.app)
@@ -518,22 +520,26 @@ def main(argv: list[str] | None = None) -> int:
             if fallback_notice:
                 print(fallback_notice)
 
-            display_name = candidate_name or "Simon Chen"
-
             if args.hackerrank:
+                display_name = candidate_name or "Simon Chen"
                 agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)
                 result = agent.evaluate(resume_text=resume_text, candidate_name=display_name)
                 print(format_hackerrank_report(result, role_name=args.role))
             else:
                 if pdf_path is not None:
+                    eval_name, eval_email, eval_phone = candidate_name, candidate_email, candidate_phone
+                    if not args.app and not args.resume:
+                        eval_name, eval_email, eval_phone = _candidate_contact()
+                    display_name = eval_name or "Simon Chen"
                     report = evaluate_pdf_against_jd(
                         pdf_path,
                         jd_text,
                         candidate_name=display_name,
-                        candidate_email=candidate_email,
-                        candidate_phone=candidate_phone,
+                        candidate_email=eval_email,
+                        candidate_phone=eval_phone,
                     )
                 else:
+                    display_name = candidate_name or "Simon Chen"
                     report = evaluate_resume_text(
                         resume_text,
                         jd_text,

@@ -108,3 +108,29 @@ def test_evaluate_resume_text_threads_contact_into_gates(monkeypatch, delivered_
     assert captured["candidate_email"] == "simon@example.com"
     assert captured["candidate_phone"] == "617-555-0100"
     assert captured["require_contact"] is False
+
+
+def test_evaluate_pdf_against_jd_threads_contact_into_run_resume_gates(monkeypatch, delivered_pdf) -> None:
+    from worksisyphus import evaluator
+    from worksisyphus.ats import ATSCheckResult
+
+    captured: dict[str, str] = {}
+
+    def fake_run_resume_gates(pdf_path, **kwargs):
+        captured.update(kwargs)
+        return (), ATSCheckResult(True, (), 1, 500, "C++ developer")
+
+    monkeypatch.setattr(evaluator, "run_resume_gates", fake_run_resume_gates)
+
+    evaluate_pdf_against_jd(
+        delivered_pdf,
+        "C++ developer",
+        candidate_name="Simon Chen",
+        candidate_email="simon@example.com",
+        candidate_phone="617-555-0100",
+    )
+
+    assert captured["candidate_name"] == "Simon Chen"
+    assert captured["candidate_email"] == "simon@example.com"
+    assert captured["candidate_phone"] == "617-555-0100"
+    assert captured["require_contact"] is False

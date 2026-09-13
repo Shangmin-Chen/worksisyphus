@@ -366,6 +366,63 @@ def test_cli_evaluate_no_target_fallback_names_profile(tmp_path, capsys, monkeyp
     assert "RESUME EVALUATION REPORT: PROFILE_JSON" in captured.out
 
 
+def test_cli_evaluate_no_target_fallback_uses_latest_pdf(tmp_path, capsys, monkeypatch) -> None:
+    from worksisyphus.ats import ATSCheckResult
+
+    pdf = tmp_path / "applications" / "2026-08-18_testco_swe" / "Simon_Chen_Resume.pdf"
+    pdf.parent.mkdir(parents=True)
+    pdf.write_bytes(b"%PDF-fake")
+
+    monkeypatch.setattr(cli, "_latest_application_pdf", lambda applications_dir=None: pdf)
+    monkeypatch.setattr(
+        "worksisyphus.evaluator.run_resume_gates",
+        lambda pdf_path, **kwargs: ((), ATSCheckResult(True, (), 1, 500, "Python backend developer")),
+    )
+
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Backend engineer with Python.", encoding="utf-8")
+
+    ret = cli.main(["evaluate", "--jd", str(jd_file)])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert f"no --resume/--app given; scoring {pdf} (most recent delivered resume)" in captured.out
+    assert "RESUME EVALUATION REPORT" in captured.out
+
+
+def test_cli_evaluate_missing_resume_hackerrank_raises(tmp_path, capsys) -> None:
+    missing = tmp_path / "definitely_missing_resume.pdf"
+
+    ret = cli.main(["evaluate", "--resume", str(missing), "--hackerrank"])
+    assert ret == 1
+    captured = capsys.readouterr()
+    assert "HACKERRANK HIRING AGENT SCORECARD" not in captured.out
+    assert "error:" in captured.err
+    assert "Resume PDF not found or not readable" in captured.err
+    assert str(missing) in captured.err
+
+
+def test_cli_evaluate_resume_jd_does_not_load_profile(tmp_path, capsys, monkeypatch) -> None:
+    from worksisyphus.ats import ATSCheckResult
+
+    pdf = tmp_path / "resume.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Python backend developer.", encoding="utf-8")
+
+    def boom(*args, **kwargs):
+        raise AssertionError("load_profile must not be called for --resume --jd")
+
+    monkeypatch.setattr(cli, "load_profile", boom)
+    monkeypatch.setattr(
+        "worksisyphus.evaluator.run_resume_gates",
+        lambda pdf_path, **kwargs: ((), ATSCheckResult(True, (), 1, 500, "Python backend developer")),
+    )
+
+    ret = cli.main(["evaluate", "--resume", str(pdf), "--jd", str(jd_file)])
+    assert ret == 0
+    assert "RESUME EVALUATION REPORT" in capsys.readouterr().out
+
+
 def test_cli_optimize_command(tmp_path, capsys) -> None:
     jd_file = tmp_path / "jd.txt"
     jd_file.write_text("Looking for a distributed systems engineer with C++ and Python.", encoding="utf-8")
