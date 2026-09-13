@@ -8,8 +8,6 @@ from pathlib import Path
 import pytest
 
 from worksisyphus import CompileResult, apply
-from worksisyphus.db import get_connection, seed_database
-from worksisyphus.profile import Experience, Project, profile_to_dict
 from worksisyphus.application import (
     list_applications,
     parse_app_folder,
@@ -18,7 +16,9 @@ from worksisyphus.application import (
     update_application_status,
 )
 from worksisyphus.ats import ATSCheckResult
+from worksisyphus.db import get_connection, seed_database
 from worksisyphus.gates import GateResult
+from worksisyphus.profile import Experience, Project, profile_to_dict
 
 
 def test_slugify() -> None:

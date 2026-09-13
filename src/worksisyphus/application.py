@@ -219,9 +219,7 @@ def check_profile_drift_against_db(
 
     differences = profile_content_differences(profile, db_profile)
     if differences:
-        log(
-            f"Profile content drift detected ({len(differences)} difference(s) vs {contact_cross_check.database}):"
-        )
+        log(f"Profile content drift detected ({len(differences)} difference(s) vs {contact_cross_check.database}):")
         for difference in differences:
             log(f"  - {difference}")
 

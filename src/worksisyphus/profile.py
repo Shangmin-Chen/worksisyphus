@@ -158,7 +158,9 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
             f"profile has {len(profile.education)} education record(s), database has {len(db_profile.education)}"
         )
     else:
-        for index, (profile_edu, db_edu) in enumerate(zip(profile.education, db_profile.education, strict=True), start=1):
+        for index, (profile_edu, db_edu) in enumerate(
+            zip(profile.education, db_profile.education, strict=True), start=1
+        ):
             prefix = f"education record {index}"
             _append_field_difference(differences, prefix, "institution", profile_edu.institution, db_edu.institution)
             _append_field_difference(differences, prefix, "location", profile_edu.location, db_edu.location)
@@ -169,9 +171,7 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
     profile_experience_slugs = set(profile.experiences)
     db_experience_slugs = set(db_profile.experiences)
     if len(profile.experiences) != len(db_profile.experiences) or profile_experience_slugs != db_experience_slugs:
-        parts = [
-            f"profile has {len(profile.experiences)} experiences, database has {len(db_profile.experiences)}"
-        ]
+        parts = [f"profile has {len(profile.experiences)} experiences, database has {len(db_profile.experiences)}"]
         missing_from_profile = sorted(db_experience_slugs - profile_experience_slugs)
         missing_from_db = sorted(profile_experience_slugs - db_experience_slugs)
         if missing_from_profile:
@@ -197,13 +197,13 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
             )
             missing_from_profile = sorted(db_bullet_slugs - profile_bullet_slugs)
             if missing_from_profile:
-                message += f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_profile)} missing from profile"
+                message += (
+                    f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_profile)} missing from profile"
+                )
             differences.append(message)
         for bullet_slug in sorted(profile_bullet_slugs & db_bullet_slugs):
             if profile_exp.bullets[bullet_slug] != db_exp.bullets[bullet_slug]:
-                differences.append(
-                    f"experience {slug!r}.{bullet_slug!r} text differs between profile and database"
-                )
+                differences.append(f"experience {slug!r}.{bullet_slug!r} text differs between profile and database")
 
     profile_project_slugs = set(profile.projects)
     db_project_slugs = set(db_profile.projects)
@@ -233,20 +233,18 @@ def profile_content_differences(profile: Profile, db_profile: Profile) -> list[s
             )
             missing_from_profile = sorted(db_bullet_slugs - profile_bullet_slugs)
             if missing_from_profile:
-                message += f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_profile)} missing from profile"
+                message += (
+                    f": {', '.join(repr(bullet_slug) for bullet_slug in missing_from_profile)} missing from profile"
+                )
             differences.append(message)
         for bullet_slug in sorted(profile_bullet_slugs & db_bullet_slugs):
             if profile_proj.bullets[bullet_slug] != db_proj.bullets[bullet_slug]:
-                differences.append(
-                    f"project {slug!r}.{bullet_slug!r} text differs between profile and database"
-                )
+                differences.append(f"project {slug!r}.{bullet_slug!r} text differs between profile and database")
 
     profile_skill_groups = set(profile.skills)
     db_skill_groups = set(db_profile.skills)
     if profile_skill_groups != db_skill_groups:
-        parts = [
-            f"profile has {len(profile.skills)} skill group(s), database has {len(db_profile.skills)}"
-        ]
+        parts = [f"profile has {len(profile.skills)} skill group(s), database has {len(db_profile.skills)}"]
         missing_from_profile = sorted(db_skill_groups - profile_skill_groups)
         missing_from_db = sorted(profile_skill_groups - db_skill_groups)
         if missing_from_profile:
