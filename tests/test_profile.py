@@ -104,9 +104,11 @@ def test_fixture_skill_groups_exist_in_the_real_profile(small_profile, real_prof
     assert set(small_profile.skills) <= set(real_profile.skills)
 
 
-def test_fixture_slugs_do_not_collide_with_guarded_real_slugs(small_profile) -> None:
+def test_fixture_slugs_do_not_collide_with_guarded_real_slugs(small_profile, real_profile) -> None:
     fixture_slugs = set(small_profile.experiences) | set(small_profile.projects)
+    real_slugs = set(real_profile.experiences) | set(real_profile.projects)
     assert fixture_slugs.isdisjoint(GATED_REAL_SLUGS)
+    assert fixture_slugs.isdisjoint(real_slugs)
 
 
 def test_load_profile_names_the_offending_experience(tmp_path) -> None:
@@ -240,6 +242,32 @@ def test_load_profile_names_a_bad_contact_key(tmp_path) -> None:
     with pytest.raises(ValueError) as excinfo:
         load_profile(profile_path)
     assert str(profile_path) in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    ("section", "payload", "needle"),
+    [
+        ("education", {"education": [None]}, "education entry 0"),
+        ("experiences", {"experiences": {"acme-co": None}}, "experience 'acme-co'"),
+        ("projects", {"projects": {"widget": "not-a-dict"}}, "project 'widget'"),
+    ],
+)
+def test_load_profile_rejects_non_dict_entries(tmp_path, section, payload, needle) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "Simon Chen", "email": "simon@example.com", "phone": "617-000-0000"},
+                **payload,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as excinfo:
+        load_profile(profile_path)
+    message = str(excinfo.value)
+    assert str(profile_path) in message
+    assert needle in message
 
 
 def test_load_profile_strips_a_leading_bom(tmp_path) -> None:

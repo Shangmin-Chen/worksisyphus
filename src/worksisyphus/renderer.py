@@ -84,7 +84,7 @@ def _heading(contact: Contact) -> list[str]:
     stays as a backstop so the rendering primitive is safe on its own terms.
     """
     for field_name in REQUIRED_CONTACT_FIELDS:
-        if not getattr(contact, field_name, "").strip():
+        if not getattr(contact, field_name).strip():
             raise ValueError(
                 f"Cannot render a resume header: contact.{field_name} is empty. A resume "
                 f"missing it cannot be answered; fix profile.json (recover it with "

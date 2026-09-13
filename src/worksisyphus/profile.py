@@ -73,6 +73,12 @@ def validate_contact(contact: Contact, source: str = "profile.json") -> None:
             )
 
 
+def _require_dict(entry: Any, what: str, path: Path) -> bool:
+    if not isinstance(entry, dict):
+        raise ValueError(f"Invalid {what} in {path}: expected object, got {type(entry).__name__}")
+    return True
+
+
 def _build(factory: Any, kwargs: dict[str, Any], what: str, path: Path) -> Any:
     """Build a dataclass, naming the offending entry and file on a schema mismatch."""
     try:
@@ -104,14 +110,17 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
                 path,
             )
             for i, e in enumerate(data.get("education", []))
+            if _require_dict(e, f"education entry {i}", path)
         ),
         experiences={
             slug: _build(Experience, {**e, "id": slug}, f"experience '{slug}'", path)
             for slug, e in data.get("experiences", {}).items()
+            if _require_dict(e, f"experience '{slug}'", path)
         },
         projects={
             slug: _build(Project, {**p, "id": slug}, f"project '{slug}'", path)
             for slug, p in data.get("projects", {}).items()
+            if _require_dict(p, f"project '{slug}'", path)
         },
         skills={group: tuple(items) for group, items in data.get("skills", {}).items()},
     )
