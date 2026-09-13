@@ -270,6 +270,34 @@ def test_load_profile_rejects_non_dict_entries(tmp_path, section, payload, needl
     assert needle in message
 
 
+@pytest.mark.parametrize(
+    ("payload", "needle"),
+    [
+        ({"education": None}, "education section"),
+        ({"experiences": None}, "experiences section"),
+        ({"projects": None}, "projects section"),
+        ({"skills": None}, "skills section"),
+        ({"skills": {"languages": None}}, "skills.languages"),
+    ],
+)
+def test_load_profile_rejects_invalid_sections(tmp_path, payload, needle) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(
+        json.dumps(
+            {
+                "contact": {"name": "Simon Chen", "email": "simon@example.com", "phone": "617-000-0000"},
+                **payload,
+            }
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as excinfo:
+        load_profile(profile_path)
+    message = str(excinfo.value)
+    assert str(profile_path) in message
+    assert needle in message
+
+
 def test_load_profile_strips_a_leading_bom(tmp_path) -> None:
     profile_path = tmp_path / "profile.json"
     payload = json.dumps({"contact": {"name": "Simon Chen", "email": "s@example.com", "phone": "617-000-0000"}})

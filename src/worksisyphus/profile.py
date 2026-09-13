@@ -79,6 +79,17 @@ def _require_dict(entry: Any, what: str, path: Path) -> bool:
     return True
 
 
+def _require_section(data: dict[str, Any], section: str, expected: type, path: Path) -> Any:
+    if section not in data:
+        return expected()
+    value = data[section]
+    if not isinstance(value, expected):
+        raise ValueError(
+            f"Invalid {section} section in {path}: expected {expected.__name__}, got {type(value).__name__}"
+        )
+    return value
+
+
 def _build(factory: Any, kwargs: dict[str, Any], what: str, path: Path) -> Any:
     """Build a dataclass, naming the offending entry and file on a schema mismatch."""
     try:
@@ -100,6 +111,17 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
     if text.startswith("﻿"):
         text = text[1:]
     data = json.loads(text)
+    education_entries = _require_section(data, "education", list, path)
+    experiences_data = _require_section(data, "experiences", dict, path)
+    projects_data = _require_section(data, "projects", dict, path)
+    skills_data = _require_section(data, "skills", dict, path)
+    skills: dict[str, tuple[str, ...]] = {}
+    for group, items in skills_data.items():
+        if not isinstance(items, list):
+            raise ValueError(
+                f"Invalid skills.{group} in {path}: expected list, got {type(items).__name__}"
+            )
+        skills[group] = tuple(items)
     return Profile(
         contact=_build(Contact, data.get("contact", {"name": ""}), "contact", path),
         education=tuple(
@@ -109,20 +131,20 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
                 f"education entry {i} ({e.get('institution', '?')})",
                 path,
             )
-            for i, e in enumerate(data.get("education", []))
+            for i, e in enumerate(education_entries)
             if _require_dict(e, f"education entry {i}", path)
         ),
         experiences={
             slug: _build(Experience, {**e, "id": slug}, f"experience '{slug}'", path)
-            for slug, e in data.get("experiences", {}).items()
+            for slug, e in experiences_data.items()
             if _require_dict(e, f"experience '{slug}'", path)
         },
         projects={
             slug: _build(Project, {**p, "id": slug}, f"project '{slug}'", path)
-            for slug, p in data.get("projects", {}).items()
+            for slug, p in projects_data.items()
             if _require_dict(p, f"project '{slug}'", path)
         },
-        skills={group: tuple(items) for group, items in data.get("skills", {}).items()},
+        skills=skills,
     )
 
 
