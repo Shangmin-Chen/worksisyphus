@@ -16,10 +16,23 @@ PDFLATEX_TIMEOUT_SECONDS = 120
 _LOG_TAIL_LINES = 15
 
 
-def _format_log_tail(stdout: str | None, stderr: str | None, *, lines: int = _LOG_TAIL_LINES) -> str:
+def _decode_log_chunk(chunk: str | bytes | None) -> str:
+    if chunk is None:
+        return ""
+    if isinstance(chunk, bytes):
+        return chunk.decode("utf-8", errors="replace")
+    return chunk
+
+
+def _format_log_tail(
+    stdout: str | bytes | None,
+    stderr: str | bytes | None,
+    *,
+    lines: int = _LOG_TAIL_LINES,
+) -> str:
     """Return the last *lines* of pdflatex stdout/stderr for CompileError diagnostics."""
-    tail = "\n".join((stdout or "").splitlines()[-lines:])
-    err_tail = "\n".join((stderr or "").splitlines()[-lines:])
+    tail = "\n".join(_decode_log_chunk(stdout).splitlines()[-lines:])
+    err_tail = "\n".join(_decode_log_chunk(stderr).splitlines()[-lines:])
     if not err_tail:
         return tail
     return f"{tail}\n--- stderr ---\n{err_tail}" if tail else err_tail

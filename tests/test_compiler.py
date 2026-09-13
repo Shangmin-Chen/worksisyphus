@@ -54,8 +54,8 @@ def test_compile_raises_compile_error_on_timeout(monkeypatch, tmp_path) -> None:
         raise subprocess.TimeoutExpired(
             cmd=[],
             timeout=120,
-            output="line 1\nline 2\npartial log before kill",
-            stderr="! Emergency stop.\n*** (job aborted)",
+            output=b"line 1\nline 2\npartial log before kill",
+            stderr=b"! Emergency stop.\n*** (job aborted)",
         )
 
     monkeypatch.setattr(compiler.shutil, "which", lambda _name: "/usr/bin/pdflatex")
@@ -67,6 +67,13 @@ def test_compile_raises_compile_error_on_timeout(monkeypatch, tmp_path) -> None:
     message = str(excinfo.value)
     assert "partial log before kill" in message
     assert "Emergency stop" in message
+
+
+def test_format_log_tail_decodes_bytes() -> None:
+    tail = compiler._format_log_tail(b"stdout line\n", b"stderr line\n")
+    assert "stdout line" in tail
+    assert "stderr line" in tail
+    assert "--- stderr ---" in tail
 
 
 def test_compile_error_includes_stderr(monkeypatch, tmp_path) -> None:

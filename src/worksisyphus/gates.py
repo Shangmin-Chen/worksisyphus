@@ -25,7 +25,9 @@ BANNED_METRIC_PATTERNS = (
 
 GPA_PATTERNS = (
     r"\bgpa\b",
+    r"\bgpa\s*[:.]?\s*\d",
     r"\bcgpa\b",
+    r"\bcgpa\s*[:.]?\s*\d",
     r"\bg[.\-\s]+p[.\-\s]+a\b\.?",
     r"\bc[.\-\s]+g[.\-\s]+p[.\-\s]+a\b\.?",
     r"grade[\s\-]point average",
