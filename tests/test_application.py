@@ -633,6 +633,112 @@ def test_resolve_lists_each_ambiguous_match_on_its_own_line(tmp_path) -> None:
     assert any("2026-08-08_google_data-engineer" in line for line in lines)
 
 
+def test_backfill_evaluations_reports_a_corrupt_meta_json(tmp_path) -> None:
+    """json.JSONDecodeError is a ValueError subclass, so pytest.raises(ValueError) alone would
+    pass even without the fix; the message text is the discriminating signal."""
+    from worksisyphus.application import backfill_evaluations
+
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_badco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text("{bad", encoding="utf-8")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"%PDF-fake")
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json in") as excinfo:
+        backfill_evaluations(applications_dir=apps)
+    assert "2026-08-01_badco_swe" in str(excinfo.value)
+
+
+def test_update_application_status_reports_a_corrupt_meta_json(tmp_path) -> None:
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_badco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text("{bad", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json in") as excinfo:
+        update_application_status("badco_swe", "phone_screen", applications_dir=apps, sync_cloud=False)
+    assert "2026-08-01_badco_swe" in str(excinfo.value)
+
+
+def test_list_applications_still_reports_a_corrupt_meta_json(tmp_path) -> None:
+    """Regression guard: routing list_applications through _read_meta must not weaken the one
+    site that already produced a clean ValueError for a corrupt meta.json."""
+    folder = tmp_path / "applications" / "2026-07-11_acme_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text("{bad", encoding="utf-8")
+
+    with pytest.raises(ValueError, match=r"Invalid meta\.json in") as excinfo:
+        list_applications(tmp_path / "applications")
+    assert "2026-07-11_acme_swe" in str(excinfo.value)
+
+
+def test_apply_rejects_a_company_role_that_would_exceed_filesystem_folder_name_limits(small_profile, tmp_path) -> None:
+    """slugify() has no max length; an extreme --company/--role must fail with a clear error
+    before compilation, not surface as an opaque ENAMETOOLONG deep inside the publish retry loop."""
+    with pytest.raises(ValueError, match="too long"):
+        apply(
+            plan_text="{}",
+            jd_text="JD text",
+            company="A" * 300,
+            profile=small_profile,
+            applications_dir=tmp_path / "applications",
+        )
+
+    with pytest.raises(ValueError, match="too long"):
+        apply(
+            plan_text="{}",
+            jd_text="JD text",
+            company="B" * 150,
+            role="C" * 150,
+            profile=small_profile,
+            applications_dir=tmp_path / "applications",
+        )
+
+    # Nothing was staged or published for either rejected attempt.
+    assert not (tmp_path / "applications").exists() or list((tmp_path / "applications").iterdir()) == []
+
+
+def test_apply_rejects_allocated_folder_name_over_filesystem_limit(
+    small_profile, monkeypatch, tmp_path
+) -> None:
+    """A retry suffix beyond the pre-check margin must fail with the same clear error,
+    not ENAMETOOLONG deep inside os.replace."""
+    import worksisyphus.application as app_module
+
+    _patch_apply_pipeline(monkeypatch)
+    apps_dir = tmp_path / "applications"
+
+    # Base name at the pre-check cap (247 bytes); `_10000000` pushes the allocated name to 256.
+    date_prefix = "2026-08-20_"
+    role_suffix = "_swe"
+    slug_len = (
+        app_module._MAX_FOLDER_NAME_BYTES
+        - app_module._ORDINAL_SUFFIX_MARGIN
+        - len(date_prefix)
+        - len(role_suffix)
+    )
+    company_slug = "a" * slug_len
+    overlong_name = f"{date_prefix}{company_slug}{role_suffix}_10000000"
+
+    def allocate_overlong(_applications_dir, _base_target):
+        return apps_dir / overlong_name
+
+    monkeypatch.setattr(app_module, "_allocate_target", allocate_overlong)
+
+    with pytest.raises(ValueError, match="too long"):
+        apply(
+            plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+            jd_text="JD text",
+            company=company_slug,
+            when=date(2026, 8, 20),
+            profile=small_profile,
+            applications_dir=apps_dir,
+            sync_cloud=False,
+        )
+
+    assert not apps_dir.exists() or list(apps_dir.iterdir()) == []
+
+
 def test_list_applications_orders_newest_first_then_retry_order(tmp_path) -> None:
     apps_dir = tmp_path / "applications"
     for name in (
