@@ -385,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
                 check_upstream_status,
                 format_hackerrank_report,
             )
+            from .profile import Profile
 
             if getattr(args, "check_upstream", False):
                 status = check_upstream_status()
@@ -401,10 +402,39 @@ def main(argv: list[str] | None = None) -> int:
                 print("=" * 68)
                 return 0
 
-            profile = load_profile()
+            cached_profile: Profile | None = None
+
+            def _get_profile() -> Profile:
+                nonlocal cached_profile
+                if cached_profile is None:
+                    cached_profile = load_profile()
+                return cached_profile
+
+            def _try_profile() -> Profile | None:
+                nonlocal cached_profile
+                if cached_profile is not None:
+                    return cached_profile
+                try:
+                    cached_profile = load_profile()
+                except FileNotFoundError:
+                    return None
+                return cached_profile
+
+            def _candidate_contact() -> tuple[str, str, str]:
+                profile = _try_profile()
+                if profile is None:
+                    return "", "", ""
+                return profile.contact.name, profile.contact.email, profile.contact.phone
+
+            def _require_readable_pdf(path: Path) -> None:
+                if not path.is_file():
+                    raise FileNotFoundError(f"Resume PDF not found or not readable: {path}")
+
             resume_text = ""
             pdf_path: Path | None = None
             role_label = "Target Role"
+            fallback_notice: str | None = None
+            candidate_name, candidate_email, candidate_phone = _candidate_contact()
 
             if args.app:
                 app_path = resolve_application_folder(args.app)
@@ -414,8 +444,12 @@ def main(argv: list[str] | None = None) -> int:
                 jd_text = jd_file.read_text(encoding="utf-8")
                 pdf_path = app_path / "Simon_Chen_Resume.pdf"
                 role_label = app_path.name
-                if pdf_path.is_file():
-                    resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
+                _require_readable_pdf(pdf_path)
+                if args.hackerrank:
+                    candidate_name, candidate_email, candidate_phone = _candidate_contact()
+                    resume_text = check_pdf_ats(
+                        pdf_path, name=candidate_name, email=candidate_email, phone=candidate_phone
+                    ).text
             else:
                 if not args.jd and not args.hackerrank:
                     raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
@@ -424,45 +458,88 @@ def main(argv: list[str] | None = None) -> int:
                 if args.profile:
                     from .selection import full_selection
 
+                    profile = _get_profile()
                     selection = full_selection(profile)
                     resume_text = selection_to_plain_text(selection, profile)
                     role_label = "profile_json"
+                    candidate_name, candidate_email, candidate_phone = (
+                        profile.contact.name,
+                        profile.contact.email,
+                        profile.contact.phone,
+                    )
                 elif args.resume:
                     pdf_path = Path(args.resume)
                     role_label = pdf_path.stem
-                    if pdf_path.is_file():
-                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
+                    _require_readable_pdf(pdf_path)
+                    if args.hackerrank:
+                        candidate_name, candidate_email, candidate_phone = _candidate_contact()
+                        resume_text = check_pdf_ats(
+                            pdf_path, name=candidate_name, email=candidate_email, phone=candidate_phone
+                        ).text
                 elif args.plan:
+                    profile = _get_profile()
                     plan_text = _read_plan(args.plan)
                     selection = parse_plan(plan_text, profile)
                     resume_text = selection_to_plain_text(selection, profile)
                     role_label = Path(args.plan).stem
+                    candidate_name, candidate_email, candidate_phone = (
+                        profile.contact.name,
+                        profile.contact.email,
+                        profile.contact.phone,
+                    )
                 else:
                     # Delivered resumes live only in applications/, which is gitignored. Fall back
                     # to the profile itself so the command still works in a fresh clone.
                     pdf_path = _latest_application_pdf()
                     if pdf_path is not None and pdf_path.is_file():
                         role_label = pdf_path.parent.name
-                        resume_text = check_pdf_ats(pdf_path, name=profile.contact.name).text if args.hackerrank else ""
+                        fallback_notice = (
+                            f"no --resume/--app given; scoring {pdf_path} (most recent delivered resume)"
+                        )
+                        if args.hackerrank:
+                            candidate_name, candidate_email, candidate_phone = _candidate_contact()
+                            resume_text = check_pdf_ats(
+                                pdf_path, name=candidate_name, email=candidate_email, phone=candidate_phone
+                            ).text
                     else:
                         from .selection import full_selection
 
                         pdf_path = None
+                        profile = _get_profile()
                         resume_text = selection_to_plain_text(full_selection(profile), profile)
                         role_label = "profile_json"
+                        fallback_notice = "no --resume/--app given; scoring profile.json (no delivered resumes found)"
+                        candidate_name, candidate_email, candidate_phone = (
+                            profile.contact.name,
+                            profile.contact.email,
+                            profile.contact.phone,
+                        )
+
+            if fallback_notice:
+                print(fallback_notice)
+
+            display_name = candidate_name or "Simon Chen"
 
             if args.hackerrank:
                 agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)
-                result = agent.evaluate(resume_text=resume_text, candidate_name=profile.contact.name)
+                result = agent.evaluate(resume_text=resume_text, candidate_name=display_name)
                 print(format_hackerrank_report(result, role_name=args.role))
             else:
-                if pdf_path and pdf_path.is_file():
-                    report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
+                if pdf_path is not None:
+                    report = evaluate_pdf_against_jd(
+                        pdf_path,
+                        jd_text,
+                        candidate_name=display_name,
+                        candidate_email=candidate_email,
+                        candidate_phone=candidate_phone,
+                    )
                 else:
                     report = evaluate_resume_text(
                         resume_text,
                         jd_text,
-                        candidate_name=profile.contact.name,
+                        candidate_name=display_name,
+                        candidate_email=candidate_email,
+                        candidate_phone=candidate_phone,
                         pdf_path=pdf_path,
                     )
                 print(format_evaluation_report(report, target_role=role_label))

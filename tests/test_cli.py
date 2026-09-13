@@ -305,6 +305,67 @@ def test_cli_evaluate_check_upstream(capsys) -> None:
     assert "interviewstreet/hiring-agent" in out
 
 
+def test_cli_evaluate_check_upstream_does_not_load_profile(monkeypatch, capsys) -> None:
+    calls: list[str] = []
+
+    def spy(*args, **kwargs):
+        calls.append("load_profile")
+        raise AssertionError("load_profile should not be called for --check-upstream")
+
+    monkeypatch.setattr(cli, "load_profile", spy)
+    ret = cli.main(["evaluate", "--check-upstream"])
+    assert ret == 0
+    assert calls == []
+    assert "HACKERRANK UPSTREAM SYNC STATUS" in capsys.readouterr().out
+
+
+def test_cli_evaluate_missing_resume_raises(tmp_path, capsys) -> None:
+    missing = tmp_path / "definitely_missing_resume.pdf"
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Python backend developer.", encoding="utf-8")
+
+    ret = cli.main(["evaluate", "--resume", str(missing), "--jd", str(jd_file)])
+    assert ret == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Resume PDF not found or not readable" in err
+    assert str(missing) in err
+
+
+def test_cli_evaluate_missing_app_pdf_raises(tmp_path, capsys, monkeypatch) -> None:
+    from worksisyphus import application
+
+    app_folder = tmp_path / "applications" / "2026-08-18_testco_swe"
+    app_folder.mkdir(parents=True)
+    (app_folder / "jd.txt").write_text("Python backend developer.", encoding="utf-8")
+    (app_folder / "meta.json").write_text('{"company": "TestCo", "status": "applied"}', encoding="utf-8")
+
+    monkeypatch.setattr(application, "APPLICATIONS_DIR", tmp_path / "applications")
+
+    ret = cli.main(["evaluate", "--app", "testco_swe"])
+    assert ret == 1
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Resume PDF not found or not readable" in err
+    assert "Simon_Chen_Resume.pdf" in err
+
+
+def test_cli_evaluate_no_target_fallback_names_profile(tmp_path, capsys, monkeypatch) -> None:
+    from worksisyphus import application
+
+    monkeypatch.setattr(application, "APPLICATIONS_DIR", tmp_path / "applications")
+    monkeypatch.setattr(cli, "_latest_application_pdf", lambda applications_dir=None: None)
+
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Backend engineer with Python.", encoding="utf-8")
+
+    ret = cli.main(["evaluate", "--jd", str(jd_file)])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "no --resume/--app given; scoring profile.json (no delivered resumes found)" in captured.out
+    assert "RESUME EVALUATION REPORT: PROFILE_JSON" in captured.out
+
+
 def test_cli_optimize_command(tmp_path, capsys) -> None:
     jd_file = tmp_path / "jd.txt"
     jd_file.write_text("Looking for a distributed systems engineer with C++ and Python.", encoding="utf-8")

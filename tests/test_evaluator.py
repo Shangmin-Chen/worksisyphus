@@ -82,3 +82,29 @@ def test_evaluate_pdf_against_jd(delivered_pdf) -> None:
     report = evaluate_pdf_against_jd(delivered_pdf, jd)
     assert report.overall_score >= 70
     assert report.gate_compliance_score == 10
+
+
+def test_evaluate_resume_text_threads_contact_into_gates(monkeypatch, delivered_pdf) -> None:
+    from worksisyphus import evaluator
+
+    captured: dict[str, str] = {}
+
+    def fake_check_resume_gates(pdf_path, **kwargs):
+        captured.update(kwargs)
+        return ()
+
+    monkeypatch.setattr(evaluator, "check_resume_gates", fake_check_resume_gates)
+
+    evaluate_resume_text(
+        resume_text="C++ developer",
+        jd_text="C++ developer",
+        candidate_name="Simon Chen",
+        candidate_email="simon@example.com",
+        candidate_phone="617-555-0100",
+        pdf_path=delivered_pdf,
+    )
+
+    assert captured["candidate_name"] == "Simon Chen"
+    assert captured["candidate_email"] == "simon@example.com"
+    assert captured["candidate_phone"] == "617-555-0100"
+    assert captured["require_contact"] is False
