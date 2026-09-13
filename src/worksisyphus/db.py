@@ -601,7 +601,9 @@ def export_profile_json(conn: sqlite3.Connection, output_path: Path = Path("prof
         raise ValueError(f"Refusing to write {output_path}: {exc}") from exc
 
     data = profile_to_dict(profile)
-    output_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    temporary = output_path.with_name(f"{output_path.name}.tmp")
+    temporary.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(output_path)
     return data
 
 
