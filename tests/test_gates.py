@@ -74,8 +74,12 @@ def test_gpa_gate_catches_violations() -> None:
     assert not check_gpa_gate("CGPA3").passed
     assert not check_gpa_gate("GPA3.856").passed
     assert not check_gpa_gate("G PA 3.8").passed
+    assert not check_gpa_gate("G PA3.8").passed
     assert not check_gpa_gate("GPA_3.8").passed
     assert not check_gpa_gate("CGPA_3.85").passed
+    assert not check_gpa_gate("GPA4.0").passed
+    assert not check_gpa_gate("CGPA3.8").passed
+    assert not check_gpa_gate("CGPA4.0").passed
 
 
 def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:
@@ -86,7 +90,9 @@ def test_gpa_gate_does_not_fire_on_bare_decimals_or_metrics() -> None:
     assert check_gpa_gate("Debug log p a value before shipping").passed
     assert check_gpa_gate("Going past a checkpoint on the hot path").passed
     assert check_gpa_gate("Completed GPA2 certification module").passed
+    assert check_gpa_gate("Completed GPA2.0 certification module").passed
     assert check_gpa_gate("Deployed on GPA360 hardware platform").passed
+    assert check_gpa_gate("G PA360 hardware platform").passed
     assert check_gpa_gate("GPA2024 annual review cycle").passed
     assert check_gpa_gate("CGPA360 integration test suite").passed
 
