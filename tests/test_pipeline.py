@@ -42,7 +42,11 @@ def test_tailor_trims_until_one_page(small_profile, monkeypatch, tmp_path) -> No
     assert r"Proj \& Two" not in compiled[1]
     assert len(result.trimmed) == 2
     assert result.trimmed[0].kind == "project" and result.trimmed[0].slug == "proj2"
-    assert result.trimmed[1].kind == "project-bullet" and result.trimmed[1].slug == "proj1" and result.trimmed[1].bullet == "p3"
+    assert (
+        result.trimmed[1].kind == "project-bullet"
+        and result.trimmed[1].slug == "proj1"
+        and result.trimmed[1].bullet == "p3"
+    )
     assert "trimmed: dropped project 'proj2'" in log_lines
     assert "trimmed: dropped project bullet 'p3' from 'proj1'" in log_lines
 
