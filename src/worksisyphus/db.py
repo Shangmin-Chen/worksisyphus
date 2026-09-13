@@ -117,6 +117,7 @@ def _verify_sql_for_fingerprint(fingerprint: str) -> str:
         f"|| '|' || (SELECT COUNT(*) FROM audit_events) = '{fingerprint.replace(chr(39), chr(39) * 2)}';"
     )
 
+
 ACTION_APPLY = "APPLY"
 ACTION_STATUS_CHANGE = "STATUS_CHANGE"
 ACTION_INSERT = "INSERT"
@@ -341,6 +342,9 @@ def _scan_application_folders(
         except Exception as exc:
             malformed_meta.append(f"{folder.name}: {exc}")
             continue
+        if not isinstance(meta, dict):
+            malformed_meta.append(f"{folder.name}: expected a JSON object")
+            continue
         jd_text = jd_file.read_text(encoding="utf-8").strip() if jd_file.is_file() else ""
         plan_json = plan_file.read_text(encoding="utf-8").strip() if plan_file.is_file() else "{}"
         evaluation_json = json.dumps(meta["evaluation"], sort_keys=True) if meta.get("evaluation") else ""
@@ -348,9 +352,7 @@ def _scan_application_folders(
 
     if malformed_meta:
         details = "\n".join(f"  {entry}" for entry in malformed_meta)
-        raise ValueError(
-            "Refusing to seed the database: malformed application meta.json in:\n" + details
-        )
+        raise ValueError("Refusing to seed the database: malformed application meta.json in:\n" + details)
     return application_rows
 
 

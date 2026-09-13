@@ -173,6 +173,8 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     status_out = capsys.readouterr().out
     assert "Database:" in status_out
     assert "Contact:" in status_out
+    assert "Turso CLI:" in status_out
+    assert "Last Turso sync:" in status_out
 
     # 5. History after init
     assert cli.main(["db", "history"]) == 0
@@ -186,6 +188,74 @@ def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
     assert "Seeded SQLite from profile.json" in sync_out
     assert "Turso cloud sync: synced" in sync_out
     assert "Synced profile.json to SQLite and Turso cloud" not in sync_out
+
+
+def _write_minimal_profile(tmp_path: Path) -> None:
+    Path("profile.json").write_text(
+        json.dumps(
+            {
+                "contact": {
+                    "name": "Real Person",
+                    "email": "real.person@fastmail.dev",
+                    "phone": "617-266-1810",
+                    "website": "",
+                    "github": "",
+                    "linkedin": "",
+                },
+                "education": [],
+                "experiences": {},
+                "projects": {},
+                "skills": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.parametrize("command", [["db", "init"], ["db", "sync"]])
+def test_cli_db_commands_report_turso_sync_failure(monkeypatch, tmp_path, capsys, command: list[str]) -> None:
+    from worksisyphus import db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr(
+        db,
+        "sync_to_turso",
+        lambda *args, **kwargs: db.TursoSyncResult(synced=False, detail="failed (auth expired)"),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_profile(tmp_path)
+
+    assert cli.main(command) == 0
+    out = capsys.readouterr().out
+    assert "Turso cloud sync: failed (auth expired)" in out
+    assert "Synced profile.json to SQLite and Turso cloud" not in out
+
+
+def test_cli_backfill_evals_reports_turso_sync_failure(monkeypatch, tmp_path, capsys) -> None:
+    from worksisyphus import application, db
+
+    test_db = tmp_path / "test.db"
+    monkeypatch.chdir(tmp_path)
+    _write_minimal_profile(tmp_path)
+    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
+    monkeypatch.setattr(
+        db,
+        "sync_to_turso",
+        lambda *args, **kwargs: db.TursoSyncResult(synced=False, detail="failed (network timeout)"),
+    )
+    monkeypatch.setattr(
+        application,
+        "backfill_evaluations",
+        lambda *args, **kwargs: [("2026-01-01_acme_swe", 82.0)],
+    )
+
+    assert cli.main(["backfill-evals"]) == 0
+    out = capsys.readouterr().out
+    assert "Turso cloud sync: failed (network timeout)" in out
+    assert "Synced profile.json to SQLite and Turso cloud" not in out
+    assert "Scored 1 application(s)." in out
 
 
 def test_cli_db_sync_refuses_an_invalid_profile_without_touching_turso(monkeypatch, tmp_path, capsys) -> None:

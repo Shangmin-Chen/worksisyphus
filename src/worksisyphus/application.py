@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .db import TursoSyncResult
 
 from .ats import ATSCheckResult, check_pdf_ats
 from .compiler import CompileResult
@@ -493,7 +496,7 @@ def backfill_evaluations(
     return scored
 
 
-def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False):
+def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> TursoSyncResult:
     """Push local database state to Turso; returns TursoSyncResult with synced/detail."""
     from .db import TursoSyncResult, sync_to_turso
 

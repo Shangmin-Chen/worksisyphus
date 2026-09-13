@@ -269,12 +269,14 @@ def main(argv: list[str] | None = None) -> int:
                 finally:
                     conn.close()
                 if not args.no_sync:
-                    result = sync_to_turso(
+                    turso_result = sync_to_turso(
                         allow_branch=args.allow_branch,
                         no_git_check=args.no_git_check,
                         log=print,
                     )
-                    print(f"Turso cloud sync: {result.detail or ('synced' if result.synced else 'skipped / failed')}")
+                    print(
+                        f"Turso cloud sync: {turso_result.detail or ('synced' if turso_result.synced else 'skipped / failed')}"
+                    )
                 print(f"Scored {len(scored)} application(s).")
         elif args.command == "db":
             from .db import (
