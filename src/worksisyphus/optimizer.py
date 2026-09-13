@@ -274,9 +274,7 @@ def apply_selection_guardrails(
 
     is_systems_quant = _mentions(jd_lower, SYSTEMS_QUANT_KEYWORDS) or _mentions(role_lower, SYSTEMS_QUANT_KEYWORDS)
     is_engineering = (
-        is_systems_quant
-        or _mentions(jd_lower, ENGINEERING_KEYWORDS)
-        or _mentions(role_lower, ENGINEERING_KEYWORDS)
+        is_systems_quant or _mentions(jd_lower, ENGINEERING_KEYWORDS) or _mentions(role_lower, ENGINEERING_KEYWORDS)
     )
 
     # 2. Weak-project gate. The rule is "the JD *is* a mobile / civic / blockchain role", not

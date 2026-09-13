@@ -283,10 +283,7 @@ def test_gated_slugs_exist_in_the_real_profile(real_profile: Profile) -> None:
 
 def test_candidate_plans_are_unique(small_profile: Profile) -> None:
     candidates = generate_candidate_plans(small_profile, "Python backend engineer.")
-    keys = [
-        json.dumps({k: v for k, v in cand.items() if not k.startswith("_")}, sort_keys=True)
-        for cand in candidates
-    ]
+    keys = [json.dumps({k: v for k, v in cand.items() if not k.startswith("_")}, sort_keys=True) for cand in candidates]
     assert len(keys) == len(set(keys))
 
 
