@@ -13,12 +13,16 @@ from .evaluator import selection_to_plain_text
 from .hiring_agent import HackerRankHiringAgent
 from .plan import parse_plan
 from .profile import Profile
+from .selection import MIN_BULLETS
 
 # Physical vertical line budgeting for Jake's 1-page LaTeX template:
 # Total Page Budget ≈ 46 lines.
 # Fixed overhead: Header (4 lines), Education (3 lines), Skills (4 lines), Section Headers (3 lines) = ~14 lines.
 # Available budget for Experience + Projects = 32 to 36 lines.
 MAX_EXPERIENCE_PROJECT_LINES = 35.0
+# Tighter budget used by the "guaranteed zero-trim safety" strategy: packs fewer bullets so the
+# trim loop should never need to fire even after the renderer's own line-height rounding.
+COMPACT_EXPERIENCE_PROJECT_LINES = 32.0
 HEADER_LINE_COST = 1.5  # Header cost per experience / project entry
 
 
@@ -128,16 +132,28 @@ def solve_line_budget_knapsack(
     selected_projects: list[ScoredEntry],
     max_lines: float = MAX_EXPERIENCE_PROJECT_LINES,
 ) -> tuple[dict[str, list[str]], dict[str, list[str]], float]:
-    """Greedily pack highest-density bullets within line capacity, ensuring min 2 bullets per chosen entry."""
+    """Greedily pack highest-density bullets within line capacity.
+
+    Allocates up to MIN_BULLETS bullets per chosen entry and skips entries with none: a
+    bullet-less entry would still burn HEADER_LINE_COST of budget and, downstream, make
+    plan.py reject the whole candidate with "No bullets selected for ...".
+    """
     total_lines = 0.0
     exp_picks: dict[str, list[str]] = {}
     proj_picks: dict[str, list[str]] = {}
 
-    # 1. Base cost: allocate headers and top 2 mandatory bullets for each chosen entry
-    active_entries = experiences + selected_projects
+    # 1. Base cost: allocate headers and top MIN_BULLETS mandatory bullets for each chosen entry
+    skipped = [e for e in experiences + selected_projects if not e.bullets]
+    for entry in skipped:
+        print(
+            f"WARN: knapsack skipping {entry.slug!r}: no bullets selected "
+            "(entry would fail plan validation downstream)",
+            file=sys.stderr,
+        )
+    active_entries = [e for e in experiences + selected_projects if e.bullets]
     for entry in active_entries:
         total_lines += HEADER_LINE_COST
-        min_bullets = entry.bullets[:2] if len(entry.bullets) >= 2 else entry.bullets
+        min_bullets = entry.bullets[:MIN_BULLETS] if len(entry.bullets) >= MIN_BULLETS else entry.bullets
         chosen_slugs = [b.slug for b in min_bullets]
         total_lines += sum(b.lines for b in min_bullets)
 
@@ -154,8 +170,9 @@ def solve_line_budget_knapsack(
             if b.slug not in chosen_set:
                 remaining_pool.append((b, entry))
 
-    # Sort remaining pool by density (Value per line)
-    remaining_pool.sort(key=lambda item: item[0].density, reverse=True)
+    # Sort remaining pool by density (value per line), breaking ties deterministically by score
+    # then slug rather than relying on Python's stable sort plus dict insertion order.
+    remaining_pool.sort(key=lambda item: (-item[0].density, -item[0].score, item[1].slug, item[0].slug))
 
     # 3. Pack highest-density bullets until capacity is reached
     for bullet, entry in remaining_pool:
@@ -210,16 +227,60 @@ SYSTEMS_QUANT_KEYWORDS = (
 )
 ENGINEERING_KEYWORDS = ("backend", "distributed", "performance", "systems", "infra", "concurrency", "low-latency")
 
+# Gated slugs, named so a profile.json rename can never silently disable a guardrail with no error
+# (see test_gated_slugs_exist_in_the_real_profile in tests/test_optimizer.py).
+BU_IT_SLUG = "bu-engineering-it"
+PERSEPHONE_SLUG = "persephone"
+MOBILE_PROJECT_SLUG = "fitness-tracker"
+CIVIC_PROJECT_SLUG = "spark-food-waste"
+CRYPTO_PROJECT_SLUG = "ml-marketplace"
+PERSONAL_WEBSITE_SLUG = "personal-website"
+GUARDED_SLUGS = (
+    BU_IT_SLUG,
+    PERSEPHONE_SLUG,
+    MOBILE_PROJECT_SLUG,
+    CIVIC_PROJECT_SLUG,
+    CRYPTO_PROJECT_SLUG,
+    PERSONAL_WEBSITE_SLUG,
+)
 
-def _mentions(text: str, keywords: tuple[str, ...]) -> bool:
-    """Whole-token keyword search over already-lowercased text.
+
+def _text_match_variants(text: str) -> tuple[str, ...]:
+    """Lowercase spellings to compare against hyphen/space/underscore role titles.
+
+    Apply-style titles like ``Front-End Engineer`` normalize to ``front end engineer`` when
+    separators become spaces, which would miss keyword ``front-end`` without also checking
+    hyphenated and original forms.
+    """
+    lower = text.lower()
+    spaced = re.sub(r"[_\-]+", " ", lower)
+    hyphened = re.sub(r"[\s_]+", "-", lower).strip("-")
+    return tuple(dict.fromkeys(v for v in (lower, spaced, hyphened) if v))
+
+
+def _mentions_literal(text_lower: str, keywords: tuple[str, ...]) -> bool:
+    """Whole-token keyword search on literal lowercased JD text.
 
     Plain substring matching is unusable here: 'ui' occurs inside 'building', 'ux' inside
     'luxury', 'quant' inside 'quantify'. Word boundaries are expressed with alphanumeric
     lookarounds rather than \\b so that keywords ending in punctuation ('c++', 'next.js')
-    still match.
+    still match. Separator variants are not applied — synthesizing hyphens from spaced JD
+    prose (e.g. ``low latency customer support`` -> ``low-latency``) would false-positive.
     """
-    return any(re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", text) for kw in keywords)
+    return any(re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", text_lower) for kw in keywords)
+
+
+def _mentions_role(role_name: str, keywords: tuple[str, ...]) -> bool:
+    """Whole-token keyword search with separator variants for role titles.
+
+    Apply-style titles like ``Front-End Engineer`` normalize to spaced forms that miss
+    hyphenated keywords unless hyphenated and original forms are also checked.
+    """
+    return any(
+        re.search(rf"(?<![a-z0-9]){re.escape(kw)}(?![a-z0-9])", variant)
+        for variant in _text_match_variants(role_name)
+        for kw in keywords
+    )
 
 
 def _promote(entries: list[ScoredEntry], slug: str) -> list[ScoredEntry]:
@@ -237,52 +298,58 @@ def apply_selection_guardrails(
 ) -> tuple[list[ScoredEntry], list[ScoredEntry]]:
     """Enforce Simon's selection guardrails deterministically."""
     jd_lower = jd_text.lower()
-    # Role rubric names are snake_case ("it_specialist"); keywords are written with spaces
-    # ("it specialist"), so normalize separators before matching or multi-word keywords never hit.
-    role_lower = re.sub(r"[_\-]+", " ", role_name.lower())
 
     # 1. BU IT gate: only selected for IT/support/security roles
-    is_it_role = _mentions(jd_lower, IT_KEYWORDS) or _mentions(role_lower, IT_KEYWORDS)
-    filtered_exp = [e for e in experiences if e.slug != "bu-engineering-it" or is_it_role]
+    is_it_role = _mentions_literal(jd_lower, IT_KEYWORDS) or _mentions_role(role_name, IT_KEYWORDS)
+    filtered_exp = [e for e in experiences if e.slug != BU_IT_SLUG or is_it_role]
 
-    is_systems_quant = _mentions(jd_lower, SYSTEMS_QUANT_KEYWORDS) or _mentions(role_lower, SYSTEMS_QUANT_KEYWORDS)
-    is_engineering = is_systems_quant or _mentions(jd_lower, ENGINEERING_KEYWORDS)
+    jd_is_systems_quant = _mentions_literal(jd_lower, SYSTEMS_QUANT_KEYWORDS)
+    jd_is_engineering = jd_is_systems_quant or _mentions_literal(jd_lower, ENGINEERING_KEYWORDS)
+    is_systems_quant = jd_is_systems_quant or _mentions_role(role_name, SYSTEMS_QUANT_KEYWORDS)
+    is_engineering = is_systems_quant or jd_is_engineering or _mentions_role(role_name, ENGINEERING_KEYWORDS)
 
     # 2. Weak-project gate. The rule is "the JD *is* a mobile / civic / blockchain role", not
     #    "the JD mentions the word" -- a backend posting that happens to say "mobile clients" must
     #    not admit fitness-tracker as filler. The role title is the strongest signal, so it can
-    #    admit a domain even when the posting also reads as engineering-heavy.
-    def _is_role(keywords: tuple[str, ...]) -> bool:
-        return _mentions(role_lower, keywords) or (_mentions(jd_lower, keywords) and not is_engineering)
+    #    admit a domain even when the posting also reads as engineering-heavy. JD-side mobile
+    #    keywords are suppressed by any engineering signal (role or JD); civic/crypto JD keywords
+    #    are suppressed only by JD-derived engineering so a backend role title cannot block them.
+    def _jd_domain_role(keywords: tuple[str, ...]) -> bool:
+        return _mentions_role(role_name, keywords) or (_mentions_literal(jd_lower, keywords) and not jd_is_engineering)
 
-    has_mobile = _is_role(MOBILE_KEYWORDS)
-    has_civic = _is_role(CIVIC_KEYWORDS)
-    has_crypto = _is_role(CRYPTO_KEYWORDS)
+    has_mobile = _mentions_role(role_name, MOBILE_KEYWORDS) or (
+        _mentions_literal(jd_lower, MOBILE_KEYWORDS) and not is_engineering
+    )
+    has_civic = _jd_domain_role(CIVIC_KEYWORDS)
+    has_crypto = _jd_domain_role(CRYPTO_KEYWORDS)
 
-    # 3. Personal-website gate: frontend/fullstack/web-infra/edge only; never quant/systems/infra
-    is_frontend_web = _mentions(jd_lower, FRONTEND_KEYWORDS)
-    allow_personal_website = is_frontend_web and not is_systems_quant
+    # 3. Personal-website gate: frontend/fullstack/web-infra/edge only; never quant/systems/infra.
+    # A frontend role title alone cannot override an engineering JD — the posting must also
+    # signal frontend/fullstack work, or personal-website weakens backend/systems resumes.
+    jd_has_frontend = _mentions_literal(jd_lower, FRONTEND_KEYWORDS)
+    is_frontend_web = jd_has_frontend or _mentions_role(role_name, FRONTEND_KEYWORDS)
+    allow_personal_website = is_frontend_web and not is_systems_quant and not (is_engineering and not jd_has_frontend)
 
     filtered_proj = [
         p
         for p in projects
-        if (p.slug != "fitness-tracker" or has_mobile)
-        and (p.slug != "spark-food-waste" or has_civic)
-        and (p.slug != "ml-marketplace" or has_crypto)
-        and (p.slug != "personal-website" or allow_personal_website)
+        if (p.slug != MOBILE_PROJECT_SLUG or has_mobile)
+        and (p.slug != CIVIC_PROJECT_SLUG or has_civic)
+        and (p.slug != CRYPTO_PROJECT_SLUG or has_crypto)
+        and (p.slug != PERSONAL_WEBSITE_SLUG or allow_personal_website)
     ]
 
     # 4. Ranking. Persephone-first outranks weak-project promotion: an engineering JD that merely
     #    mentions mobile must not surface fitness-tracker above persephone. Weak projects lead only
     #    when the JD is not an engineering role at all.
     if is_engineering:
-        filtered_proj = _promote(filtered_proj, "persephone")
+        filtered_proj = _promote(filtered_proj, PERSEPHONE_SLUG)
     elif has_mobile:
-        filtered_proj = _promote(filtered_proj, "fitness-tracker")
+        filtered_proj = _promote(filtered_proj, MOBILE_PROJECT_SLUG)
     elif has_civic:
-        filtered_proj = _promote(filtered_proj, "spark-food-waste")
+        filtered_proj = _promote(filtered_proj, CIVIC_PROJECT_SLUG)
     elif has_crypto:
-        filtered_proj = _promote(filtered_proj, "ml-marketplace")
+        filtered_proj = _promote(filtered_proj, CRYPTO_PROJECT_SLUG)
 
     return filtered_exp, filtered_proj
 
@@ -299,19 +366,25 @@ def generate_candidate_plans(
 
     candidates: list[dict[str, Any]] = []
 
-    # Strategy 1: Top 2 Projects + Knapsack packed to 35 lines
+    # Strategy 1: Top 2 Projects + Knapsack packed to MAX_EXPERIENCE_PROJECT_LINES
     if len(projects) >= 2:
-        exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects[:2], max_lines=35.0)
+        exp_p, proj_p, lines = solve_line_budget_knapsack(
+            experiences, projects[:2], max_lines=MAX_EXPERIENCE_PROJECT_LINES
+        )
         candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
-    # Strategy 2: Top 3 Projects + Knapsack packed to 35 lines
+    # Strategy 2: Top 3 Projects + Knapsack packed to MAX_EXPERIENCE_PROJECT_LINES
     if len(projects) >= 3:
-        exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects[:3], max_lines=35.0)
+        exp_p, proj_p, lines = solve_line_budget_knapsack(
+            experiences, projects[:3], max_lines=MAX_EXPERIENCE_PROJECT_LINES
+        )
         candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
-    # Strategy 3: Tight Compact Knapsack (32 lines) for guaranteed zero-trim safety
+    # Strategy 3: Tight Compact Knapsack for guaranteed zero-trim safety
     if len(projects) >= 2:
-        exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects[:2], max_lines=32.0)
+        exp_p, proj_p, lines = solve_line_budget_knapsack(
+            experiences, projects[:2], max_lines=COMPACT_EXPERIENCE_PROJECT_LINES
+        )
         candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
     # Degenerate profile (fewer than 2 selectable projects). This branch used to emit
@@ -330,7 +403,18 @@ def generate_candidate_plans(
         exp_p, proj_p, lines = solve_line_budget_knapsack(experiences, projects, max_lines=MAX_EXPERIENCE_PROJECT_LINES)
         candidates.append({"experiences": exp_p, "projects": proj_p, "skills": "all", "_lines": lines})
 
-    return candidates
+    # De-duplicate: strategies can converge on the identical plan (e.g. strategy 1 at 35 lines and
+    # strategy 3 at 32 lines both pack the same content when it fits under the tighter budget).
+    # Keep the first (larger-budget) occurrence so the report doesn't score and list the same
+    # configuration twice under two different "candidates tested" rows.
+    unique: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for cand in candidates:
+        key = json.dumps({k: v for k, v in cand.items() if not k.startswith("_")}, sort_keys=True)
+        if key not in seen_keys:
+            seen_keys.add(key)
+            unique.append(cand)
+    return unique
 
 
 def optimize_plan(
