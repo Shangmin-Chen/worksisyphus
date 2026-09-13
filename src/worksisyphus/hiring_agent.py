@@ -315,9 +315,7 @@ def check_upstream_status() -> dict[str, Any]:
                     ),
                 )
             remote_etag = resp.headers.get("ETag") or cached_etag
-            is_synced = bool(
-                remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit)
-            )
+            is_synced = bool(remote_commit.startswith(synced_commit) or synced_commit.startswith(remote_commit))
             return _upstream_result(
                 manifest,
                 status="synced" if is_synced else "outdated",
