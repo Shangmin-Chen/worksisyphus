@@ -13,6 +13,16 @@ _PAGES_RE = re.compile(r"Output written on .*\((\d+) pages?")
 _OVERFULL_RE = re.compile(r"Overfull \\hbox \(([\d.]+)pt too wide\) in .*? at lines? (\d+)")
 
 PDFLATEX_TIMEOUT_SECONDS = 120
+_LOG_TAIL_LINES = 15
+
+
+def _format_log_tail(stdout: str | None, stderr: str | None, *, lines: int = _LOG_TAIL_LINES) -> str:
+    """Return the last *lines* of pdflatex stdout/stderr for CompileError diagnostics."""
+    tail = "\n".join((stdout or "").splitlines()[-lines:])
+    err_tail = "\n".join((stderr or "").splitlines()[-lines:])
+    if not err_tail:
+        return tail
+    return f"{tail}\n--- stderr ---\n{err_tail}" if tail else err_tail
 
 
 class CompileError(RuntimeError):
@@ -73,21 +83,27 @@ def compile_tex(tex: str, name: str, tex_dir: Path, pdf_dir: Path) -> CompileRes
                 timeout=PDFLATEX_TIMEOUT_SECONDS,
             )
         except subprocess.TimeoutExpired as exc:
-            raise CompileError(
+            detail = _format_log_tail(exc.stdout, exc.stderr)
+            message = (
                 f"pdflatex timed out after {PDFLATEX_TIMEOUT_SECONDS}s compiling {tex_path.name}; "
                 "the run was killed and no PDF was produced."
-            ) from exc
+            )
+            if detail:
+                message += f"\n{detail}"
+            raise CompileError(message) from exc
         built_pdf = Path(workdir) / f"{name}.pdf"
         if proc.returncode != 0 or not built_pdf.is_file():
-            tail = "\n".join((proc.stdout or "").splitlines()[-15:])
-            err_tail = "\n".join((proc.stderr or "").splitlines()[-15:])
-            detail = tail if not err_tail else f"{tail}\n--- stderr ---\n{err_tail}"
+            detail = _format_log_tail(proc.stdout, proc.stderr)
             raise CompileError(f"pdflatex failed for {tex_path.name}:\n{detail}")
         # pdflatex hard-wraps log lines, which can split diagnostics.
         stdout = " ".join(proc.stdout.splitlines())
         match = _PAGES_RE.search(stdout)
         if match is None:
-            raise CompileError(f"Could not determine page count for {tex_path.name}.")
+            detail = _format_log_tail(proc.stdout, proc.stderr)
+            message = f"Could not determine page count for {tex_path.name}."
+            if detail:
+                message += f"\n{detail}"
+            raise CompileError(message)
         overfull_items: list[str] = []
         for width, line in _OVERFULL_RE.findall(stdout):
             try:

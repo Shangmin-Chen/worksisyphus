@@ -51,13 +51,22 @@ def test_compile_raises_compile_error_on_timeout(monkeypatch, tmp_path) -> None:
     import pytest
 
     def fake_run(args, **kwargs) -> subprocess.CompletedProcess:
-        raise subprocess.TimeoutExpired(cmd=[], timeout=120)
+        raise subprocess.TimeoutExpired(
+            cmd=[],
+            timeout=120,
+            output="line 1\nline 2\npartial log before kill",
+            stderr="! Emergency stop.\n*** (job aborted)",
+        )
 
     monkeypatch.setattr(compiler.shutil, "which", lambda _name: "/usr/bin/pdflatex")
     monkeypatch.setattr(compiler.subprocess, "run", fake_run)
 
-    with pytest.raises(compiler.CompileError, match="timed out"):
+    with pytest.raises(compiler.CompileError, match="timed out") as excinfo:
         compiler.compile_tex("tex", "x", tmp_path / "tex", tmp_path / "pdf")
+
+    message = str(excinfo.value)
+    assert "partial log before kill" in message
+    assert "Emergency stop" in message
 
 
 def test_compile_error_includes_stderr(monkeypatch, tmp_path) -> None:
@@ -76,6 +85,30 @@ def test_compile_error_includes_stderr(monkeypatch, tmp_path) -> None:
     message = str(excinfo.value)
     assert "log tail here" in message
     assert "x.sty" in message
+
+
+def test_compile_error_includes_log_on_missing_page_count(monkeypatch, tmp_path) -> None:
+    import pytest
+
+    def fake_run(args, **kwargs) -> subprocess.CompletedProcess:
+        output_dir = Path(next(arg for arg in args if arg.startswith("-output-directory=")).split("=", 1)[1])
+        (output_dir / "x.pdf").write_bytes(b"%PDF-fake")
+        return subprocess.CompletedProcess(
+            args,
+            0,
+            "No page count line in this log\nLaTeX finished with no summary",
+            "",
+        )
+
+    monkeypatch.setattr(compiler.shutil, "which", lambda _name: "/usr/bin/pdflatex")
+    monkeypatch.setattr(compiler.subprocess, "run", fake_run)
+
+    with pytest.raises(compiler.CompileError) as excinfo:
+        compiler.compile_tex("tex", "x", tmp_path / "tex", tmp_path / "pdf")
+
+    message = str(excinfo.value)
+    assert "Could not determine page count" in message
+    assert "No page count line in this log" in message
 
 
 def test_find_pdflatex_missing_raises_compile_error(monkeypatch) -> None:
