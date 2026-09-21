@@ -17,7 +17,7 @@ from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
-from .ats import ATSCheckResult, check_pdf_ats
+from .ats import ATSCheckResult, check_pdf_ats, scoring_text
 from .compiler import CompileResult
 from .gates import run_resume_gates
 from .pipeline import tailor
@@ -557,7 +557,12 @@ def backfill_evaluations(
         if meta.get("evaluation") and not overwrite:
             continue
 
-        resume_text = check_pdf_ats(pdf).text
+        ats = check_pdf_ats(pdf)
+        resume_text = scoring_text(ats)
+        if resume_text is None:
+            detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
+            log(f"Skipped {folder.name}: could not extract resume text ({detail})")
+            continue
         jd_text = jd_file.read_text(encoding="utf-8") if jd_file.is_file() else ""
         evaluation = evaluate_application(
             resume_text=resume_text,

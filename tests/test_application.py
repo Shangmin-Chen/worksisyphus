@@ -107,6 +107,39 @@ def test_apply_rejects_when_quality_gate_fails_and_cleans_up_atomically(small_pr
     assert list(apps_dir.iterdir()) == []
 
 
+def test_apply_rejects_malformed_pdf_via_quality_gates_and_cleans_up_atomically(
+    small_profile, monkeypatch, tmp_path
+) -> None:
+    """A compiled but unparseable PDF must fail apply() closed, not leak pdfminer exceptions."""
+
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        pdf_path = pdf_dir / f"{name}.pdf"
+        pdf_path.write_bytes(b"not a pdf at all")
+        return CompileResult(pdf_path=pdf_path, tex_path=tex_dir / f"{name}.tex", pages=1)
+
+    import worksisyphus.pipeline as pipe_module
+
+    monkeypatch.setattr(pipe_module, "compile_tex", fake_compile)
+
+    apps_dir = tmp_path / "applications"
+    with pytest.raises(RuntimeError, match="Quality gate check failed") as exc_info:
+        apply(
+            plan_text=json.dumps({"experiences": {"org-a": ["a1"]}}),
+            jd_text="Backend engineer role",
+            company="Acme Corp",
+            role="Product Engineer",
+            when=date(2026, 8, 20),
+            profile=small_profile,
+            applications_dir=apps_dir,
+            sync_cloud=False,
+        )
+
+    assert exc_info.type is RuntimeError
+    assert "could not parse PDF" in str(exc_info.value)
+    assert not (apps_dir / "2026-08-20_acme-corp_product-engineer").exists()
+    assert list(apps_dir.iterdir()) == []
+
+
 def test_apply_gate_failure_leaves_existing_applications_intact(small_profile, monkeypatch, tmp_path) -> None:
     """A failed build must not disturb any already-delivered application."""
 
@@ -634,6 +667,25 @@ def test_backfill_is_idempotent_and_respects_overwrite(small_profile, monkeypatc
     assert len(backfill_evaluations(applications_dir=apps, overwrite=True)) == 1
 
     assert backfill_evaluations(applications_dir=apps) == []
+
+
+def test_backfill_skips_unparseable_resume_pdf(small_profile, monkeypatch, tmp_path) -> None:
+    from worksisyphus.application import backfill_evaluations
+
+    apps = tmp_path / "applications"
+    folder = apps / "2026-08-01_oldco_swe"
+    folder.mkdir(parents=True)
+    (folder / "meta.json").write_text(json.dumps({"company": "OldCo", "role": "SWE", "status": "applied"}))
+    (folder / "jd.txt").write_text("Python backend engineer.")
+    (folder / "Simon_Chen_Resume.pdf").write_bytes(b"not a pdf")
+
+    logs: list[str] = []
+
+    scored = backfill_evaluations(applications_dir=apps, log=logs.append)
+
+    assert scored == []
+    assert "could not extract resume text" in logs[0]
+    assert "evaluation" not in json.loads((folder / "meta.json").read_text())
 
 
 def test_parse_app_folder_handles_legacy_names() -> None:
