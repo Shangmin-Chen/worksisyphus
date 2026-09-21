@@ -59,12 +59,43 @@ class Profile:
 
 
 def validate_contact(contact: Contact, source: str = "profile.json") -> None:
-    """Ensure required contact details (name, email, phone) are present and non-empty."""
+    """Ensure required contact details (name, email, phone) are present and non-empty.
+
+    Division of responsibility: the Contact dataclass defines the SHAPE (what a contact
+    may contain, with email/phone/website/github/linkedin optional at construction time
+    for partial-contact recovery paths); REQUIRED_CONTACT_FIELDS + this function define
+    DELIVERABILITY (what a contact must contain before a PDF is rendered).
+    """
     for field_name in REQUIRED_CONTACT_FIELDS:
-        if not getattr(contact, field_name, "").strip():
+        if not getattr(contact, field_name).strip():
             raise ValueError(
                 f"contact.{field_name} is empty in {source}; a resume cannot be rendered without contact info."
             )
+
+
+def _require_dict(entry: Any, what: str, path: Path) -> bool:
+    if not isinstance(entry, dict):
+        raise ValueError(f"Invalid {what} in {path}: expected object, got {type(entry).__name__}")
+    return True
+
+
+def _require_section(data: dict[str, Any], section: str, expected: type, path: Path) -> Any:
+    if section not in data:
+        return expected()
+    value = data[section]
+    if not isinstance(value, expected):
+        raise ValueError(
+            f"Invalid {section} section in {path}: expected {expected.__name__}, got {type(value).__name__}"
+        )
+    return value
+
+
+def _build(factory: Any, kwargs: dict[str, Any], what: str, path: Path) -> Any:
+    """Build a dataclass, naming the offending entry and file on a schema mismatch."""
+    try:
+        return factory(**kwargs)
+    except TypeError as exc:
+        raise ValueError(f"Invalid {what} in {path}: {exc}") from exc
 
 
 def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
@@ -76,15 +107,42 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
             f"`uv run worksisyphus db export-profile`."
         )
 
-    data = json.loads(path.read_text(encoding="utf-8"))
+    text = path.read_text(encoding="utf-8")
+    if text.startswith("﻿"):
+        text = text[1:]
+    data = json.loads(text)
+    education_entries = _require_section(data, "education", list, path)
+    experiences_data = _require_section(data, "experiences", dict, path)
+    projects_data = _require_section(data, "projects", dict, path)
+    skills_data = _require_section(data, "skills", dict, path)
+    skills: dict[str, tuple[str, ...]] = {}
+    for group, items in skills_data.items():
+        if not isinstance(items, list):
+            raise ValueError(f"Invalid skills.{group} in {path}: expected list, got {type(items).__name__}")
+        skills[group] = tuple(items)
+    education: list[Education] = []
+    for i, e in enumerate(education_entries):
+        if not _require_dict(e, f"education entry {i}", path):
+            continue
+        label = f"education entry {i} ({e.get('institution', '?')})"
+        coursework = e.get("coursework", [])
+        if not isinstance(coursework, list):
+            raise ValueError(f"Invalid coursework in {label} in {path}: expected list, got {type(coursework).__name__}")
+        education.append(_build(Education, {**e, "coursework": tuple(coursework)}, label, path))
     return Profile(
-        contact=Contact(**data.get("contact", {"name": ""})),
-        education=tuple(
-            Education(**{**e, "coursework": tuple(e.get("coursework", []))}) for e in data.get("education", [])
-        ),
-        experiences={slug: Experience(id=slug, **e) for slug, e in data.get("experiences", {}).items()},
-        projects={slug: Project(id=slug, **p) for slug, p in data.get("projects", {}).items()},
-        skills={group: tuple(items) for group, items in data.get("skills", {}).items()},
+        contact=_build(Contact, data.get("contact", {"name": ""}), "contact", path),
+        education=tuple(education),
+        experiences={
+            slug: _build(Experience, {**e, "id": slug}, f"experience '{slug}'", path)
+            for slug, e in experiences_data.items()
+            if _require_dict(e, f"experience '{slug}'", path)
+        },
+        projects={
+            slug: _build(Project, {**p, "id": slug}, f"project '{slug}'", path)
+            for slug, p in projects_data.items()
+            if _require_dict(p, f"project '{slug}'", path)
+        },
+        skills=skills,
     )
 
 

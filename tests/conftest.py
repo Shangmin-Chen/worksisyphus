@@ -83,5 +83,5 @@ def small_profile() -> Profile:
             "proj1": Project("proj1", "Proj1", "Python", "2025", {"p1": "P1 one", "p2": "P1 two", "p3": "P1 three"}),
             "proj2": Project("proj2", r"Proj \& Two", "Rust", "2024", {"q1": "P2 one"}),
         },
-        skills={"languages": ("Python", "Rust"), "platforms_and_systems": ("AWS",)},
+        skills={"languages": ("Python", "Rust"), "frameworks_and_libraries": ("FastAPI",)},
     )
