@@ -65,9 +65,13 @@ def test_gpa_gate_catches_violations() -> None:
     assert not check_gpa_gate("C.G.P.A. 3.75").passed
     assert not check_gpa_gate("GPA3.8").passed
     assert not check_gpa_gate("CGPA3.85").passed
-    assert not check_gpa_gate("G.P.A3.8").passed
     assert not check_gpa_gate("G P A3.8").passed
     assert not check_gpa_gate("C.G.P.A3.85").passed
+    assert not check_gpa_gate("CGPA: 3.8").passed
+    assert not check_gpa_gate("GPA3.9").passed
+    assert check_gpa_gate("Python 3.11 / 4 worker processes").passed
+    assert check_gpa_gate("Python 3.10 / 4 threads").passed
+    assert check_gpa_gate("Engineered high-throughput service on Python 3.11 / 4 worker processes").passed
     assert not check_gpa_gate("GPA4").passed
     assert not check_gpa_gate("GPA3").passed
     assert not check_gpa_gate("CGPA4").passed

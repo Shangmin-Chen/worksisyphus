@@ -43,12 +43,12 @@ def test_tailor_trims_until_one_page(small_profile, monkeypatch, tmp_path) -> No
     assert len(result.trimmed) == 2
     assert result.trimmed[0].kind == "project" and result.trimmed[0].slug == "proj2"
     assert (
-        result.trimmed[1].kind == "project-bullet"
-        and result.trimmed[1].slug == "proj1"
-        and result.trimmed[1].bullet == "p3"
+        result.trimmed[1].kind == "experience-bullet"
+        and result.trimmed[1].slug == "org-a"
+        and result.trimmed[1].bullet == "a3"
     )
     assert "trimmed: dropped project 'proj2'" in log_lines
-    assert "trimmed: dropped project bullet 'p3' from 'proj1'" in log_lines
+    assert "trimmed: dropped experience bullet 'a3' from 'org-a'" in log_lines
 
 
 def test_tailor_raises_when_nothing_left_to_trim(small_profile, monkeypatch, tmp_path) -> None:

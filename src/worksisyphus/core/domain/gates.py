@@ -67,9 +67,42 @@ def check_gpa_gate(text: str) -> GateResult:
     """Ensure no GPA metrics appear on the resume (Simon's policy)."""
     violations = []
     for pattern in GPA_PATTERNS:
-        matches = re.findall(pattern, text, flags=re.IGNORECASE)
-        if matches:
-            violations.append(f"Found GPA reference matching {pattern!r}: {matches}")
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE):
+            matched_str = match.group(0)
+            if "/" in matched_str:
+                start, end = match.start(), match.end()
+                prefix = text[max(0, start - 15) : start].lower()
+                suffix = text[end : min(len(text), end + 25)].lower()
+                if any(w in prefix for w in ("python", "version", "v.", "kernel")) or any(
+                    suffix.strip().startswith(unit)
+                    for unit in (
+                        "worker",
+                        "process",
+                        "thread",
+                        "node",
+                        "core",
+                        "cpu",
+                        "gpu",
+                        "instance",
+                        "replica",
+                        "shard",
+                        "task",
+                        "slot",
+                        "stage",
+                        "partition",
+                        "server",
+                        "service",
+                        "pod",
+                        "container",
+                        "hour",
+                        "month",
+                        "day",
+                        "week",
+                        "year",
+                    )
+                ):
+                    continue
+            violations.append(f"Found GPA reference matching {pattern!r}: {[matched_str]}")
     return GateResult(
         gate_name="No-GPA Gate",
         passed=len(violations) == 0,

@@ -61,7 +61,7 @@ def trim_step(selection: Selection) -> tuple[Selection, TrimCut] | None:
             TrimCut(kind="project", slug=dropped.id),
         )
 
-    for pick_list, is_projects in ((selection.projects, True), (selection.experiences[::-1], False)):
+    for pick_list, is_projects in ((selection.experiences[::-1], False), (selection.projects, True)):
         for pick in pick_list:
             if len(pick.bullets) > MIN_BULLETS:
                 removed_bullet = pick.bullets[-1]
