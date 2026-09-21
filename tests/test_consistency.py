@@ -95,3 +95,39 @@ def test_contact_verification_blocks_are_well_formed() -> None:
         elif not verification["cross_checked_against_db"] and not verification.get("skip_reason"):
             invalid.append(f"{d.name}: the cross-check was skipped without recording a reason")
     assert invalid == [], f"Malformed contact_verification blocks: {invalid}"
+
+
+def test_trimmed_blocks_are_well_formed() -> None:
+    """meta.json's trimmed list, wherever present, is readable and complete.
+
+    Application folders are immutable history, so folders published before this field
+    existed were deliberately NOT backfilled: nothing can reconstruct what the trim loop
+    dropped, and inventing an answer would be dishonest. Absent therefore means "not
+    recorded". What is asserted here is that a list that IS present names each cut with
+    kind and slug, and bullet trims also carry the removed bullet slug.
+    """
+    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
+        pytest.skip("Applications directory not present or empty")
+    invalid: list[str] = []
+    for d in sorted(APPLICATIONS_DIR.iterdir()):
+        meta_file = d / "meta.json"
+        if not d.is_dir() or not meta_file.is_file():
+            continue
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        trimmed = meta.get("trimmed")
+        if trimmed is None:
+            continue
+        if not isinstance(trimmed, list):
+            invalid.append(f"{d.name}: trimmed is not a list")
+            continue
+        for index, cut in enumerate(trimmed):
+            if not isinstance(cut, dict):
+                invalid.append(f"{d.name}: trimmed[{index}] is not an object")
+                continue
+            if cut.get("kind") not in ("project", "experience-bullet", "project-bullet"):
+                invalid.append(f"{d.name}: trimmed[{index}] has invalid kind {cut.get('kind')!r}")
+            elif not isinstance(cut.get("slug"), str) or not cut["slug"]:
+                invalid.append(f"{d.name}: trimmed[{index}] missing slug")
+            elif cut["kind"] != "project" and not cut.get("bullet"):
+                invalid.append(f"{d.name}: trimmed[{index}] missing bullet")
+    assert invalid == [], f"Malformed trimmed blocks: {invalid}"

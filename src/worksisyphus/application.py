@@ -309,6 +309,11 @@ def apply(
             # published before this field existed, which reads as "not recorded" -- distinct
             # from both "verified" and "skipped", and honest, since it cannot be reconstructed.
             "contact_verification": contact_cross_check.as_meta(),
+            # Frozen alongside the resume: a folder must state what the trim loop dropped to fit
+            # one page, not leave a reader guessing. Absent on folders published before this field
+            # existed, which reads as "not recorded" -- distinct from an empty list, which means
+            # nothing was cut, and honest, since it cannot be reconstructed.
+            "trimmed": [cut.as_meta() for cut in compile_result.trimmed],
         }
         # 3. Quality gates and ATS validation, reusing a single PDF extraction
         gate_results, ats_result = run_resume_gates(
