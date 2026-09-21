@@ -231,4 +231,3 @@ def test_merged_tech_date_fails_ats_gate(tmp_path, monkeypatch) -> None:
     assert res.passed is False
     assert any("no whitespace before the date" in p for p in res.problems)
     assert len(res.warnings) >= 1
-

@@ -346,4 +346,3 @@ def test_load_profile_rejects_invalid_contact_section(tmp_path) -> None:
     profile_path.write_text(json.dumps({"contact": "not a dict"}), encoding="utf-8")
     with pytest.raises(ValueError, match="Invalid contact section"):
         load_profile(profile_path)
-

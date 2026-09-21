@@ -76,7 +76,6 @@ def test_tailor_rejects_horizontal_overflow(small_profile, monkeypatch, tmp_path
             overfull=(OverfullHbox(90.6, 127),),
         )
 
-
     monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
     monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
 
@@ -176,11 +175,9 @@ def test_failed_tailor_leaves_no_employer_pdf_in_destination(small_profile, monk
             overfull=(OverfullHbox(90.6, 127),),
         )
 
-
     monkeypatch.setattr(pipeline, "compile_tex", overflow_compile)
 
     with pytest.raises(RuntimeError, match="Horizontal overflow"):
         tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=dest_dir)
 
     assert not (dest_dir / "Simon_Chen_Resume.pdf").exists()
-

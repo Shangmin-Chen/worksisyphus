@@ -72,7 +72,6 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
     assert meta["ats_warnings"] == []
 
 
-
 def test_apply_rejects_when_quality_gate_fails_and_cleans_up_atomically(small_profile, monkeypatch, tmp_path) -> None:
     def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
         pdf_path = pdf_dir / f"{name}.pdf"

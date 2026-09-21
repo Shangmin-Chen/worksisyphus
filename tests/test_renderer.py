@@ -115,4 +115,3 @@ def test_render_raises_on_unknown_skill_group(small_profile) -> None:
     )
     with pytest.raises(ValueError, match=r"Unknown skill group 'nonexistent_group' has no display label"):
         render_resume(small_profile, selection)
-

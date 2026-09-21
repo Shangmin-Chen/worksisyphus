@@ -73,14 +73,12 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
             raise ValueError(f"Invalid coursework in {label} in {path}: expected list, got {type(coursework).__name__}")
         education.append(_build(Education, {**e, "coursework": tuple(coursework)}, label, path))
     if "contact" not in data:
-
         raise ValueError(f"Missing required 'contact' section in {path}")
     if not isinstance(data["contact"], dict):
         raise ValueError(f"Invalid contact section in {path}: expected object, got {type(data['contact']).__name__}")
     return Profile(
         contact=_build(Contact, data["contact"], "contact", path),
         education=tuple(education),
-
         experiences={
             slug: _build(Experience, {**e, "id": slug}, f"experience '{slug}'", path)
             for slug, e in experiences_data.items()

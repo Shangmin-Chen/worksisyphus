@@ -367,7 +367,6 @@ def apply(
             log=log,
         )
 
-
         # 2. Freeze the plan and JD. meta.json is written after scoring, below, so the folder
         #    is never published without the evaluation that belongs to it.
         (staging_dir / "plan.json").write_text(normalized_plan.strip() + "\n", encoding="utf-8")
@@ -405,7 +404,6 @@ def apply(
         if failed_gates:
             reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
             raise RuntimeError(f"Quality gate check failed for {base_target.name}:\n{reasons}")
-
 
         # 3b. Score the delivered resume against this JD and record it alongside the application,
         #     so every application carries the evaluation that was true when it was sent.

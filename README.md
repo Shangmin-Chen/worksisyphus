@@ -76,23 +76,17 @@ Every tailored resume compiles straight into `applications/<date>_<company>_<rol
 ├── CLAUDE.md               # rules for AI agents operating this repo
 ├── GEMINI.md               # rules for Antigravity / Gemini agents
 ├── scripts/ats_check.py    # verify a compiled PDF extracts cleanly for ATS parsers
-├── src/worksisyphus/
-│   ├── git_guard.py        # branch + origin/main freshness gate for Turso sync
-│   ├── db.py               # SQLite/Turso database & append-only audit trail
-│   ├── profile.py          # database loader + slug index
-│   ├── plan.py             # plan-file parser and validation
-│   ├── selection.py        # Selection model + deterministic one-page trim order
-│   ├── renderer.py         # Jake's-template TeX renderer (verbatim values)
-│   ├── compiler.py         # pdflatex wrapper with page count
-│   ├── pipeline.py          # tailor() preview build and build_canonical()
-│   ├── application.py       # 1-step apply, lifecycle tracking, and cloud sync
-│   ├── ats.py              # ATS text extraction and formatting check
-│   ├── gates.py            # quality gates (GPA, banned content, density)
-│   ├── evaluator.py        # resume evaluation and scoring engine
-│   ├── hiring_agent.py     # 1:1 HackerRank hiring agent evaluation pipeline
-│   ├── optimizer.py        # marginal knapsack combinatorial plan optimizer
+├── src/worksisyphus/       # Hexagonal Architecture (Ports, Adapters, Core)
+│   ├── core/
+│   │   ├── domain/         # models, trim rules, plan resolution, quality gates, scoring
+│   │   ├── use_cases/      # application lifecycle, pipeline, optimizer, evaluator, gates
+│   │   └── rendering/      # Jake's LaTeX resume renderer
+│   ├── ports/              # abstract interfaces (compiler, storage, ATS, git guard, rubrics)
+│   ├── adapters/
+│   │   ├── inbound/cli/    # CLI entrypoints, status, argument parsing
+│   │   └── outbound/       # latex/pdflatex, sqlite/turso, pdf/ats, filesystem, git
 │   ├── roles/              # role rubrics and criteria templates
-│   └── cli.py              # compile, tailor, apply, validate, evaluate, optimize, and db CLI
+│   └── *.py                # backward-compatibility facades (application, cli, db, pipeline, etc.)
 ├── tex_files/              # rendered TeX (only the canonical one is tracked)
 └── applications/           # delivered resumes + JD/plan/meta (gitignored; mirrored to Turso)
 ```
@@ -123,8 +117,11 @@ stem names the preview build.
 
 `profile.json` values are trusted TeX (`\$8K`, `75\%`, `$\sim$20$\mu$s`): escape special characters when editing.
 
-## Tests
+## Tests & Quality Checks
 
 ```bash
-uv run python -m pytest tests/ -q
+uv run python -m pytest tests/ -q   # test suite (no network, no pdflatex needed)
+uv run ruff check .                 # linter
+uv run ruff format --check .        # code formatter check
+uv run mypy src/ tests/             # static type checker
 ```

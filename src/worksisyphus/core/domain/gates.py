@@ -172,14 +172,16 @@ def profile_to_plain_text(profile: Profile) -> str:
     """Extract all text tokens and strings from a Profile for policy scanning."""
     chunks: list[str] = []
     if profile.contact:
-        chunks.extend([
-            profile.contact.name,
-            profile.contact.email,
-            profile.contact.phone,
-            profile.contact.website,
-            profile.contact.github,
-            profile.contact.linkedin,
-        ])
+        chunks.extend(
+            [
+                profile.contact.name,
+                profile.contact.email,
+                profile.contact.phone,
+                profile.contact.website,
+                profile.contact.github,
+                profile.contact.linkedin,
+            ]
+        )
     for edu in profile.education:
         chunks.extend([edu.institution, edu.degree, edu.location, edu.date, *edu.coursework])
     for exp in profile.experiences.values():
@@ -199,4 +201,3 @@ def check_profile_gates(profile: Profile) -> tuple[GateResult, ...]:
         check_gpa_gate(text),
         check_banned_content_gate(text),
     )
-

@@ -79,4 +79,3 @@ def parse_plan(text: str, profile: Profile) -> Selection:
         projects=projects,
         skills=skills,
     )
-

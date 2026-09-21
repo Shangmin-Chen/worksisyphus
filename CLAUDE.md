@@ -86,6 +86,9 @@ uv run worksisyphus db init [--allow-branch] [--no-git-check]   # create the sch
 uv run worksisyphus db sync [--allow-branch] [--no-git-check]  # load profile.json into SQLite and push to Turso cloud
 uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery path for a lost profile; refuses to write a placeholder contact block, --force or not)
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
+uv run ruff check .                             # linter
+uv run ruff format --check .                    # code formatter check
+uv run mypy src/ tests/                         # static type checker
 uv run python scripts/ats_check.py <pdf>        # ATS extraction check
 ```
 
@@ -101,4 +104,4 @@ When changing a schema or data format, migrate **all** existing data files — n
 
 ## Architecture (for code changes)
 
-`profile.json` → `profile.py` (slug-keyed loader; the single source of truth for rendering) → `plan.py` (plan parsing/validation) → `selection.py` (Selection model + deterministic trim order) → `renderer.py` (Jake's-template TeX, values verbatim) → `compiler.py` (pdflatex + page count) → `pipeline.py` (orchestration) → `application.py` (1-step apply, lifecycle tracking) → `cli.py`. Off to the side, `db.py` (SQLite/Turso + append-only audit trail, gated by `git_guard.py`) is a *store*, not a source: it imports its types from `profile.py`, is seeded from `profile.json` by `db sync`, and receives application records from `application.py`. Nothing in the render path reads from it. Tests use a small fixture profile, in-memory SQLite, and an injectable fake compiler; they must keep passing without network or pdflatex.
+Hexagonal Architecture: `core/` (`domain/` models/rules/gates, `use_cases/` application/pipeline/optimizer/evaluator, `rendering/` Jake's LaTeX) is isolated from I/O through `ports/` (`CompilerPort`, `StoragePort`, `AtsExtractorPort`, `GitGuardPort`, `RubricsPort`). `adapters/` implement these ports (`inbound/cli/` commands, `outbound/latex/`, `persistence/` SQLite/Turso, `pdf/` ATS, `filesystem/`, `git/`). Root modules (`profile.py`, `pipeline.py`, `application.py`, `db.py`, `cli.py`, etc.) serve as backward-compatibility facades. Nothing in the render path reads from SQLite/Turso (`profile.json` is the sole source of truth for rendering). Tests use a fixture profile, in-memory SQLite, and an injectable fake compiler; they must keep passing without network or pdflatex.

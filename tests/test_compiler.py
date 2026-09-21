@@ -53,7 +53,6 @@ Output written on /tmp/x.pdf (1 page, 1234 bytes).
     assert result.overfull[0].exceeds_tolerance(2.0) is True
 
 
-
 def test_compile_raises_compile_error_on_timeout(monkeypatch, tmp_path) -> None:
     import pytest
 

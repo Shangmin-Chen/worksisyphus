@@ -46,6 +46,5 @@ __all__ = [
     "check_pdf_ats",
     "check_profile_gates",
     "check_resume_gates",
-
     "run_resume_gates",
 ]

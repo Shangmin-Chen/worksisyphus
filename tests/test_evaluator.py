@@ -146,4 +146,3 @@ def test_evaluate_resume_text_with_explicit_passing_gates_scores_ten() -> None:
         gate_results=(GateResult("Dummy Gate", True),),
     )
     assert report.gate_compliance_score == 10
-

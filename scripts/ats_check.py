@@ -45,7 +45,6 @@ def main() -> int:
         require_contact=require_contact,
     )
 
-
     for warning in result.warnings:
         print(f"WARN: {warning}")
 

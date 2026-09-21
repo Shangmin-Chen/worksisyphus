@@ -31,7 +31,6 @@ def renderable_profile(real_profile) -> Profile:
     return real_profile
 
 
-
 @pytest.fixture(scope="session")
 def delivered_pdf() -> Path:
     """The newest delivered resume."""

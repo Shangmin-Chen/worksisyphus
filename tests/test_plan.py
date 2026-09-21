@@ -82,4 +82,3 @@ def test_invalid_json_fails(small_profile) -> None:
 def test_plan_with_empty_skills_fails(small_profile) -> None:
     with pytest.raises(PlanError, match="Plan selects no skills"):
         parse_plan(json.dumps({"projects": ["proj1"], "skills": {}}), small_profile)
-

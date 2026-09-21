@@ -477,7 +477,6 @@ def test_cli_tailor_invokes_pipeline(monkeypatch, tmp_path) -> None:
     assert recorded["pdf_dir"] == PREVIEW_DIR
 
 
-
 def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:
     import io
 
@@ -633,11 +632,13 @@ def test_unknown_command_does_not_fall_through_to_tailor(monkeypatch) -> None:
 def test_evaluate_with_plan(tmp_path, capsys) -> None:
     plan_file = tmp_path / "plan.json"
     plan_file.write_text(
-        json.dumps({
-            "experiences": {"org-a": ["a1"]},
-            "projects": {"proj1": ["p1"]},
-            "skills": {"languages": ["Python"]},
-        }),
+        json.dumps(
+            {
+                "experiences": {"org-a": ["a1"]},
+                "projects": {"proj1": ["p1"]},
+                "skills": {"languages": ["Python"]},
+            }
+        ),
         encoding="utf-8",
     )
     jd_file = tmp_path / "jd.txt"
@@ -670,4 +671,3 @@ def test_cli_subparsers_documented() -> None:
         content = (root / doc_name).read_text(encoding="utf-8")
         for cmd in expected_commands:
             assert f"worksisyphus {cmd}" in content, f"Command '{cmd}' not documented in {doc_name}"
-

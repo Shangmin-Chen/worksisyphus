@@ -57,8 +57,6 @@ class CompileResult:
     overfull: tuple[OverfullHbox, ...] = ()
     trimmed: tuple[TrimCut, ...] = ()
 
-
-
     def __post_init__(self) -> None:
         if self.overfull:
             normalized: list[OverfullHbox] = []
@@ -79,7 +77,6 @@ class CompileResult:
                 else:
                     normalized.append(OverfullHbox(width_pt=None, line=None, raw=str(item)))
             object.__setattr__(self, "overfull", tuple(normalized))
-
 
 
 @runtime_checkable

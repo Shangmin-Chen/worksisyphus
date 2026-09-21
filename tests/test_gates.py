@@ -312,5 +312,3 @@ def test_pipeline_refuses_to_build_when_profile_fails_gates(small_profile, tmp_p
     # tailor must refuse
     with pytest.raises(RuntimeError, match="Profile policy gate failed"):
         pipeline.tailor('{"experiences": ["org-a"]}', profile=bad_profile, tex_dir=tmp_path, pdf_dir=tmp_path)
-
-

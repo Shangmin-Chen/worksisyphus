@@ -262,7 +262,6 @@ def evaluate_resume_text(
         gate_score = 0
         gate_diagnostics.append("Quality gates not evaluated (no PDF or gate results provided)")
 
-
     overall_score = role_alignment_score + technical_depth_score + impact_metrics_score + gate_score
 
     # Strengths & Suggestions
