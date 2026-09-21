@@ -1,0 +1,80 @@
+"""Domain rules: Deterministic trimming order and selection invariant enforcement."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from typing import Any, Literal
+
+from .models import Pick, Profile, Selection
+
+TrimKind = Literal["project", "experience-bullet", "project-bullet"]
+
+CANONICAL_STEM = "Simon_Chen_Resume_Compiled"
+TAILORED_NAME = (
+    "Simon_Chen_Resume"  # every employer-facing PDF gets this name; applications keep per-application copies
+)
+MIN_BULLETS = 2
+
+
+@dataclass(frozen=True)
+class TrimCut:
+    """One deterministic trim-loop removal: the kind, the pick slug, and the bullet when relevant."""
+
+    kind: TrimKind
+    slug: str
+    bullet: str = ""
+
+    def log_line(self) -> str:
+        if self.kind == "project":
+            return f"trimmed: dropped project '{self.slug}'"
+        label = "project bullet" if self.kind == "project-bullet" else "experience bullet"
+        return f"trimmed: dropped {label} '{self.bullet}' from '{self.slug}'"
+
+    def as_meta(self) -> dict[str, Any]:
+        entry: dict[str, Any] = {"kind": self.kind, "slug": self.slug}
+        if self.bullet:
+            entry["bullet"] = self.bullet
+        return entry
+
+
+def full_selection(profile: Profile, name: str = "Simon_Chen_Resume_Compiled") -> Selection:
+    """The canonical everything-included selection."""
+    return Selection(
+        name=name,
+        experiences=tuple(Pick(slug, tuple(e.bullets)) for slug, e in profile.experiences.items()),
+        projects=tuple(Pick(slug, tuple(p.bullets)) for slug, p in profile.projects.items()),
+        skills=dict(profile.skills),
+    )
+
+
+def trim_step(selection: Selection) -> tuple[Selection, TrimCut] | None:
+    """Return the next-smaller selection and what was cut, or None when nothing sensible is left.
+
+    Order: drop lowest-ranked projects down to one, then trim that project's
+    bullets, then trim experience bullets starting from the lowest-ranked
+    experience. Never goes below MIN_BULLETS per kept item.
+    """
+    if len(selection.projects) > 1:
+        dropped = selection.projects[-1]
+        return (
+            replace(selection, projects=selection.projects[:-1]),
+            TrimCut(kind="project", slug=dropped.id),
+        )
+
+    for pick_list, is_projects in ((selection.projects, True), (selection.experiences[::-1], False)):
+        for pick in pick_list:
+            if len(pick.bullets) > MIN_BULLETS:
+                removed_bullet = pick.bullets[-1]
+                trimmed = replace(pick, bullets=pick.bullets[:-1])
+                originals = selection.projects if is_projects else selection.experiences
+                updated = tuple(trimmed if p is pick else p for p in originals)
+                cut = TrimCut(
+                    kind="project-bullet" if is_projects else "experience-bullet",
+                    slug=pick.id,
+                    bullet=removed_bullet,
+                )
+                return (
+                    replace(selection, projects=updated) if is_projects else replace(selection, experiences=updated),
+                    cut,
+                )
+    return None

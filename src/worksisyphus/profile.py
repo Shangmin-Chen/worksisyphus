@@ -1,208 +1,31 @@
-"""Load the slug-keyed master profile database. All string values are trusted TeX."""
+"""Backward-compatibility facade for profile data and loader."""
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Any
+from .adapters.outbound.filesystem.profile_loader import load_profile
+from .core.domain.models import (
+    DEFAULT_PROFILE_PATH,
+    REQUIRED_CONTACT_FIELDS,
+    Contact,
+    Education,
+    Experience,
+    Profile,
+    Project,
+    profile_index,
+    profile_to_dict,
+    validate_contact,
+)
 
-DEFAULT_PROFILE_PATH = Path("profile.json")
-REQUIRED_CONTACT_FIELDS = ("name", "email", "phone")
-
-
-@dataclass(frozen=True)
-class Contact:
-    name: str
-    email: str = ""
-    phone: str = ""
-    website: str = ""
-    github: str = ""
-    linkedin: str = ""
-
-
-@dataclass(frozen=True)
-class Education:
-    institution: str
-    location: str
-    degree: str
-    date: str
-    coursework: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class Experience:
-    id: str
-    role: str
-    org: str
-    location: str
-    date: str
-    bullets: dict[str, str] = field(default_factory=dict)  # slug -> TeX line, file order
-
-
-@dataclass(frozen=True)
-class Project:
-    id: str
-    name: str
-    tech: str
-    date: str
-    bullets: dict[str, str] = field(default_factory=dict)  # slug -> TeX line, file order
-
-
-@dataclass(frozen=True)
-class Profile:
-    contact: Contact
-    education: tuple[Education, ...] = ()
-    experiences: dict[str, Experience] = field(default_factory=dict)
-    projects: dict[str, Project] = field(default_factory=dict)
-    skills: dict[str, tuple[str, ...]] = field(default_factory=dict)
-
-
-def validate_contact(contact: Contact, source: str = "profile.json") -> None:
-    """Ensure required contact details (name, email, phone) are present and non-empty.
-
-    Division of responsibility: the Contact dataclass defines the SHAPE (what a contact
-    may contain, with email/phone/website/github/linkedin optional at construction time
-    for partial-contact recovery paths); REQUIRED_CONTACT_FIELDS + this function define
-    DELIVERABILITY (what a contact must contain before a PDF is rendered).
-    """
-    for field_name in REQUIRED_CONTACT_FIELDS:
-        if not getattr(contact, field_name).strip():
-            raise ValueError(
-                f"contact.{field_name} is empty in {source}; a resume cannot be rendered without contact info."
-            )
-
-
-def _require_dict(entry: Any, what: str, path: Path) -> bool:
-    if not isinstance(entry, dict):
-        raise ValueError(f"Invalid {what} in {path}: expected object, got {type(entry).__name__}")
-    return True
-
-
-def _require_section(data: dict[str, Any], section: str, expected: type, path: Path) -> Any:
-    if section not in data:
-        return expected()
-    value = data[section]
-    if not isinstance(value, expected):
-        raise ValueError(
-            f"Invalid {section} section in {path}: expected {expected.__name__}, got {type(value).__name__}"
-        )
-    return value
-
-
-def _build(factory: Any, kwargs: dict[str, Any], what: str, path: Path) -> Any:
-    """Build a dataclass, naming the offending entry and file on a schema mismatch."""
-    try:
-        return factory(**kwargs)
-    except TypeError as exc:
-        raise ValueError(f"Invalid {what} in {path}: {exc}") from exc
-
-
-def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
-    """Load profile directly from a profile.json file."""
-    path = Path(source)
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"Profile not found: {path}. If missing, recover from database with "
-            f"`uv run worksisyphus db export-profile`."
-        )
-
-    text = path.read_text(encoding="utf-8")
-    if text.startswith("﻿"):
-        text = text[1:]
-    data = json.loads(text)
-    education_entries = _require_section(data, "education", list, path)
-    experiences_data = _require_section(data, "experiences", dict, path)
-    projects_data = _require_section(data, "projects", dict, path)
-    skills_data = _require_section(data, "skills", dict, path)
-    skills: dict[str, tuple[str, ...]] = {}
-    for group, items in skills_data.items():
-        if not isinstance(items, list):
-            raise ValueError(f"Invalid skills.{group} in {path}: expected list, got {type(items).__name__}")
-        skills[group] = tuple(items)
-    education: list[Education] = []
-    for i, e in enumerate(education_entries):
-        if not _require_dict(e, f"education entry {i}", path):
-            continue
-        label = f"education entry {i} ({e.get('institution', '?')})"
-        coursework = e.get("coursework", [])
-        if not isinstance(coursework, list):
-            raise ValueError(f"Invalid coursework in {label} in {path}: expected list, got {type(coursework).__name__}")
-        education.append(_build(Education, {**e, "coursework": tuple(coursework)}, label, path))
-    return Profile(
-        contact=_build(Contact, data.get("contact", {"name": ""}), "contact", path),
-        education=tuple(education),
-        experiences={
-            slug: _build(Experience, {**e, "id": slug}, f"experience '{slug}'", path)
-            for slug, e in experiences_data.items()
-            if _require_dict(e, f"experience '{slug}'", path)
-        },
-        projects={
-            slug: _build(Project, {**p, "id": slug}, f"project '{slug}'", path)
-            for slug, p in projects_data.items()
-            if _require_dict(p, f"project '{slug}'", path)
-        },
-        skills=skills,
-    )
-
-
-def profile_to_dict(profile: Profile) -> dict[str, Any]:
-    """Serialize a Profile back into dictionary shape matching profile.json."""
-    return {
-        "contact": {
-            "name": profile.contact.name,
-            "email": profile.contact.email,
-            "phone": profile.contact.phone,
-            "website": profile.contact.website,
-            "github": profile.contact.github,
-            "linkedin": profile.contact.linkedin,
-        },
-        "education": [
-            {
-                "institution": edu.institution,
-                "location": edu.location,
-                "degree": edu.degree,
-                "date": edu.date,
-                "coursework": list(edu.coursework),
-            }
-            for edu in profile.education
-        ],
-        "experiences": {
-            slug: {
-                "role": exp.role,
-                "org": exp.org,
-                "location": exp.location,
-                "date": exp.date,
-                "bullets": dict(exp.bullets),
-            }
-            for slug, exp in profile.experiences.items()
-        },
-        "projects": {
-            slug: {
-                "name": proj.name,
-                "tech": proj.tech,
-                "date": proj.date,
-                "bullets": dict(proj.bullets),
-            }
-            for slug, proj in profile.projects.items()
-        },
-        "skills": {group: list(items) for group, items in profile.skills.items()},
-    }
-
-
-def profile_index(profile: Profile) -> str:
-    """Human-readable slug index: everything a plan file can reference."""
-    lines: list[str] = ["EXPERIENCES:"]
-    for slug, exp in profile.experiences.items():
-        lines.append(f"{slug}: {exp.role} at {exp.org} ({exp.date})")
-        for bullet_slug, bullet in exp.bullets.items():
-            lines.append(f"  {slug}.{bullet_slug}: {bullet}")
-    lines.append("PROJECTS:")
-    for slug, proj in profile.projects.items():
-        lines.append(f"{slug}: {proj.name} [{proj.tech}] ({proj.date})")
-        for bullet_slug, bullet in proj.bullets.items():
-            lines.append(f"  {slug}.{bullet_slug}: {bullet}")
-    lines.append("SKILLS:")
-    for group, items in profile.skills.items():
-        lines.append(f"{group}: {', '.join(items)}")
-    return "\n".join(lines)
+__all__ = [
+    "DEFAULT_PROFILE_PATH",
+    "REQUIRED_CONTACT_FIELDS",
+    "Contact",
+    "Education",
+    "Experience",
+    "Profile",
+    "Project",
+    "load_profile",
+    "profile_index",
+    "profile_to_dict",
+    "validate_contact",
+]

@@ -1,18 +1,13 @@
-"""Backward-compatibility facade for SQLite and Turso persistence."""
+"""Persistence outbound adapters package."""
 
-from __future__ import annotations
-
-import sys
-
-from .adapters.outbound.persistence import sqlite as _module
-from .adapters.outbound.persistence.sqlite import (
+from .sqlite import (
     ACTION_APPLY,
     ACTION_DELETE,
     ACTION_INSERT,
     ACTION_STATUS_CHANGE,
     ACTION_UPDATE,
     DEFAULT_DB_PATH,
-    SqliteTursoAdapter,
+    SCHEMA_SQL,
     build_sync_sql,
     export_profile_json,
     get_audit_history,
@@ -27,8 +22,6 @@ from .adapters.outbound.persistence.sqlite import (
     update_application_status_in_db,
 )
 
-sys.modules[__name__] = _module
-
 __all__ = [
     "ACTION_APPLY",
     "ACTION_DELETE",
@@ -36,7 +29,7 @@ __all__ = [
     "ACTION_STATUS_CHANGE",
     "ACTION_UPDATE",
     "DEFAULT_DB_PATH",
-    "SqliteTursoAdapter",
+    "SCHEMA_SQL",
     "build_sync_sql",
     "export_profile_json",
     "get_audit_history",
