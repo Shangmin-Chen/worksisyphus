@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import NamedTuple
 
+from .models import Profile
+
 BANNED_TOOLS = (
     "sonarr",
     "radarr",
@@ -142,7 +144,12 @@ def check_latex_leak_gate(text: str) -> GateResult:
 
 
 def check_density_gate(text: str, is_tailored: bool = True) -> GateResult:
-    """Ensure resume contains substantive content density and is not an empty shell."""
+    """Crude length check ensuring baseline word and character counts; not a quality score.
+
+    Ensures the extracted text layer meets minimum length thresholds so that an empty
+    or severely truncated PDF fails delivery. Note: this is a crude token/character count,
+    not a semantic quality assessment.
+    """
     words = len(text.split())
     chars = len(text.strip())
     min_words = 350 if is_tailored else 900
@@ -159,3 +166,37 @@ def check_density_gate(text: str, is_tailored: bool = True) -> GateResult:
         passed=len(violations) == 0,
         diagnostics=tuple(violations),
     )
+
+
+def profile_to_plain_text(profile: Profile) -> str:
+    """Extract all text tokens and strings from a Profile for policy scanning."""
+    chunks: list[str] = []
+    if profile.contact:
+        chunks.extend([
+            profile.contact.name,
+            profile.contact.email,
+            profile.contact.phone,
+            profile.contact.website,
+            profile.contact.github,
+            profile.contact.linkedin,
+        ])
+    for edu in profile.education:
+        chunks.extend([edu.institution, edu.degree, edu.location, edu.date, *edu.coursework])
+    for exp in profile.experiences.values():
+        chunks.extend([exp.org, exp.role, exp.location, exp.date, *exp.bullets.values()])
+    for proj in profile.projects.values():
+        chunks.extend([proj.name, proj.tech, proj.date, *proj.bullets.values()])
+    for group, skills in profile.skills.items():
+        chunks.append(group)
+        chunks.extend(skills)
+    return "\n".join(filter(None, chunks))
+
+
+def check_profile_gates(profile: Profile) -> tuple[GateResult, ...]:
+    """Scan Profile content for No-GPA and Banned Content policy violations."""
+    text = profile_to_plain_text(profile)
+    return (
+        check_gpa_gate(text),
+        check_banned_content_gate(text),
+    )
+

@@ -240,7 +240,6 @@ def evaluate_resume_text(
     impact_metrics_score = min(IMPACT_METRICS_MAX, len(metrics) * POINTS_PER_METRIC)
 
     # 4. Quality Gate Compliance (0 - GATE_COMPLIANCE_MAX pts)
-    gate_score = GATE_COMPLIANCE_MAX
     gate_diagnostics: list[str] = []
     if gate_results is not None or pdf_path is not None:
         if gate_results is None and pdf_path is not None and not pdf_path.is_file():
@@ -257,6 +256,12 @@ def evaluate_resume_text(
                 gate_score = max(0, GATE_COMPLIANCE_MAX - len(failed_gates) * POINTS_LOST_PER_FAILED_GATE)
                 for g in failed_gates:
                     gate_diagnostics.extend(g.diagnostics)
+            else:
+                gate_score = GATE_COMPLIANCE_MAX
+    else:
+        gate_score = 0
+        gate_diagnostics.append("Quality gates not evaluated (no PDF or gate results provided)")
+
 
     overall_score = role_alignment_score + technical_depth_score + impact_metrics_score + gate_score
 

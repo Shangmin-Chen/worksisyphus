@@ -10,6 +10,7 @@ from pathlib import Path
 from ...adapters.outbound.filesystem.profile_loader import load_profile as _default_load_profile
 from ...adapters.outbound.latex.compiler import compile_tex as _default_compile_tex
 from ...ports.compiler import CompileResult, CompilerPort
+from ..domain.gates import check_profile_gates
 from ..domain.models import DEFAULT_PROFILE_PATH, Profile, Selection
 from ..domain.plan import parse_plan
 from ..domain.rules import TrimCut, full_selection, trim_step
@@ -47,6 +48,13 @@ def build_canonical(
 ) -> CompileResult:
     """Rebuild the full everything-included resume; no page limit applies."""
     profile = load_profile(profile_path)
+    profile_gates = check_profile_gates(profile)
+    failed_profile = [g for g in profile_gates if not g.passed]
+    if failed_profile:
+        raise RuntimeError(
+            "Profile policy gate failed: "
+            + "; ".join(f"{g.gate_name}: {', '.join(g.diagnostics)}" for g in failed_profile)
+        )
     selection = full_selection(profile)
     log("Rendering canonical resume...")
     active_compiler = compiler or _get_default_compiler()
@@ -75,8 +83,16 @@ def tailor(
     if not plan_text.strip():
         raise ValueError("Plan is empty.")
     active_profile = profile if profile is not None else load_profile(profile_path)
+    profile_gates = check_profile_gates(active_profile)
+    failed_profile = [g for g in profile_gates if not g.passed]
+    if failed_profile:
+        raise RuntimeError(
+            "Profile policy gate failed: "
+            + "; ".join(f"{g.gate_name}: {', '.join(g.diagnostics)}" for g in failed_profile)
+        )
 
     initial_selection = parse_plan(plan_text, active_profile)
+
     log(f"Plan parsed; output name: {initial_selection.name}")
     pdf_dir.mkdir(parents=True, exist_ok=True)
 

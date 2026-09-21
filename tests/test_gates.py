@@ -247,3 +247,70 @@ def test_gates_fail_closed_when_contact_cannot_be_verified(tmp_path, monkeypatch
         pdf, candidate_name="Simon Chen", candidate_email="", expected_pages=1, require_contact=False
     )
     assert all(g.passed for g in lenient), [(g.gate_name, g.diagnostics) for g in lenient]
+
+
+def test_profile_gates_scan_profile_for_gpa_and_banned_content(small_profile) -> None:
+    import dataclasses
+
+    from worksisyphus.gates import check_profile_gates
+    from worksisyphus.profile import Experience
+
+    # Clean profile passes
+    assert all(g.passed for g in check_profile_gates(small_profile))
+
+    # GPA in profile bullet fails
+    bad_gpa_exp = Experience(
+        id="org-a",
+        role="SWE",
+        org="Org",
+        location="NY",
+        date="2025",
+        bullets={"a1": "Graduated with 3.9 GPA"},
+    )
+    bad_gpa_profile = dataclasses.replace(
+        small_profile,
+        experiences={"org-a": bad_gpa_exp},
+    )
+    gpa_results = check_profile_gates(bad_gpa_profile)
+    assert any(not g.passed and g.gate_name == "No-GPA Gate" for g in gpa_results)
+
+    # Banned content in profile bullet fails
+    bad_tool_exp = Experience(
+        id="org-a",
+        role="SWE",
+        org="Org",
+        location="NY",
+        date="2025",
+        bullets={"a1": "Configured Jellyfin and Sonarr stack"},
+    )
+    bad_tool_profile = dataclasses.replace(
+        small_profile,
+        experiences={"org-a": bad_tool_exp},
+    )
+    banned_results = check_profile_gates(bad_tool_profile)
+    assert any(not g.passed and g.gate_name == "Banned Content Gate" for g in banned_results)
+
+
+def test_pipeline_refuses_to_build_when_profile_fails_gates(small_profile, tmp_path) -> None:
+    import dataclasses
+
+    import pytest
+
+    from worksisyphus import pipeline
+    from worksisyphus.profile import Experience
+
+    bad_exp = Experience(
+        id="org-a",
+        role="SWE",
+        org="Org",
+        location="NY",
+        date="2025",
+        bullets={"a1": "Maintained 3.9 GPA in CS"},
+    )
+    bad_profile = dataclasses.replace(small_profile, experiences={"org-a": bad_exp})
+
+    # tailor must refuse
+    with pytest.raises(RuntimeError, match="Profile policy gate failed"):
+        pipeline.tailor('{"experiences": ["org-a"]}', profile=bad_profile, tex_dir=tmp_path, pdf_dir=tmp_path)
+
+

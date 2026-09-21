@@ -18,6 +18,7 @@ from ..domain.gates import (
     check_density_gate,
     check_gpa_gate,
     check_latex_leak_gate,
+    check_profile_gates,
 )
 
 check_pdf_ats = _default_check_pdf_ats
@@ -131,6 +132,8 @@ __all__ = [
     "check_gpa_gate",
     "check_latex_leak_gate",
     "check_pdf_ats",
+    "check_profile_gates",
     "check_resume_gates",
     "run_resume_gates",
 ]
+

@@ -36,7 +36,15 @@ def main() -> int:
         print("NOTE: profile.json not found; skipping contact-field verification.")
         name = email = phone = ""
 
-    result = check_pdf_ats(pdf_path=pdf, name=name, email=email, phone=phone)
+    require_contact = profile_path.is_file()
+    result = check_pdf_ats(
+        pdf_path=pdf,
+        name=name,
+        email=email,
+        phone=phone,
+        require_contact=require_contact,
+    )
+
 
     for warning in result.warnings:
         print(f"WARN: {warning}")

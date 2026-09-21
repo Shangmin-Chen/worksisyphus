@@ -29,8 +29,10 @@ def test_evaluate_resume_text_high_alignment() -> None:
     jd = "Looking for a C++ and Python engineer with low-latency and concurrency experience."
 
     report = evaluate_resume_text(resume, jd)
-    assert report.overall_score >= 80
+    assert report.overall_score >= 70
+    assert report.gate_compliance_score == 0
     assert report.role_alignment_score >= 30
+
     assert report.technical_depth_score >= 20
     assert "c++" in report.matched_keywords
     assert "python" in report.matched_keywords
@@ -124,5 +126,24 @@ def test_evaluator_scores_are_unchanged_by_the_constant_extraction() -> None:
     assert report.role_alignment_score == 33
     assert report.technical_depth_score == 30
     assert report.impact_metrics_score == 12
+    assert report.gate_compliance_score == 0
+    assert report.overall_score == 75
+
+
+def test_evaluate_resume_text_skipped_gates_scores_zero() -> None:
+    """When gate_results is None and pdf_path is None, gates did not run and must score 0."""
+    report = evaluate_resume_text("Python engineer", "Python engineer")
+    assert report.gate_compliance_score == 0
+    assert any("not evaluated" in diag for diag in report.gate_diagnostics)
+
+
+def test_evaluate_resume_text_with_explicit_passing_gates_scores_ten() -> None:
+    from worksisyphus.gates import GateResult
+
+    report = evaluate_resume_text(
+        "Python engineer",
+        "Python engineer",
+        gate_results=(GateResult("Dummy Gate", True),),
+    )
     assert report.gate_compliance_score == 10
-    assert report.overall_score == 85
+
