@@ -5,21 +5,37 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from worksisyphus.application import STATUSES
+from worksisyphus.db import DEFAULT_DB_PATH, get_connection, list_applications_from_db, seed_database
 
 ROOT = Path(__file__).resolve().parents[1]
 APPLICATIONS_DIR = ROOT / "applications"
+FIXTURES_APPLICATIONS_DIR = ROOT / "tests" / "fixtures" / "applications"
+FIXTURES_PROFILE_PATH = ROOT / "tests" / "fixtures" / "profile.json"
+
+
+def get_all_application_dirs() -> list[Path]:
+    """Return all application folders (committed fixtures + live folders if present).
+
+    Must never be empty: the repo commits at least one fixture application folder in
+    tests/fixtures/applications/ so that CI produces real assertions and never skips.
+    """
+    dirs: list[Path] = []
+    if FIXTURES_APPLICATIONS_DIR.is_dir():
+        dirs.extend([d for d in FIXTURES_APPLICATIONS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")])
+    if APPLICATIONS_DIR.is_dir():
+        dirs.extend([d for d in APPLICATIONS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")])
+    assert dirs, (
+        f"No application folders found in {FIXTURES_APPLICATIONS_DIR} or {APPLICATIONS_DIR}. "
+        "Consistency tests fail closed when no application folders exist."
+    )
+    return dirs
 
 
 def test_every_application_has_required_files() -> None:
-    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
-        pytest.skip("Applications directory not present or empty")
+    app_dirs = get_all_application_dirs()
     missing: list[str] = []
-    for d in sorted(APPLICATIONS_DIR.iterdir()):
-        if not d.is_dir():
-            continue
+    for d in sorted(app_dirs):
         for name in ("jd.txt", "meta.json", "Simon_Chen_Resume.pdf"):
             if not (d / name).is_file():
                 missing.append(f"{d.name}/{name}")
@@ -27,12 +43,9 @@ def test_every_application_has_required_files() -> None:
 
 
 def test_every_application_meta_json_is_valid() -> None:
-    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
-        pytest.skip("Applications directory not present or empty")
+    app_dirs = get_all_application_dirs()
     invalid: list[str] = []
-    for d in sorted(APPLICATIONS_DIR.iterdir()):
-        if not d.is_dir():
-            continue
+    for d in sorted(app_dirs):
         meta_file = d / "meta.json"
         if not meta_file.is_file():
             continue
@@ -50,20 +63,59 @@ def test_every_application_meta_json_is_valid() -> None:
 
 
 def test_applications_db_and_filesystem_consistency() -> None:
-    from worksisyphus.db import DEFAULT_DB_PATH, get_connection, list_applications_from_db
-
-    if not DEFAULT_DB_PATH.is_file() or not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
-        pytest.skip("Database or applications directory not present")
-
-    conn = get_connection(DEFAULT_DB_PATH)
+    # Always test against committed fixture set (works in CI without live applications/ or DB)
+    assert FIXTURES_APPLICATIONS_DIR.is_dir() and any(FIXTURES_APPLICATIONS_DIR.iterdir()), (
+        f"Fixture applications directory {FIXTURES_APPLICATIONS_DIR} missing or empty"
+    )
+    conn = get_connection(":memory:")
     try:
+        seed_database(
+            conn,
+            profile_path=FIXTURES_PROFILE_PATH,
+            applications_dir=FIXTURES_APPLICATIONS_DIR,
+        )
         db_apps = {app["folder"] for app in list_applications_from_db(conn)}
+        fs_apps = {d.name for d in FIXTURES_APPLICATIONS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")}
+        diff = fs_apps.symmetric_difference(db_apps)
+        assert diff == set(), f"Inconsistency between fixture applications/ and seeded DB: {diff}"
     finally:
         conn.close()
 
-    fs_apps = {d.name for d in APPLICATIONS_DIR.iterdir() if d.is_dir()}
-    diff = fs_apps.symmetric_difference(db_apps)
-    assert diff == set(), f"Inconsistency between applications/ and DB: {diff}"
+    # When live DB and applications/ exist (developer checkout), verify live consistency as well
+    if DEFAULT_DB_PATH.is_file() and APPLICATIONS_DIR.is_dir() and any(APPLICATIONS_DIR.iterdir()):
+        live_conn = get_connection(DEFAULT_DB_PATH)
+        try:
+            live_db_apps = {app["folder"] for app in list_applications_from_db(live_conn)}
+        finally:
+            live_conn.close()
+        live_fs_apps = {d.name for d in APPLICATIONS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")}
+        live_diff = live_fs_apps.symmetric_difference(live_db_apps)
+        assert live_diff == set(), f"Inconsistency between applications/ and DB: {live_diff}"
+
+
+def test_applications_db_and_filesystem_divergence_detected() -> None:
+    """Verify that folder/DB divergence is detected when DB or filesystem has extra/missing entries."""
+    assert FIXTURES_APPLICATIONS_DIR.is_dir() and any(FIXTURES_APPLICATIONS_DIR.iterdir()), (
+        f"Fixture applications directory {FIXTURES_APPLICATIONS_DIR} missing or empty"
+    )
+    conn = get_connection(":memory:")
+    try:
+        seed_database(
+            conn,
+            profile_path=FIXTURES_PROFILE_PATH,
+            applications_dir=FIXTURES_APPLICATIONS_DIR,
+        )
+        # DB has an extra ghost row not on the filesystem:
+        conn.execute(
+            "INSERT INTO applications (id, company, role, date, status) VALUES (?, ?, ?, ?, ?)",
+            ("2026-09-99_ghost-company_swe", "Ghost Co", "SWE", "2026-09-99", "applied"),
+        )
+        db_apps = {app["folder"] for app in list_applications_from_db(conn)}
+        fs_apps = {d.name for d in FIXTURES_APPLICATIONS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")}
+        diff = fs_apps.symmetric_difference(db_apps)
+        assert diff == {"2026-09-99_ghost-company_swe"}
+    finally:
+        conn.close()
 
 
 def test_contact_verification_blocks_are_well_formed() -> None:
@@ -76,12 +128,11 @@ def test_contact_verification_blocks_are_well_formed() -> None:
     from both verified and skipped. What is asserted here is that a block that IS present says
     something definite, and that a skip always carries its reason.
     """
-    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
-        pytest.skip("Applications directory not present or empty")
+    app_dirs = get_all_application_dirs()
     invalid: list[str] = []
-    for d in sorted(APPLICATIONS_DIR.iterdir()):
+    for d in sorted(app_dirs):
         meta_file = d / "meta.json"
-        if not d.is_dir() or not meta_file.is_file():
+        if not meta_file.is_file():
             continue
         meta = json.loads(meta_file.read_text(encoding="utf-8"))
         verification = meta.get("contact_verification")
@@ -106,12 +157,11 @@ def test_trimmed_blocks_are_well_formed() -> None:
     recorded". What is asserted here is that a list that IS present names each cut with
     kind and slug, and bullet trims also carry the removed bullet slug.
     """
-    if not APPLICATIONS_DIR.is_dir() or not any(APPLICATIONS_DIR.iterdir()):
-        pytest.skip("Applications directory not present or empty")
+    app_dirs = get_all_application_dirs()
     invalid: list[str] = []
-    for d in sorted(APPLICATIONS_DIR.iterdir()):
+    for d in sorted(app_dirs):
         meta_file = d / "meta.json"
-        if not d.is_dir() or not meta_file.is_file():
+        if not meta_file.is_file():
             continue
         meta = json.loads(meta_file.read_text(encoding="utf-8"))
         trimmed = meta.get("trimmed")

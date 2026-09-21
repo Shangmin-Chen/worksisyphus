@@ -1,0 +1,25 @@
+{
+  "company": "Sample Company",
+  "role": "Software Engineer",
+  "date": "2026-08-20",
+  "source_url": "https://example.com/jobs/123",
+  "status": "applied",
+  "contact_verification": {
+    "rules_checked": true,
+    "cross_checked_against_db": true,
+    "database": "worksisyphus.db",
+    "skip_reason": ""
+  },
+  "trimmed": [
+    {
+      "kind": "project",
+      "slug": "spark-food-waste"
+    },
+    {
+      "kind": "experience-bullet",
+      "slug": "ezesports",
+      "bullet": "edge-caching"
+    }
+  ],
+  "ats_warnings": []
+}

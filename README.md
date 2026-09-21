@@ -51,6 +51,7 @@ uv run worksisyphus status                        # list applications and identi
 uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen [--no-sync] [--allow-branch] [--no-git-check]
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
+uv run worksisyphus evaluate --plan <file|-> --jd <file|->  # score a plan against a JD
 uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluate canonical database directly
 uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
 uv run worksisyphus evaluate --check-upstream     # check sync status against upstream hiring-agent
@@ -62,7 +63,7 @@ uv run worksisyphus db init [--allow-branch] [--no-git-check]   # create the sch
 uv run worksisyphus db sync [--allow-branch] [--no-git-check]  # load profile.json into SQLite and push to Turso cloud
 uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery)
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
-uv run --with pdfminer.six python scripts/ats_check.py applications/<app>/Simon_Chen_Resume.pdf  # ATS extraction check
+uv run python scripts/ats_check.py applications/<app>/Simon_Chen_Resume.pdf  # ATS extraction check
 ```
 
 Every tailored resume compiles straight into `applications/<date>_<company>_<role>/Simon_Chen_Resume.pdf` — a clean, human filename for recruiters, frozen with the JD and plan that produced it. If the first render runs past one page, the pipeline deterministically trims — lowest-ranked project first, then extra bullets — and recompiles until it fits; it fails loudly if it can't.
@@ -71,8 +72,7 @@ Every tailored resume compiles straight into `applications/<date>_<company>_<rol
 
 ```text
 ├── compile.sh              # rebuild the canonical full resume
-├── profile.json            # master database; slug-keyed, values are TeX-formatted
-├── profile.example.json    # template schema for profile.json
+├── profile.json            # master database; slug-keyed, values are TeX-formatted (gitignored)
 ├── CLAUDE.md               # rules for AI agents operating this repo
 ├── GEMINI.md               # rules for Antigravity / Gemini agents
 ├── scripts/ats_check.py    # verify a compiled PDF extracts cleanly for ATS parsers

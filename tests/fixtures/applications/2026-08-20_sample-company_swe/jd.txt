@@ -1,0 +1,5 @@
+Sample Company is seeking a Software Engineer.
+Responsibilities:
+- Build scalable backend microservices and distributed data pipelines.
+- Work with Python, C++, and PostgreSQL.
+- Optimize high-throughput event loops and query execution.

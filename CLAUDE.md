@@ -74,6 +74,7 @@ uv run worksisyphus status                       # list all applications and the
 uv run worksisyphus update-status --app <name> --status <status> [--no-sync] [--allow-branch] [--no-git-check]  # update status & Turso sync
 uv run worksisyphus evaluate --app <name>        # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
+uv run worksisyphus evaluate --plan <file|-> --jd <file|->  # score a plan against a JD
 uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluate the full profile.json canonical database directly
 uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
 uv run worksisyphus evaluate --check-upstream        # check sync status against upstream interviewstreet/hiring-agent
@@ -85,7 +86,7 @@ uv run worksisyphus db init [--allow-branch] [--no-git-check]   # create the sch
 uv run worksisyphus db sync [--allow-branch] [--no-git-check]  # load profile.json into SQLite and push to Turso cloud
 uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery path for a lost profile; refuses to write a placeholder contact block, --force or not)
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
-uv run --with pdfminer.six python scripts/ats_check.py <pdf>   # ATS extraction check
+uv run python scripts/ats_check.py <pdf>        # ATS extraction check
 ```
 
 > **Prerequisite:** MacTeX (or BasicTeX) is required for `pdflatex` compilation: `brew install --cask mactex`. The compiler automatically checks PATH and `/Library/TeX/texbin` and fails with an explicit error if missing.

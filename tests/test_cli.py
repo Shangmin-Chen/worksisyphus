@@ -608,3 +608,66 @@ def test_latest_application_pdf_picks_the_true_latest(tmp_path, monkeypatch) -> 
     monkeypatch.setattr(application, "APPLICATIONS_DIR", apps_dir)
 
     assert cli._latest_application_pdf() == latest / "Simon_Chen_Resume.pdf"
+
+
+def test_unknown_command_does_not_fall_through_to_tailor(monkeypatch) -> None:
+    tailor_called = False
+
+    def fake_tailor(*args, **kwargs):
+        nonlocal tailor_called
+        tailor_called = True
+
+    monkeypatch.setattr(cli, "tailor", fake_tailor)
+
+    # Unknown subcommand is rejected by argparse
+    with pytest.raises(SystemExit):
+        cli.main(["unknown-cmd"])
+    assert not tailor_called
+
+    # Missing command is also rejected by argparse
+    with pytest.raises(SystemExit):
+        cli.main([])
+    assert not tailor_called
+
+
+def test_evaluate_with_plan(tmp_path, capsys) -> None:
+    plan_file = tmp_path / "plan.json"
+    plan_file.write_text(
+        json.dumps({
+            "experiences": {"org-a": ["a1"]},
+            "projects": {"proj1": ["p1"]},
+            "skills": {"languages": ["Python"]},
+        }),
+        encoding="utf-8",
+    )
+    jd_file = tmp_path / "jd.txt"
+    jd_file.write_text("Looking for a Python developer with distributed systems experience.", encoding="utf-8")
+
+    code = cli.main(["evaluate", "--plan", str(plan_file), "--jd", str(jd_file)])
+    assert code == 0
+    out = capsys.readouterr().out
+    assert "EVALUATION REPORT" in out
+
+
+def test_cli_subparsers_documented() -> None:
+    """Verify every CLI command in argparse is documented in README, CLAUDE.md, and GEMINI.md."""
+    expected_commands = {
+        "apply",
+        "backfill-evals",
+        "compile",
+        "db",
+        "evaluate",
+        "index",
+        "optimize",
+        "status",
+        "tailor",
+        "update-status",
+        "validate",
+    }
+
+    root = Path(__file__).resolve().parents[1]
+    for doc_name in ("README.md", "CLAUDE.md", "GEMINI.md"):
+        content = (root / doc_name).read_text(encoding="utf-8")
+        for cmd in expected_commands:
+            assert f"worksisyphus {cmd}" in content, f"Command '{cmd}' not documented in {doc_name}"
+

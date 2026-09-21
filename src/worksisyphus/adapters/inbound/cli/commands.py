@@ -564,13 +564,15 @@ def main(argv: list[str] | None = None) -> int:
                 out_path.parent.mkdir(parents=True, exist_ok=True)
                 out_path.write_text(json.dumps(best_plan, indent=2) + "\n", encoding="utf-8")
                 print(f"\nOptimal plan written to: {out_path}")
-        else:
+        elif args.command == "tailor":
             tailor(
                 read_input.read(args.plan, "plan"),
                 pdf_dir=Path(args.output) if args.output else PREVIEW_DIR,
                 log=print,
             )
             print("Preview build only - run `worksisyphus apply` to produce a delivered resume.")
+        else:
+            raise ValueError(f"Unknown command: {args.command}")
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

@@ -1,0 +1,47 @@
+{
+  "experiences": [
+    {
+      "slug": "ezesports",
+      "bullets": [
+        "nextjs-migration",
+        "supabase-schema"
+      ]
+    },
+    {
+      "slug": "reset-standard",
+      "bullets": [
+        "water-waste-integration"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "slug": "persephone",
+      "bullets": [
+        "live-pnl",
+        "gbm-theo"
+      ]
+    },
+    {
+      "slug": "hermes-letters",
+      "bullets": [
+        "letters-platform"
+      ]
+    }
+  ],
+  "skills": {
+    "languages": [
+      "Python",
+      "C++17",
+      "SQL"
+    ],
+    "frameworks": [
+      "FastAPI",
+      "Django"
+    ],
+    "technologies": [
+      "Docker",
+      "Linux"
+    ]
+  }
+}

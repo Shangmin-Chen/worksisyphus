@@ -9,8 +9,7 @@ description = "Simon Chen's resume compiler: hand-written slug plans in, one-pag
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "jinja2>=3.1.0",
-    "libsql-experimental>=0.0.55",
+    "pdfminer-six>=20260107",
     "pydantic>=2.5.0",
     "requests>=2.31.0",
 ]
@@ -21,7 +20,6 @@ worksisyphus = "worksisyphus.cli:main"
 [dependency-groups]
 dev = [
     "mypy>=2.3.1",
-    "pdfminer-six>=20260107",
     "pytest>=8.0",
     "pytest-cov>=7.1.0",
     "ruff>=0.16.3",
