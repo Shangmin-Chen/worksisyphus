@@ -1,0 +1,688 @@
+"""Application lifecycle: 1-step apply, atomic compilation, tracking, and cloud sync."""
+
+from __future__ import annotations
+
+import errno
+import json
+import os
+import re
+import shutil
+import sqlite3
+import tempfile
+from collections.abc import Callable, Collection, Iterable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from dataclasses import replace as dataclass_replace
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Any
+
+from ...adapters.outbound.filesystem.profile_loader import load_profile
+from ...adapters.outbound.pdf.ats_parser import check_pdf_ats
+from ...ports.compiler import CompileResult
+from ...ports.parser import ATSCheckResult, scoring_text
+from ..domain.models import DEFAULT_PROFILE_PATH, Contact, Profile, validate_contact
+from .gates import run_resume_gates
+from .pipeline import tailor
+
+APPLICATIONS_DIR = Path("applications")
+STATUSES = ("applied", "phone_screen", "onsite", "offer", "rejected")
+STAGING_PREFIX = ".staging-"
+TEX_BUILD_PREFIX = "worksisyphus-tex-"
+
+Log = Callable[[str], None]
+
+_APP_FOLDER_RE = re.compile(r"^(?P<date>\d{4}-\d{2}-\d{2})_(?P<body>.+)$")
+_ORDINAL_TAIL_RE = re.compile(r"^(?P<base>.+)_(?P<n>\d+)$")
+_MAX_FOLDER_NAME_BYTES = 255
+# Room for `_9999999`, the largest suffix _allocate_target can append before the name
+# exceeds _MAX_FOLDER_NAME_BYTES when the base name is already at the pre-check cap.
+_ORDINAL_SUFFIX_MARGIN = 8
+
+
+def _silent(_: str) -> None:
+    pass
+
+
+def slugify(text: str) -> str:
+    """Convert text into a clean filesystem/plan slug."""
+    text = text.lower().strip()
+    text = re.sub(r"[^\w\s-]", "", text)
+    return re.sub(r"[\s_-]+", "-", text).strip("-")
+
+
+def _is_default_applications_dir(applications_dir: Path) -> bool:
+    """Is this the live applications/ directory, however it was spelled?
+
+    A bare ``Path.__eq__`` compares strings, so ``Path.cwd() / "applications"`` did not equal
+    ``Path("applications")`` and an equivalent-but-absolute path silently switched off both the
+    contact cross-check and database persistence -- no error, no log. That is the same failure
+    shape as the incident: a safety check that disappears without saying so.
+
+    ``resolve()`` also follows symlinks, which is what we want here: a symlinked applications/
+    is still the live delivery directory, and a run into it must be cross-checked and recorded
+    like any other. It is used non-strictly, so a directory that does not exist yet (the first
+    apply in a fresh clone) still compares correctly.
+    """
+    return Path(applications_dir).resolve() == APPLICATIONS_DIR.resolve()
+
+
+def _resolve_applications_dir(applications_dir: Path | None) -> Path:
+    """The caller's applications dir if one was given, else the live default.
+
+    ``is not None`` on purpose: an explicitly-passed falsy-ish path (e.g. ``Path("")``) must
+    still win over the default, which ``applications_dir or APPLICATIONS_DIR`` would not do.
+    """
+    return applications_dir if applications_dir is not None else APPLICATIONS_DIR
+
+
+def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | None:
+    """Which database this run should cross-check and record against, or None for neither.
+
+    An explicit db_path always wins. Otherwise the default database is used only for a real
+    delivery into applications/; a run staged into some other directory (tests, scratch
+    builds) must not touch the live store. Imported lazily: db.py is a store, not a source,
+    and the render path must not depend on it at import time.
+    """
+    if db_path is not None:
+        return Path(db_path)
+    from worksisyphus.db import DEFAULT_DB_PATH
+
+    return DEFAULT_DB_PATH if _is_default_applications_dir(applications_dir) else None
+
+
+@contextmanager
+def _db_connection(db_path: Path) -> Iterator[sqlite3.Connection]:
+    """Open a connection to ``db_path`` and guarantee it is closed on the way out.
+
+    ``get_connection`` is imported lazily inside the function body so that importing this
+    module never pulls in db.py at module load time -- db.py is a store, not a source, per
+    CLAUDE.md's architecture rule.
+    """
+    from worksisyphus.db import get_connection
+
+    conn = get_connection(db_path)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+@dataclass(frozen=True)
+class ContactCrossCheck:
+    """Whether the contact block was verified against the independent copy in the database.
+
+    A plain bool carried this too, but apply() discarded it and the reason for a skip existed
+    only as a string handed to ``log``, which defaults to ``_silent``. Nothing on disk recorded
+    it, so a reader of an application folder could not tell "contact was verified against the
+    database" from "contact could not be verified" -- precisely the ambiguity the incident
+    lived inside. ``as_meta()`` freezes the answer into meta.json, next to ``evaluation``,
+    which is there for the same reason: it records what was true when the resume was sent.
+    """
+
+    ran: bool
+    database: str = ""
+    reason: str = ""
+
+    def as_meta(self) -> dict[str, Any]:
+        return {
+            # validate_contact ran unconditionally before this point in apply(); had it failed,
+            # this folder would never have been published.
+            "rules_checked": True,
+            "cross_checked_against_db": self.ran,
+            "database": self.database,
+            "skip_reason": self.reason,
+        }
+
+
+def cross_check_contact_against_db(
+    contact: Contact,
+    db_path: Path | None,
+    log: Log = _silent,
+) -> ContactCrossCheck:
+    """Compare the profile's contact block against the independent copy in the database.
+
+    This is the check that would have caught the incident. profile.json vanished and a
+    fixture with a scrubbed contact block stood in for it; every quality gate passed,
+    because each one compares the rendered PDF against the very profile that rendered it.
+    The database still held the real name, email and phone the whole time -- so a second,
+    independent copy is the only thing that can contradict a wrong profile.
+
+    Returns a ContactCrossCheck saying whether the check actually ran and, when it did not,
+    why. A missing database or a database with no contact row is skipped and reported, never
+    treated as agreement: the rules in validate_contact still apply, so a fresh clone or CI is
+    protected but not silently "verified". The caller freezes that answer into meta.json --
+    the skip must survive somewhere a human can read it later, not only in a log line.
+    """
+    database = str(db_path) if db_path is not None else ""
+
+    def skipped(reason: str) -> ContactCrossCheck:
+        log(f"Contact cross-check skipped: {reason}")
+        return ContactCrossCheck(ran=False, database=database, reason=reason)
+
+    if db_path is None:
+        return skipped("this run is not writing to the default database.")
+    if not db_path.is_file():
+        return skipped(f"no database at {db_path} (fresh clone or CI). Rule checks still applied.")
+
+    from worksisyphus.db import load_profile_from_db
+
+    with _db_connection(db_path) as conn:
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
+        if cur.fetchone() is None:
+            return skipped(f"{db_path} has no contact table. Run `uv run worksisyphus db sync`.")
+        db_contact = load_profile_from_db(conn).contact
+
+    if not any((db_contact.name, db_contact.email, db_contact.phone)):
+        return skipped(f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.")
+
+    # The database side gets the same rules as the profile side. The previous round left this
+    # unchecked on the argument that "seeding can no longer corrupt the database" -- an
+    # argument that was false at the time (seed_database validated only that profile.json
+    # *existed*, not what it held) and is only now true. Defence in depth is still worth its
+    # two lines: corruption can arrive by routes that never touch seed_database -- a hand-run
+    # UPDATE, a restore of a Turso copy poisoned before this fix, a database that predates it
+    # -- and this check cannot block a build that the mismatch list below would have let
+    # through. A placeholder in the database either differs from the profile (mismatch, blocked
+    # either way) or matches it, which is unreachable: validate_contact ran over the profile in
+    # apply() before this function was called. All it changes is the diagnosis, from "contact
+    # details disagree" to the specific, actionable "your database holds placeholder data".
+    try:
+        validate_contact(db_contact, source=str(db_path))
+    except ValueError as exc:
+        raise ValueError(f"Refusing to build a resume: {exc}") from exc
+
+    mismatches = [
+        f"contact.{field_name}: profile has {getattr(contact, field_name)!r}, database has {getattr(db_contact, field_name)!r}"
+        for field_name in ("name", "email", "phone", "website", "github", "linkedin")
+        if getattr(contact, field_name) != getattr(db_contact, field_name)
+    ]
+    if mismatches:
+        joined = "\n".join(f"- {m}" for m in mismatches)
+        raise ValueError(
+            f"Contact details disagree with {db_path}; refusing to build a resume until they match.\n{joined}\n"
+            f"The database is the surviving copy: if profile.json is the one that is wrong, restore it with "
+            f"`uv run worksisyphus db export-profile --force`. If profile.json is right, publish it with "
+            f"`uv run worksisyphus db sync`."
+        )
+    return ContactCrossCheck(ran=True, database=database)
+
+
+def _read_meta(meta_file: Path) -> dict[str, Any]:
+    """Read an application's meta.json, naming the folder in every failure mode."""
+    try:
+        data = json.loads(meta_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"Invalid meta.json in {meta_file.parent}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid meta.json in {meta_file.parent}: expected a JSON object.")
+    return data
+
+
+def parse_app_folder(name: str, siblings: Collection[str] = ()) -> tuple[str, str, int | None]:
+    """Split an application folder name into (date, stem, ordinal).
+
+    A trailing ``_N`` tail counts as the retry ordinal written by apply() only when N >= 2 and
+    the unsuffixed base folder exists among siblings; anything else keeps the whole body as a
+    literal stem, so legacy names that happen to end in digits stay intact.
+    """
+    match = _APP_FOLDER_RE.match(name)
+    if not match:
+        raise ValueError(f"Application folder {name!r} lacks a <YYYY-MM-DD>_ prefix.")
+    date_str, body = match["date"], match["body"]
+    tail = _ORDINAL_TAIL_RE.match(body)
+    if tail and int(tail["n"]) >= 2 and f"{date_str}_{tail['base']}" in siblings:
+        return date_str, tail["base"], int(tail["n"])
+    return date_str, body, None
+
+
+def application_sort_key(name: str, siblings: Collection[str] = ()) -> tuple[int, int, str, int]:
+    """Listing order: newest date first, then retry order within a day reads top-to-bottom."""
+    try:
+        date_str, stem, ordinal = parse_app_folder(name, siblings)
+        day = -date.fromisoformat(date_str).toordinal()
+    except ValueError:
+        # Unparsable names sink below every dated entry instead of crashing listings.
+        return (1, 0, name, 0)
+    return (0, day, stem, ordinal or 0)
+
+
+def sorted_application_names(names: Collection[str]) -> list[str]:
+    """Order application folder names newest-first; retry ordinals compare numerically."""
+    return sorted(names, key=lambda name: application_sort_key(name, siblings=names))
+
+
+def match_application_identifier(identifier: str, names: Iterable[str]) -> list[str]:
+    """Resolve an identifier against candidate names: exact match first, else unique stem match."""
+    all_names = list(names)
+    exact = [name for name in all_names if name == identifier]
+    if exact:
+        return exact
+    return [name for name in all_names if name.endswith(f"_{identifier}")]
+
+
+def _allocate_target(applications_dir: Path, base_target: Path) -> Path:
+    """Lowest free slot for a publish: the plain name first, then _2, _3, ..."""
+    taken = {entry.name for entry in applications_dir.iterdir()}
+    target = base_target
+    ordinal = 1
+    while target.name in taken:
+        ordinal += 1
+        target = base_target.parent / f"{base_target.name}_{ordinal}"
+    return target
+
+
+def _raise_if_folder_name_too_long(
+    folder_name: str,
+    *,
+    company: str,
+    role: str,
+    limit_bytes: int,
+    limit_reason: str,
+) -> None:
+    folder_name_bytes = len(folder_name.encode("utf-8"))
+    if folder_name_bytes > limit_bytes:
+        raise ValueError(
+            f"Company/role {company!r}/{role!r} produce a folder name too long for the "
+            f"filesystem ({folder_name_bytes} bytes; limit {limit_bytes} bytes, "
+            f"{limit_reason}). Shorten --company or --role."
+        )
+
+
+def apply(
+    plan_text: str,
+    jd_text: str,
+    company: str,
+    role: str = "",
+    source_url: str = "",
+    when: date | None = None,
+    profile: Profile | None = None,
+    profile_path: Path = DEFAULT_PROFILE_PATH,
+    applications_dir: Path | None = None,
+    db_path: Path | None = None,
+    sync_cloud: bool = True,
+    allow_branch: bool = False,
+    no_git_check: bool = False,
+    log: Log = _silent,
+) -> tuple[Path, CompileResult, ATSCheckResult]:
+    """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync."""
+    if not jd_text.strip():
+        raise ValueError("jd_text is empty; pass the job description or a note explaining its absence.")
+    if not company.strip():
+        raise ValueError("company name is required.")
+    if not plan_text.strip():
+        raise ValueError("Plan is empty.")
+
+    applications_dir = _resolve_applications_dir(applications_dir)
+    when = when or date.today()
+
+    # Contact validation runs before anything is compiled or staged.
+    active_profile = profile if profile is not None else load_profile(profile_path)
+    validate_contact(active_profile.contact, source=str(profile_path))
+    resolved_db_path = _resolve_db_path(db_path, applications_dir)
+    contact_cross_check = cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
+
+    # Deterministic naming strictly derived from company and role (#34). The underscore is the
+    # folder grammar's structural separator (it delimits the retry ordinal), so slugify must
+    # never emit one; this fails loudly instead of corrupting the namespace if that ever changes.
+    comp_slug = slugify(company)
+    role_slug = slugify(role) if role.strip() else "swe"
+    if "_" in comp_slug or "_" in role_slug:
+        raise ValueError(f"Slug for {company!r}/{role!r} contains '_': {comp_slug}_{role_slug}")
+    app_stem = f"{comp_slug}_{role_slug}"
+
+    folder_name = f"{when.isoformat()}_{app_stem}"
+    # Most filesystems cap a single path component at 255 bytes; a long --company/--role would
+    # otherwise produce a folder name that os.replace rejects with ENAMETOOLONG deep inside the
+    # publish retry loop, surfacing as an opaque OSError instead of a clear, actionable error.
+    # A margin is reserved for the retry ordinal suffix (`_2`, `_3`, ...) that _allocate_target
+    # may append on a same-day re-apply. The post-allocation check below catches suffixes that
+    # exceed that margin (e.g. `_10000000`) so ENAMETOOLONG never surfaces from os.replace.
+    _raise_if_folder_name_too_long(
+        folder_name,
+        company=company,
+        role=role,
+        limit_bytes=_MAX_FOLDER_NAME_BYTES - _ORDINAL_SUFFIX_MARGIN,
+        limit_reason="reserved for a retry suffix",
+    )
+
+    base_target = applications_dir / folder_name
+
+    normalized_plan = plan_text.replace("\r\n", "\n").replace("\r", "\n")
+
+    # Atomic publication: stage inside applications_dir so the final publish is a same-filesystem
+    # os.replace rather than a file-by-file copy that can fail halfway and leave a partial folder.
+    # LaTeX intermediates get their own temp dir so concurrent applies never clobber tex_files/.
+    applications_dir.mkdir(parents=True, exist_ok=True)
+    staging_dir = Path(tempfile.mkdtemp(prefix=STAGING_PREFIX, dir=applications_dir))
+    tex_build_dir = Path(tempfile.mkdtemp(prefix=TEX_BUILD_PREFIX))
+    try:
+        # 1. Compile directly into the isolated staging dir
+        compile_result = tailor(
+            plan_text,
+            profile=active_profile,
+            profile_path=profile_path,
+            plan_name=app_stem,
+            pdf_dir=staging_dir,
+            tex_dir=tex_build_dir,
+            log=log,
+        )
+
+        # 2. Freeze the plan and JD. meta.json is written after scoring, below, so the folder
+        #    is never published without the evaluation that belongs to it.
+        (staging_dir / "plan.json").write_text(normalized_plan.strip() + "\n", encoding="utf-8")
+        (staging_dir / "jd.txt").write_text(jd_text.strip() + "\n", encoding="utf-8")
+        meta: dict[str, Any] = {
+            "company": company,
+            "role": role,
+            "date": when.isoformat(),
+            "source_url": source_url,
+            "status": STATUSES[0],
+            # Frozen alongside the resume: a folder must state whether its contact details were
+            # verified against the database, not leave a reader guessing. Absent on folders
+            # published before this field existed, which reads as "not recorded" -- distinct
+            # from both "verified" and "skipped", and honest, since it cannot be reconstructed.
+            "contact_verification": contact_cross_check.as_meta(),
+            # Frozen alongside the resume: a folder must state what the trim loop dropped to fit
+            # one page, not leave a reader guessing. Absent on folders published before this field
+            # existed, which reads as "not recorded" -- distinct from an empty list, which means
+            # nothing was cut, and honest, since it cannot be reconstructed.
+            "trimmed": [cut.as_meta() for cut in compile_result.trimmed],
+        }
+        # 3. Quality gates and ATS validation, reusing a single PDF extraction
+        gate_results, ats_result = run_resume_gates(
+            staging_dir / "Simon_Chen_Resume.pdf",
+            candidate_name=active_profile.contact.name,
+            candidate_email=active_profile.contact.email,
+            candidate_phone=active_profile.contact.phone,
+            expected_pages=1,
+        )
+        failed_gates = [g for g in gate_results if not g.passed]
+        if failed_gates:
+            reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
+            raise RuntimeError(f"Quality gate check failed for {base_target.name}:\n{reasons}")
+
+        # 3b. Score the delivered resume against this JD and record it alongside the application,
+        #     so every application carries the evaluation that was true when it was sent.
+        evaluation = evaluate_application(
+            resume_text=ats_result.text,
+            jd_text=jd_text,
+            role=role,
+            candidate_name=active_profile.contact.name,
+        )
+        meta["evaluation"] = evaluation
+        (staging_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+
+        # 4. Atomic publish with retry allocation. Compilation is slow enough that a concurrent
+        #    apply could claim the plain slot first; os.replace onto a non-empty directory fails
+        #    with ENOTEMPTY, so the loser re-allocates the next free suffix and retries with the
+        #    staged content it already paid for. Published folders are never mutated or consumed.
+        while True:
+            target_folder = _allocate_target(applications_dir, base_target)
+            _raise_if_folder_name_too_long(
+                target_folder.name,
+                company=company,
+                role=role,
+                limit_bytes=_MAX_FOLDER_NAME_BYTES,
+                limit_reason="including a retry suffix",
+            )
+            # mkdtemp is 0700; widen to match a normally-created directory.
+            os.chmod(staging_dir, 0o755)
+            try:
+                os.replace(staging_dir, target_folder)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.ENOTEMPTY, errno.EEXIST):
+                    raise
+    except BaseException:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+    finally:
+        shutil.rmtree(tex_build_dir, ignore_errors=True)
+
+    compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
+
+    # 5. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
+    from worksisyphus.db import save_application_to_db
+
+    if resolved_db_path is not None and resolved_db_path.is_file():
+        with _db_connection(resolved_db_path) as conn:
+            save_application_to_db(
+                conn=conn,
+                app_id=target_folder.name,
+                company=company,
+                role=role,
+                date_str=when.isoformat(),
+                source_url=source_url,
+                status=STATUSES[0],
+                # Store the same canonical (stripped) form seed_database derives from the files on
+                # disk, so a reseed does not see a phantom change on every application row.
+                jd_text=jd_text.strip(),
+                plan_json=normalized_plan.strip(),
+                evaluation_json=json.dumps(evaluation, sort_keys=True),
+            )
+
+        if sync_cloud:
+            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
+
+    return target_folder, compile_result, ats_result
+
+
+def evaluate_application(
+    resume_text: str,
+    jd_text: str,
+    role: str,
+    candidate_name: str = "",
+) -> dict[str, Any]:
+    """Score a resume with the HackerRank hiring agent, keyed to the role it was sent for.
+
+    The role title is free text ("Founding Product Engineer"); load_role normalizes it, uses a
+    curated rubric when one exists, and otherwise synthesizes one in memory from the JD.
+    """
+    from .hiring_agent import HackerRankHiringAgent
+
+    agent = HackerRankHiringAgent(role_name=role or "software_engineer", jd_text=jd_text)
+    result = agent.evaluate(resume_text=resume_text, candidate_name=candidate_name)
+    return {
+        "role_rubric": agent.role.name,
+        "role_title": agent.role.position_title,
+        "total_score": result.get("total_score"),
+        "max_possible": result.get("max_possible"),
+        "scores": result.get("scores", {}),
+        "bonus_points": result.get("bonus_points", {}),
+        "deductions": result.get("deductions", {}),
+        "key_strengths": result.get("key_strengths", []),
+        "areas_for_improvement": result.get("areas_for_improvement", []),
+        "evaluated_at": datetime.now(UTC).isoformat(),
+    }
+
+
+def _lazy_candidate_name(profile: Profile | None, profile_path: Path, log: Log) -> Callable[[], str]:
+    """Resolve the candidate name on first use, tolerating an absent profile.
+
+    Used only by the scoring path, which labels a report and delivers nothing. A missing
+    profile there is a degraded label, not a dead resume, so it is logged and the scoring
+    continues; the delivery path (apply) still refuses outright.
+    """
+    resolved: list[str] = []
+
+    def resolve() -> str:
+        if not resolved:
+            if profile is not None:
+                resolved.append(profile.contact.name)
+            else:
+                try:
+                    resolved.append(load_profile(profile_path).contact.name)
+                except FileNotFoundError:
+                    log(f"No {profile_path} on disk; scoring without a candidate name (nothing is delivered here).")
+                    resolved.append("")
+        return resolved[0]
+
+    return resolve
+
+
+def backfill_evaluations(
+    applications_dir: Path | None = None,
+    overwrite: bool = False,
+    profile: Profile | None = None,
+    profile_path: Path = DEFAULT_PROFILE_PATH,
+    log: Log = _silent,
+) -> list[tuple[str, float | None]]:
+    """Score applications that predate evaluation recording, writing into meta.json.
+
+    Returns (application_id, total_score) for each one scored. Existing evaluations are kept
+    unless overwrite is set, so re-running is safe and idempotent.
+
+    Backfill re-scores resumes that were already delivered; it publishes nothing, so it must
+    not require the live profile.json. The candidate name is resolved lazily and only if some
+    application actually needs scoring -- an eager load made a run over an explicitly named
+    applications_dir fail on any checkout without a profile (it is gitignored), which since
+    load_profile stopped falling back to the fixture means every fresh clone and CI.
+    """
+    applications_dir = _resolve_applications_dir(applications_dir)
+    scored: list[tuple[str, float | None]] = []
+    if not applications_dir.is_dir():
+        return scored
+    resolve_name = _lazy_candidate_name(profile, profile_path, log)
+
+    for folder in sorted(applications_dir.iterdir()):
+        if not folder.is_dir() or folder.name.startswith("."):
+            continue
+        meta_file = folder / "meta.json"
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        jd_file = folder / "jd.txt"
+        if not meta_file.is_file() or not pdf.is_file():
+            log(f"Skipped {folder.name}: missing meta.json or resume")
+            continue
+
+        meta = _read_meta(meta_file)
+        if meta.get("evaluation") and not overwrite:
+            continue
+
+        ats = check_pdf_ats(pdf)
+        resume_text = scoring_text(ats)
+        if resume_text is None:
+            detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
+            log(f"Skipped {folder.name}: could not extract resume text ({detail})")
+            continue
+        jd_text = jd_file.read_text(encoding="utf-8") if jd_file.is_file() else ""
+        evaluation = evaluate_application(
+            resume_text=resume_text,
+            jd_text=jd_text,
+            role=meta.get("role", ""),
+            candidate_name=resolve_name(),
+        )
+        meta["evaluation"] = evaluation
+        temporary = meta_file.with_name(f"{meta_file.name}.tmp")
+        temporary.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+        temporary.replace(meta_file)
+        scored.append((folder.name, evaluation.get("total_score")))
+        log(f"Scored {folder.name}: {evaluation.get('total_score')}/{evaluation.get('max_possible')}")
+    return scored
+
+
+def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> bool:
+    """Push local database state to Turso, reporting failure rather than swallowing it.
+
+    sync_to_turso signals failure by returning False rather than raising, so the return
+    value must be checked; the try/except only guards against unexpected import or call errors.
+    """
+    from worksisyphus.db import sync_to_turso
+
+    try:
+        synced = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
+    except Exception as exc:
+        log(f"Warning: Turso cloud sync failed: {exc}")
+        return False
+    return synced
+
+
+def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
+    """List all applications with metadata, newest date first (retry order within a day)."""
+    applications_dir = _resolve_applications_dir(applications_dir)
+    apps: list[dict[str, str]] = []
+    if not applications_dir.is_dir():
+        return apps
+    entries = [entry for entry in applications_dir.iterdir() if entry.is_dir() and not entry.name.startswith(".")]
+    names = sorted_application_names([entry.name for entry in entries])
+    by_name = {entry.name: entry for entry in entries}
+    for name in names:
+        folder = by_name[name]
+        meta_file = folder / "meta.json"
+        if not meta_file.is_file():
+            raise ValueError(f"Missing meta.json in {folder}; the application folder is incomplete.")
+        data = _read_meta(meta_file)
+        data["folder"] = folder.name
+        apps.append(data)
+    return apps
+
+
+def resolve_application_folder(
+    app_identifier: str,
+    applications_dir: Path | None = None,
+) -> Path:
+    """Find a unique matching application folder by full folder name or plan stem."""
+    if not app_identifier.strip():
+        raise ValueError("Application identifier must not be empty.")
+
+    applications_dir = _resolve_applications_dir(applications_dir)
+    if not applications_dir.is_dir():
+        raise FileNotFoundError(f"No application folder found matching {app_identifier!r} in {applications_dir}.")
+
+    names = [
+        folder.name
+        for folder in sorted(applications_dir.iterdir())
+        if folder.is_dir() and not folder.name.startswith(".")
+    ]
+    matches = match_application_identifier(app_identifier, names)
+    if not matches:
+        raise FileNotFoundError(f"No application folder found matching {app_identifier!r} in {applications_dir}.")
+    if len(matches) > 1:
+        listed = "\n".join(f"  {name}" for name in matches)
+        raise ValueError(
+            f"Application identifier {app_identifier!r} is ambiguous ({len(matches)} matches):\n{listed}\n"
+            "Re-run with one of the full folder names above."
+        )
+    return applications_dir / matches[0]
+
+
+def update_application_status(
+    app_identifier: str,
+    new_status: str,
+    applications_dir: Path | None = None,
+    sync_cloud: bool = True,
+    allow_branch: bool = False,
+    no_git_check: bool = False,
+    log: Log = _silent,
+) -> tuple[Path, str, str]:
+    """Atomically update status in an application's meta.json.
+
+    Returns (folder_path, old_status, new_status).
+    """
+    if new_status not in STATUSES:
+        raise ValueError(f"Invalid status {new_status!r}. Must be one of: {', '.join(STATUSES)}")
+
+    applications_dir = _resolve_applications_dir(applications_dir)
+    target_folder = resolve_application_folder(app_identifier, applications_dir=applications_dir)
+
+    meta_file = target_folder / "meta.json"
+    if not meta_file.is_file():
+        raise FileNotFoundError(f"Missing meta.json in {target_folder}.")
+
+    meta = _read_meta(meta_file)
+    old_status = meta.get("status", "unknown")
+    meta["status"] = new_status
+    temporary_meta = meta_file.with_name(f"{meta_file.name}.tmp")
+    temporary_meta.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    temporary_meta.replace(meta_file)
+
+    from worksisyphus.db import DEFAULT_DB_PATH, update_application_status_in_db
+
+    if _is_default_applications_dir(applications_dir) and DEFAULT_DB_PATH.is_file():
+        with _db_connection(DEFAULT_DB_PATH) as conn:
+            update_application_status_in_db(conn, target_folder.name, new_status)
+
+        if sync_cloud:
+            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
+
+    return target_folder, old_status, new_status

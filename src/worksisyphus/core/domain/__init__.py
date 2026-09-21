@@ -1,0 +1,67 @@
+"""Core domain layer: entities, value objects, domain rules, and scoring specifications."""
+
+from .gates import (
+    BANNED_METRIC_PATTERNS,
+    BANNED_TOOLS,
+    GPA_PATTERNS,
+    LATEX_LEAK_PATTERNS,
+    GateResult,
+    check_banned_content_gate,
+    check_density_gate,
+    check_gpa_gate,
+    check_latex_leak_gate,
+)
+from .models import (
+    DEFAULT_PROFILE_PATH,
+    REQUIRED_CONTACT_FIELDS,
+    TAILORED_NAME,
+    Contact,
+    Education,
+    Experience,
+    Pick,
+    PlanError,
+    Profile,
+    Project,
+    Selection,
+    profile_index,
+    profile_to_dict,
+    validate_contact,
+)
+from .plan import parse_plan
+from .rules import MIN_BULLETS, full_selection, trim_step
+from .scoring import Category, CategoryScore, Deductions, Role, synthesize_role_rubric
+
+__all__ = [
+    "BANNED_METRIC_PATTERNS",
+    "BANNED_TOOLS",
+    "DEFAULT_PROFILE_PATH",
+    "GPA_PATTERNS",
+    "LATEX_LEAK_PATTERNS",
+    "MIN_BULLETS",
+    "REQUIRED_CONTACT_FIELDS",
+    "TAILORED_NAME",
+    "Category",
+    "CategoryScore",
+    "Contact",
+    "Deductions",
+    "Education",
+    "Experience",
+    "GateResult",
+    "Pick",
+    "PlanError",
+    "Profile",
+    "Project",
+    "Role",
+    "Selection",
+    "check_banned_content_gate",
+    "check_density_gate",
+    "check_gpa_gate",
+    "check_latex_leak_gate",
+    "full_selection",
+    "parse_plan",
+    "profile_index",
+    "profile_to_dict",
+    "synthesize_role_rubric",
+    "trim_step",
+    "validate_contact",
+]

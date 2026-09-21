@@ -793,9 +793,7 @@ def test_apply_rejects_a_company_role_that_would_exceed_filesystem_folder_name_l
     assert not (tmp_path / "applications").exists() or list((tmp_path / "applications").iterdir()) == []
 
 
-def test_apply_rejects_allocated_folder_name_over_filesystem_limit(
-    small_profile, monkeypatch, tmp_path
-) -> None:
+def test_apply_rejects_allocated_folder_name_over_filesystem_limit(small_profile, monkeypatch, tmp_path) -> None:
     """A retry suffix beyond the pre-check margin must fail with the same clear error,
     not ENAMETOOLONG deep inside os.replace."""
     import worksisyphus.application as app_module
@@ -807,10 +805,7 @@ def test_apply_rejects_allocated_folder_name_over_filesystem_limit(
     date_prefix = "2026-08-20_"
     role_suffix = "_swe"
     slug_len = (
-        app_module._MAX_FOLDER_NAME_BYTES
-        - app_module._ORDINAL_SUFFIX_MARGIN
-        - len(date_prefix)
-        - len(role_suffix)
+        app_module._MAX_FOLDER_NAME_BYTES - app_module._ORDINAL_SUFFIX_MARGIN - len(date_prefix) - len(role_suffix)
     )
     company_slug = "a" * slug_len
     overlong_name = f"{date_prefix}{company_slug}{role_suffix}_10000000"
