@@ -17,7 +17,7 @@ from .adapters.outbound.latex.compiler import (
     compile_tex,
     find_pdflatex,
 )
-from .ports.compiler import CompileError, CompileResult
+from .ports.compiler import CompileError, CompileResult, OverfullHbox
 
 sys.modules[__name__] = _module
 
@@ -26,6 +26,7 @@ __all__ = [
     "_OVERFULL_RE",
     "CompileError",
     "CompileResult",
+    "OverfullHbox",
     "Path",
     "PdfLatexCompiler",
     "_decode_log_chunk",

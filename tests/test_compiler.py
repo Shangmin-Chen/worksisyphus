@@ -24,10 +24,13 @@ Output written on /tmp/x.pdf (1 page, 1234 bytes).
 
     assert result.pages == 1
     assert result.overfull == ("90.6pt too wide at tex line 127",)
+    assert result.overfull[0].width_pt == 90.6
+    assert result.overfull[0].line == 127
+    assert result.overfull[0].exceeds_tolerance(2.0) is True
 
 
-def test_compile_reports_no_overfull_for_malformed_width(monkeypatch, tmp_path) -> None:
-    """A malformed width token (e.g. multiple dots) must be skipped, not crash the compile."""
+def test_compile_captures_malformed_width_overfull_as_structured(monkeypatch, tmp_path) -> None:
+    """A malformed width token must be captured as structured overfull (fail closed), not skipped."""
     stdout = """Overfull \\hbox (1.2.3pt too wide) in paragraph at lines 40--41
 []
 Output written on /tmp/x.pdf (1 page, 1234 bytes).
@@ -44,7 +47,11 @@ Output written on /tmp/x.pdf (1 page, 1234 bytes).
     result = compiler.compile_tex("tex", "x", tmp_path / "tex", tmp_path / "pdf")
 
     assert result.pages == 1
-    assert result.overfull == ()
+    assert len(result.overfull) == 1
+    assert result.overfull[0].width_pt is None
+    assert result.overfull[0].line == 40
+    assert result.overfull[0].exceeds_tolerance(2.0) is True
+
 
 
 def test_compile_raises_compile_error_on_timeout(monkeypatch, tmp_path) -> None:

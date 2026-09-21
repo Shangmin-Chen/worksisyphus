@@ -565,10 +565,8 @@ def main(argv: list[str] | None = None) -> int:
                 out_path.write_text(json.dumps(best_plan, indent=2) + "\n", encoding="utf-8")
                 print(f"\nOptimal plan written to: {out_path}")
         else:
-            plan_name = Path(args.plan).stem if args.plan != "-" else "stdin"
             tailor(
                 read_input.read(args.plan, "plan"),
-                plan_name=plan_name,
                 pdf_dir=Path(args.output) if args.output else PREVIEW_DIR,
                 log=print,
             )

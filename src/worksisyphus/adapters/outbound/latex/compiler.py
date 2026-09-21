@@ -8,10 +8,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from ....ports.compiler import CompileError, CompileResult
+from ....ports.compiler import CompileError, CompileResult, OverfullHbox
 
 _PAGES_RE = re.compile(r"Output written on .*\((\d+) pages?")
 _OVERFULL_RE = re.compile(r"Overfull \\hbox \(([\d.]+)pt too wide\) in .*? at lines? (\d+)")
+
 
 PDFLATEX_TIMEOUT_SECONDS = 120
 _LOG_TAIL_LINES = 15
@@ -97,28 +98,36 @@ def compile_tex(tex: str, name: str, tex_dir: Path, pdf_dir: Path) -> CompileRes
             raise CompileError(f"pdflatex failed for {tex_path.name}:\n{detail}")
         # pdflatex hard-wraps log lines, which can split diagnostics.
         stdout = " ".join(_decode_log_chunk(proc.stdout).splitlines())
-        match = _PAGES_RE.search(stdout)
-        if match is None:
+        pages_match = _PAGES_RE.search(stdout)
+
+        if pages_match is None:
             detail = _format_log_tail(proc.stdout, proc.stderr)
             message = f"Could not determine page count for {tex_path.name}."
             if detail:
                 message += f"\n{detail}"
             raise CompileError(message)
-        overfull_items: list[str] = []
-        for width, line in _OVERFULL_RE.findall(stdout):
-            try:
-                parsed_width = float(width)
-            except ValueError:
-                continue
-            overfull_items.append(f"{parsed_width:.1f}pt too wide at tex line {line}")
+        overfull_items: list[OverfullHbox] = []
+        for overfull_match in re.finditer(r"Overfull \\hbox\b.*?(?=(?:Overfull \\hbox\b|Output written\b|\Z))", stdout):
+            chunk = overfull_match.group(0).strip()
+            width_m = re.search(r"\(([\d.]+)pt too wide\)", chunk)
+            parsed_width: float | None = None
+            if width_m:
+                try:
+                    parsed_width = round(float(width_m.group(1)), 1)
+                except ValueError:
+                    parsed_width = None
+            line_m = re.search(r"at lines?\s*(\d+)", chunk)
+            line_num = int(line_m.group(1)) if line_m else None
+            overfull_items.append(OverfullHbox(width_pt=parsed_width, line=line_num, raw=chunk))
         overfull = tuple(overfull_items)
-        pdf_path = pdf_dir / f"{name}.pdf"
-        shutil.copyfile(built_pdf, pdf_path)
+        with tempfile.NamedTemporaryFile(prefix=f"worksisyphus-{name}-", suffix=".pdf", delete=False) as tmp_pdf:
+            staged_pdf_path = Path(tmp_pdf.name)
+        shutil.copyfile(built_pdf, staged_pdf_path)
 
     return CompileResult(
-        pdf_path=pdf_path,
+        pdf_path=staged_pdf_path,
         tex_path=tex_path,
-        pages=int(match.group(1)),
+        pages=int(pages_match.group(1)),
         overfull=overfull,
     )
 

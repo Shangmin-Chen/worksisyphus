@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from worksisyphus import CompileResult, pipeline
+from worksisyphus import CompileResult, OverfullHbox, pipeline
 from worksisyphus.pipeline import tailor
 
 
@@ -73,8 +73,9 @@ def test_tailor_rejects_horizontal_overflow(small_profile, monkeypatch, tmp_path
             pdf_path=tmp_path / f"{name}.pdf",
             tex_path=tmp_path / f"{name}.tex",
             pages=1,
-            overfull=("90.6pt too wide at tex line 127",),
+            overfull=(OverfullHbox(90.6, 127),),
         )
+
 
     monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
     monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
@@ -125,3 +126,61 @@ def test_build_canonical_refuses_an_invalid_contact(invalid_contact_profile, mon
 
     with pytest.raises(ValueError, match="empty"):
         pipeline.build_canonical()
+
+
+def test_tailor_rejects_unmatched_or_malformed_overfull(small_profile, monkeypatch, tmp_path) -> None:
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        return CompileResult(
+            pdf_path=tmp_path / f"{name}.pdf",
+            tex_path=tmp_path / f"{name}.tex",
+            pages=1,
+            overfull=(OverfullHbox(None, raw="Overfull \\hbox wrapped / unmatched log line at unknown location"),),
+        )
+
+    monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
+
+    with pytest.raises(RuntimeError, match="Horizontal overflow detected"):
+        tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=tmp_path)
+
+
+def test_failed_tailor_leaves_no_employer_pdf_in_destination(small_profile, monkeypatch, tmp_path) -> None:
+    dest_dir = tmp_path / "dest"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    # Simulate compiler that fails with multi-page
+    def multi_page_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        # even if a bad compiler wrote to dest_dir
+        (dest_dir / f"{name}.pdf").write_bytes(b"%PDF-bad")
+        return CompileResult(
+            pdf_path=dest_dir / f"{name}.pdf",
+            tex_path=tmp_path / f"{name}.tex",
+            pages=2,
+        )
+
+    monkeypatch.setattr(pipeline, "compile_tex", multi_page_compile)
+    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
+
+    with pytest.raises(RuntimeError, match="one page"):
+        tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=dest_dir)
+
+    assert not (dest_dir / "Simon_Chen_Resume.pdf").exists()
+
+    # Simulate compiler that fails with horizontal overflow
+    def overflow_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        (dest_dir / f"{name}.pdf").write_bytes(b"%PDF-bad")
+        return CompileResult(
+            pdf_path=dest_dir / f"{name}.pdf",
+            tex_path=tmp_path / f"{name}.tex",
+            pages=1,
+            overfull=(OverfullHbox(90.6, 127),),
+        )
+
+
+    monkeypatch.setattr(pipeline, "compile_tex", overflow_compile)
+
+    with pytest.raises(RuntimeError, match="Horizontal overflow"):
+        tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=dest_dir)
+
+    assert not (dest_dir / "Simon_Chen_Resume.pdf").exists()
+

@@ -1,7 +1,7 @@
 """worksisyphus: Simon Chen's deterministic resume compiler."""
 
 from .application import apply, list_applications, update_application_status
-from .compiler import CompileError, CompileResult, compile_tex
+from .compiler import CompileError, CompileResult, OverfullHbox, compile_tex
 from .pipeline import build_canonical, tailor
 from .plan import PlanError, parse_plan
 from .profile import Profile, load_profile, profile_index, validate_contact
@@ -11,6 +11,7 @@ from .selection import Pick, Selection, full_selection, trim_step
 __all__ = [
     "CompileError",
     "CompileResult",
+    "OverfullHbox",
     "Pick",
     "PlanError",
     "Profile",

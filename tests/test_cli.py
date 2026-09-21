@@ -465,18 +465,17 @@ def test_cli_tailor_invokes_pipeline(monkeypatch, tmp_path) -> None:
     plan = _write_plan(tmp_path, {"projects": ["proj1"]})
     recorded = {}
 
-    def fake_tailor(plan_text, plan_name="custom", pdf_dir=None, log=None):
+    def fake_tailor(plan_text, pdf_dir=None, log=None):
         recorded["pdf_dir"] = pdf_dir
         recorded["plan_text"] = plan_text
-        recorded["plan_name"] = plan_name
 
     monkeypatch.setattr(cli, "tailor", fake_tailor)
 
     assert cli.main(["tailor", "--plan", plan]) == 0
-    assert recorded["plan_name"] == "acme_swe"
     # tailor is a preview command: it must never default into applications/, where delivered
     # resumes live.
     assert recorded["pdf_dir"] == PREVIEW_DIR
+
 
 
 def test_cli_apply_with_optimizer(monkeypatch, tmp_path, capsys) -> None:

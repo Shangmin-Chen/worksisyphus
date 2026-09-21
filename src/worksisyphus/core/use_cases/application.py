@@ -362,11 +362,11 @@ def apply(
             plan_text,
             profile=active_profile,
             profile_path=profile_path,
-            plan_name=app_stem,
             pdf_dir=staging_dir,
             tex_dir=tex_build_dir,
             log=log,
         )
+
 
         # 2. Freeze the plan and JD. meta.json is written after scoring, below, so the folder
         #    is never published without the evaluation that belongs to it.

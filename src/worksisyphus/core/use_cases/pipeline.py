@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import re
+import shutil
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -19,8 +19,6 @@ TEX_DIR = Path("tex_files")
 PREVIEW_DIR = TEX_DIR
 PAGE_LIMIT = 1
 OVERFULL_TOLERANCE_PT = 2.0
-
-_OVERFULL_WIDTH_RE = re.compile(r"^([\d.]+)pt too wide")
 
 Log = Callable[[str], None]
 
@@ -52,18 +50,22 @@ def build_canonical(
     selection = full_selection(profile)
     log("Rendering canonical resume...")
     active_compiler = compiler or _get_default_compiler()
+    TEX_DIR.mkdir(parents=True, exist_ok=True)
     result = active_compiler.compile_tex(render_resume(profile, selection), selection.name, TEX_DIR, TEX_DIR)
+    final_pdf = TEX_DIR / f"{selection.name}.pdf"
+    if result.pdf_path.resolve() != final_pdf.resolve():
+        shutil.copyfile(result.pdf_path, final_pdf)
+        result.pdf_path.unlink(missing_ok=True)
     if result.overfull:
-        log("Warning: horizontal overflow: " + "; ".join(result.overfull))
-    log(f"Exported {result.pdf_path} ({result.pages} page{'s' if result.pages != 1 else ''}).")
-    return result
+        log("Warning: horizontal overflow: " + "; ".join(str(entry) for entry in result.overfull))
+    log(f"Exported {final_pdf} ({result.pages} page{'s' if result.pages != 1 else ''}).")
+    return replace(result, pdf_path=final_pdf)
 
 
 def tailor(
     plan_text: str,
     profile: Profile | None = None,
     profile_path: Path = DEFAULT_PROFILE_PATH,
-    plan_name: str = "custom",
     log: Log = _silent,
     tex_dir: Path = TEX_DIR,
     pdf_dir: Path = PREVIEW_DIR,
@@ -81,27 +83,56 @@ def tailor(
     active_compiler = compiler or _get_default_compiler()
     selection: Selection | None = initial_selection
     cuts: list[TrimCut] = []
-    while selection is not None:
-        result = active_compiler.compile_tex(render_resume(active_profile, selection), selection.name, tex_dir, pdf_dir)
-        if result.pages <= PAGE_LIMIT:
-            excessive_overfull = tuple(
-                entry
-                for entry in result.overfull
-                if (match := _OVERFULL_WIDTH_RE.match(entry)) and float(match.group(1)) > OVERFULL_TOLERANCE_PT
-            )
-            if excessive_overfull:
-                raise RuntimeError("Horizontal overflow detected: " + "; ".join(excessive_overfull))
-            log(f"Exported {result.pdf_path} ({result.pages} page).")
-            return replace(result, trimmed=tuple(cuts))
-        log(f"{result.pages} pages; trimming and recompiling...")
-        step = trim_step(selection)
-        if step is None:
-            break
-        selection, cut = step
-        cuts.append(cut)
-        log(cut.log_line())
+    final_pdf = pdf_dir / f"{initial_selection.name}.pdf"
+    staged_pdfs: list[Path] = []
 
-    raise RuntimeError("Could not fit the resume on one page even after maximum trimming.")
+    try:
+        while selection is not None:
+            result = active_compiler.compile_tex(
+                render_resume(active_profile, selection),
+                selection.name,
+                tex_dir,
+                pdf_dir,
+            )
+            if result.pdf_path.resolve() != final_pdf.resolve():
+                staged_pdfs.append(result.pdf_path)
+
+            if result.pages <= PAGE_LIMIT:
+                excessive_overfull = tuple(
+                    entry for entry in result.overfull if entry.exceeds_tolerance(OVERFULL_TOLERANCE_PT)
+                )
+                if excessive_overfull:
+                    raise RuntimeError(
+                        "Horizontal overflow detected: " + "; ".join(str(entry) for entry in excessive_overfull)
+                    )
+                if result.pdf_path.resolve() != final_pdf.resolve():
+                    shutil.copyfile(result.pdf_path, final_pdf)
+                    result.pdf_path.unlink(missing_ok=True)
+                    if result.pdf_path in staged_pdfs:
+                        staged_pdfs.remove(result.pdf_path)
+                log(f"Exported {final_pdf} ({result.pages} page).")
+                return replace(result, pdf_path=final_pdf, trimmed=tuple(cuts))
+
+            log(f"{result.pages} pages; trimming and recompiling...")
+            if result.pdf_path.is_file() and result.pdf_path.resolve() != final_pdf.resolve():
+                result.pdf_path.unlink(missing_ok=True)
+                if result.pdf_path in staged_pdfs:
+                    staged_pdfs.remove(result.pdf_path)
+
+            step = trim_step(selection)
+            if step is None:
+                break
+            selection, cut = step
+            cuts.append(cut)
+            log(cut.log_line())
+
+        raise RuntimeError("Could not fit the resume on one page even after maximum trimming.")
+    except Exception:
+        for p in staged_pdfs:
+            if p.is_file():
+                p.unlink(missing_ok=True)
+        final_pdf.unlink(missing_ok=True)
+        raise
 
 
 __all__ = [
