@@ -93,3 +93,26 @@ def test_render_allows_missing_optional_links(small_profile) -> None:
     assert small_profile.contact.phone in tex
     assert f"mailto:{small_profile.contact.email}" in tex
     assert "linkedin" not in tex
+
+
+def test_render_raises_on_unknown_bullet_slug(small_profile) -> None:
+    selection = Selection(
+        name="bad_bullet",
+        experiences=(Pick("org-a", ("a1", "nonexistent-bullet")),),
+        projects=(),
+        skills={},
+    )
+    with pytest.raises(ValueError, match=r"Unknown bullet slug 'nonexistent-bullet'"):
+        render_resume(small_profile, selection)
+
+
+def test_render_raises_on_unknown_skill_group(small_profile) -> None:
+    selection = Selection(
+        name="bad_skill_group",
+        experiences=(),
+        projects=(),
+        skills={"nonexistent_group": ("Something",)},
+    )
+    with pytest.raises(ValueError, match=r"Unknown skill group 'nonexistent_group' has no display label"):
+        render_resume(small_profile, selection)
+

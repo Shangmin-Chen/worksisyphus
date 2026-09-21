@@ -10,7 +10,6 @@ SKILL_GROUP_LABELS = {
     "languages": "Languages",
     "frameworks_and_libraries": r"Frameworks \& Libraries",
     "databases_and_infrastructure": r"Databases \& Infrastructure",
-    "platforms_and_systems": r"Platforms \& Systems",
 }
 
 DEFAULT_TEMPLATE_PATH = Path("source_of_truth_resume.tex")
@@ -96,7 +95,10 @@ def _education(profile: Profile) -> list[str]:
 
 def _bullet_items(bullets: dict[str, str], picked: tuple[str, ...]) -> list[str]:
     lines = [r"      \resumeItemListStart"]
-    lines += [rf"        \resumeItem{{{bullets[slug]}}}" for slug in picked if slug in bullets]
+    for slug in picked:
+        if slug not in bullets:
+            raise ValueError(f"Unknown bullet slug '{slug}'; entry contains only {list(bullets.keys())}.")
+        lines.append(rf"        \resumeItem{{{bullets[slug]}}}")
     return [*lines, r"      \resumeItemListEnd"]
 
 
@@ -129,11 +131,16 @@ def _projects(profile: Profile, selection: Selection) -> list[str]:
 
 
 def _skills(selection: Selection) -> list[str]:
-    rows = [
-        rf"     \textbf{{{SKILL_GROUP_LABELS.get(group, group)}}}{{: {', '.join(items)}}}"
-        for group, items in selection.skills.items()
-        if items
-    ]
+    rows = []
+    for group, items in selection.skills.items():
+        if not items:
+            continue
+        if group not in SKILL_GROUP_LABELS:
+            raise ValueError(
+                f"Unknown skill group '{group}' has no display label in SKILL_GROUP_LABELS: "
+                f"{list(SKILL_GROUP_LABELS.keys())}."
+            )
+        rows.append(rf"     \textbf{{{SKILL_GROUP_LABELS[group]}}}{{: {', '.join(items)}}}")
     body = [row + (r" \\" if i < len(rows) - 1 else "") for i, row in enumerate(rows)]
     return [
         r"\section{Technical Skills}",
