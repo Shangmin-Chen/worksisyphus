@@ -17,13 +17,19 @@ from worksisyphus.profile import Contact, Education, Experience, Project  # noqa
 def real_profile() -> Profile:
     profile_path = ROOT / "profile.json"
     if not profile_path.is_file():
-        profile_path = ROOT / "tests" / "fixtures" / "profile.json"
+        pytest.skip("no profile.json on disk; tests requiring real_profile are skipped")
     return load_profile(profile_path)
+
+
+@pytest.fixture(scope="session")
+def fixture_profile() -> Profile:
+    return load_profile(ROOT / "tests" / "fixtures" / "profile.json")
 
 
 @pytest.fixture(scope="session")
 def renderable_profile(real_profile) -> Profile:
     return real_profile
+
 
 
 @pytest.fixture(scope="session")

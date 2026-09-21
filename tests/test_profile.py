@@ -332,3 +332,18 @@ def test_load_profile_strips_a_leading_bom(tmp_path) -> None:
     profile_path.write_text("﻿" + payload, encoding="utf-8")
     profile = load_profile(profile_path)
     assert profile.contact.name == "Simon Chen"
+
+
+def test_load_profile_rejects_missing_contact_section(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(json.dumps({"education": []}), encoding="utf-8")
+    with pytest.raises(ValueError, match="Missing required 'contact' section"):
+        load_profile(profile_path)
+
+
+def test_load_profile_rejects_invalid_contact_section(tmp_path) -> None:
+    profile_path = tmp_path / "profile.json"
+    profile_path.write_text(json.dumps({"contact": "not a dict"}), encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid contact section"):
+        load_profile(profile_path)
+
