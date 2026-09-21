@@ -68,6 +68,9 @@ def test_apply_compiles_freezes_and_validates(small_profile, monkeypatch, tmp_pa
     assert meta["role"] == "Product Engineer"
     assert meta["status"] == "applied"
     assert meta["trimmed"] == []
+    assert "ats_warnings" in meta
+    assert meta["ats_warnings"] == []
+
 
 
 def test_apply_rejects_when_quality_gate_fails_and_cleans_up_atomically(small_profile, monkeypatch, tmp_path) -> None:

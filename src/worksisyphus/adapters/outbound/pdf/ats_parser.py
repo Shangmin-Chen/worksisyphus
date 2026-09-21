@@ -89,8 +89,11 @@ def check_pdf_ats(
         f"{m!r} extracted with no whitespace before the date; that keyword will not match"
         for m in MERGED_DATE_RE.findall(text)
     ]
+    for w in warnings:
+        problems.append(w)
 
     words = len(text.split())
+
     return ATSCheckResult(
         passed=len(problems) == 0,
         problems=tuple(problems),

@@ -217,3 +217,18 @@ def test_resume_missing_technical_skills_header_fails_the_gate(tmp_path, monkeyp
 
     assert not res.passed
     assert any("Technical Skills" in problem for problem in res.problems)
+
+
+def test_merged_tech_date_fails_ats_gate(tmp_path, monkeypatch) -> None:
+    text = (
+        "Simon Chen\nsimon@example.com $|$ 555-555-5555\n"
+        "Education\nBoston University\n"
+        "Experience\nSoftware Engineer\n"
+        "Technical Skills\nGeoPandasDecember 2024\n" + "filler word " * 400
+    )
+    pdf = _fake_extraction(tmp_path, monkeypatch, text)
+    res = check_pdf_ats(pdf, name="Simon Chen", expected_pages=1)
+    assert res.passed is False
+    assert any("no whitespace before the date" in p for p in res.problems)
+    assert len(res.warnings) >= 1
+

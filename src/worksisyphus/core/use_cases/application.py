@@ -397,10 +397,15 @@ def apply(
             candidate_phone=active_profile.contact.phone,
             expected_pages=1,
         )
+        for warning in ats_result.warnings:
+            log(f"Warning: ATS: {warning}")
+        meta["ats_warnings"] = list(ats_result.warnings)
+
         failed_gates = [g for g in gate_results if not g.passed]
         if failed_gates:
             reasons = "\n".join(f"- {g.gate_name}: {'; '.join(g.diagnostics)}" for g in failed_gates)
             raise RuntimeError(f"Quality gate check failed for {base_target.name}:\n{reasons}")
+
 
         # 3b. Score the delivered resume against this JD and record it alongside the application,
         #     so every application carries the evaluation that was true when it was sent.

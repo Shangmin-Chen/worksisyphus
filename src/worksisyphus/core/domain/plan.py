@@ -70,9 +70,13 @@ def parse_plan(text: str, profile: Profile) -> Selection:
     projects = _parse_picks(data.get("projects", []), "projects", profile.projects)
     if not experiences and not projects:
         raise PlanError("Plan selects no experiences and no projects.")
+    skills = _parse_skills(data.get("skills"), profile)
+    if not any(skills.values()):
+        raise PlanError("Plan selects no skills; a resume must have a non-empty Technical Skills section.")
     return Selection(
         name=TAILORED_NAME,
         experiences=experiences,
         projects=projects,
-        skills=_parse_skills(data.get("skills"), profile),
+        skills=skills,
     )
+
