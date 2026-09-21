@@ -1,0 +1,36 @@
+# Technical Specifications & Architecture Decision Records (ADRs)
+
+This directory houses the canonical, sequential specifications, system invariants, and architectural decision records for `worksisyphus`.
+
+All specifications are tracked with permanent sequential identifiers (`SPEC-XXX`). To propose or author a new specification, follow the instructions in [`.agents/skills/spec-authoring/SKILL.md`](file://../../.agents/skills/spec-authoring/SKILL.md).
+
+---
+
+## Specifications Index
+
+| Spec ID | Title | Status | Date | Scope | Description |
+|:---|:---|:---:|:---:|:---|:---|
+| [**SPEC-001**](SPEC-001-chronological-timeline.md) | Chronological Timeline & Historical Milestones | `Active` | 2026-09-13 | Git History / Milestones | Detailed milestone evolution across all eras, from original LaTeX shop to modern compiler. |
+| [**SPEC-002**](SPEC-002-system-invariants.md) | System Invariants & Bounded Rules | `Active` | 2026-09-13 | Core Invariants | Canonical list of immutable rules, landed commit anchors, and operator traps. |
+| [**SPEC-003**](SPEC-003-hexagonal-architecture.md) | Hexagonal Architecture, Ports/Adapters & Legacy Topology | `Active` | 2026-09-21 | Architecture | Hexagonal Ports/Adapters/Core modularization, data flow, and dead layout tombstones. |
+| [**SPEC-004**](SPEC-004-agent-workflows-and-cli.md) | Agent Workflows, CLI Registry & Operational Rules | `Active` | 2026-09-13 | CLI / Workflows | Operational instructions for autonomous agents, command registry (live and retired). |
+| [**SPEC-005**](SPEC-005-documentation-drift.md) | Documentation Drift, Code Disagreements & Unmerged Branches | `Active` | 2026-09-13 | Quality / Drift | Comprehensive audit of divergence between prose documentation, code reality, and unmerged PRs. |
+
+---
+
+## Specification Lifecycle
+
+- `Draft`: Specification in formulation; ideas and interfaces being explored.
+- `Proposed`: Completed design undergoing review.
+- `Accepted`: Approved specification scheduled for or in implementation.
+- `Active`: Live specification reflecting current production codebase behavior.
+- `Superseded`: Deprecated or replaced by a subsequent sequential specification (`SPEC-YYY`).
+- `Retired`: Historical feature or workflow no longer present in the system.
+
+---
+
+## Operating Guidelines
+
+1. **Sequential Incremental IDs**: Next available spec ID is **`SPEC-006`**.
+2. **Never Rewrite Past Decisions**: Prior specs are immutable records of design rationale at their creation time. When requirements shift or architecture evolves, create a new spec and mark the predecessor as `Superseded`.
+3. **Skill Reference**: See [`.agents/skills/spec-authoring/SKILL.md`](file://../../.agents/skills/spec-authoring/SKILL.md) for templates and authoring guidelines.
