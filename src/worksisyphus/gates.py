@@ -25,7 +25,18 @@ BANNED_METRIC_PATTERNS = (
 
 GPA_PATTERNS = (
     r"\bgpa\b",
-    r"grade point average",
+    r"\bgpa\s*[:._-]+\s*\d\.\d{1,3}\b",
+    r"\bgpa(?![:._-])(?!2\.0\b)\d\.\d{1,3}\b",
+    r"\bgpa2\.0",
+    r"\bgpa[34](?!\d)\b",
+    r"\bcgpa\b",
+    r"\bcgpa\s*[:._-]+\s*\d\.\d{1,3}\b",
+    r"\bcgpa(?![:._-])(?!2\.0\b)\d\.\d{1,3}\b",
+    r"\bcgpa2\.0",
+    r"\bcgpa[34](?!\d)\b",
+    r"\bg[.,/\-_\s]+p[.,/\-_\s]*a(?!\d{2,})(?:\b|\.?\d)",
+    r"\bc[.,/\-_\s]+g[.,/\-_\s]+p[.,/\-_\s]*a(?!\d{2,})(?:\b|\.?\d)",
+    r"grade[\s\-]+point[\s\-]+average",
     r"\b[234]\.\d{1,2}\s*/\s*4(?:\.0)?\b",
 )
 
@@ -146,7 +157,10 @@ def run_resume_gates(
     )
 
     text = ats_res.text
-    is_tailored = (expected_pages == 1) or (pdf_path.stem != CANONICAL_STEM)
+    if expected_pages is not None:
+        is_tailored = expected_pages == 1
+    else:
+        is_tailored = pdf_path.stem != CANONICAL_STEM
 
     gates = (
         ats_gate,
