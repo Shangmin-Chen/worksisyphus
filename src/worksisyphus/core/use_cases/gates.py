@@ -57,6 +57,7 @@ def run_resume_gates(
     expected_pages: int | None = None,
     *,
     require_contact: bool = True,
+    allow_gpa: bool = False,
     extractor: AtsExtractorPort | None = None,
 ) -> tuple[tuple[GateResult, ...], ATSCheckResult]:
     """Run every quality gate and return both results and ATS extraction."""
@@ -83,9 +84,15 @@ def run_resume_gates(
     else:
         is_tailored = pdf_path.stem != CANONICAL_STEM
 
+    gpa_gate = (
+        GateResult(gate_name="No-GPA Gate", passed=True, diagnostics=("Allowed by compiler config",))
+        if allow_gpa
+        else check_gpa_gate(text)
+    )
+
     gates = (
         ats_gate,
-        check_gpa_gate(text),
+        gpa_gate,
         check_banned_content_gate(text),
         check_latex_leak_gate(text),
         check_density_gate(text, is_tailored=is_tailored),
@@ -101,9 +108,10 @@ def check_resume_gates(
     expected_pages: int | None = None,
     *,
     require_contact: bool = True,
+    allow_gpa: bool = False,
     extractor: AtsExtractorPort | None = None,
 ) -> tuple[GateResult, ...]:
-    """Run the complete battery of foolproof quality gates against a compiled resume."""
+    """Run the complete battery of quality gates against a compiled resume."""
     gates, _ = run_resume_gates(
         pdf_path,
         candidate_name=candidate_name,
@@ -111,6 +119,7 @@ def check_resume_gates(
         candidate_phone=candidate_phone,
         expected_pages=expected_pages,
         require_contact=require_contact,
+        allow_gpa=allow_gpa,
         extractor=extractor,
     )
     return gates

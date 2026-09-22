@@ -312,3 +312,50 @@ def test_pipeline_refuses_to_build_when_profile_fails_gates(small_profile, tmp_p
     # tailor must refuse
     with pytest.raises(RuntimeError, match="Profile policy gate failed"):
         pipeline.tailor('{"experiences": ["org-a"]}', profile=bad_profile, tex_dir=tmp_path, pdf_dir=tmp_path)
+
+
+def test_allow_gpa_bypasses_no_gpa_gate(small_profile, monkeypatch, tmp_path) -> None:
+    import dataclasses
+
+    import worksisyphus.ats as ats_module
+    from worksisyphus.gates import check_profile_gates, run_resume_gates
+    from worksisyphus.profile import Experience
+
+    bad_gpa_exp = Experience(
+        id="org-a",
+        role="SWE",
+        org="Org",
+        location="NY",
+        date="2025",
+        bullets={"a1": "Graduated with 3.9 GPA"},
+    )
+    bad_gpa_profile = dataclasses.replace(
+        small_profile,
+        experiences={"org-a": bad_gpa_exp},
+    )
+
+    # When allow_gpa is True, profile gate passes
+    profile_gates = check_profile_gates(bad_gpa_profile, allow_gpa=True)
+    gpa_profile_gate = next(g for g in profile_gates if g.gate_name == "No-GPA Gate")
+    assert gpa_profile_gate.passed
+
+    # Resume gate passes with allow_gpa=True
+    pdf = tmp_path / "Simon_Chen_Resume.pdf"
+    pdf.write_bytes(b"%PDF-fake")
+    text = (
+        "Simon Chen\nsimon@example.com $|$ 555-555-5555\n"
+        "Education\nBoston University GPA: 3.9\nExperience\nEngineer\nTechnical Skills\n" + "filler word " * 400
+    )
+    monkeypatch.setattr(ats_module, "extract_text", lambda _path: text)
+    monkeypatch.setattr(ats_module.PDFPage, "get_pages", lambda _fh: [object()])
+
+    gates, _ = run_resume_gates(
+        pdf,
+        candidate_name="Simon Chen",
+        candidate_email="simon@example.com",
+        candidate_phone="555-555-5555",
+        expected_pages=1,
+        allow_gpa=True,
+    )
+    gpa_resume_gate = next(g for g in gates if g.gate_name == "No-GPA Gate")
+    assert gpa_resume_gate.passed

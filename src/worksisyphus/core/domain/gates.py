@@ -194,10 +194,15 @@ def profile_to_plain_text(profile: Profile) -> str:
     return "\n".join(filter(None, chunks))
 
 
-def check_profile_gates(profile: Profile) -> tuple[GateResult, ...]:
+def check_profile_gates(profile: Profile, *, allow_gpa: bool = False) -> tuple[GateResult, ...]:
     """Scan Profile content for No-GPA and Banned Content policy violations."""
     text = profile_to_plain_text(profile)
+    gpa_gate = (
+        GateResult(gate_name="No-GPA Gate", passed=True, diagnostics=("Allowed by compiler config",))
+        if allow_gpa
+        else check_gpa_gate(text)
+    )
     return (
-        check_gpa_gate(text),
+        gpa_gate,
         check_banned_content_gate(text),
     )

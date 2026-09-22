@@ -4,7 +4,16 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..domain.models import REQUIRED_CONTACT_FIELDS, Contact, Profile, Selection, validate_contact
+from ..domain.models import (
+    DEFAULT_COMPILER_CONFIG,
+    REQUIRED_CONTACT_FIELDS,
+    CompilerConfig,
+    Contact,
+    CourseworkMode,
+    Profile,
+    Selection,
+    validate_contact,
+)
 
 SKILL_GROUP_LABELS = {
     "languages": "Languages",
@@ -20,6 +29,7 @@ def render_resume(
     profile: Profile,
     selection: Selection,
     template_path: Path = DEFAULT_TEMPLATE_PATH,
+    config: CompilerConfig = DEFAULT_COMPILER_CONFIG,
 ) -> str:
     """Render a selection into LaTeX, refusing outright to render an undeliverable contact."""
     validate_contact(profile.contact)
@@ -31,15 +41,15 @@ def render_resume(
     if not document_start:
         raise ValueError(f"Resume template {template_path} has no {_DOCUMENT_START} marker.")
 
-    parts = [_DOCUMENT_START, "", *_heading(profile.contact)]
+    parts = [_DOCUMENT_START, "", *_heading(profile.contact, config=config)]
     if profile.education:
-        parts += _education(profile)
+        parts += _education(profile, config=config)
     if selection.experiences:
         parts += _experiences(profile, selection)
     if selection.projects:
         parts += _projects(profile, selection)
     if selection.skills:
-        parts += _skills(selection)
+        parts += _skills(selection, config=config)
     parts += [r"\end{document}", ""]
     return preamble + "\n".join(parts)
 
@@ -52,7 +62,7 @@ def _href(url: str, label: str) -> str:
     return rf"\href{{{url}}}{{\underline{{{label}}}}}"
 
 
-def _heading(contact: Contact) -> list[str]:
+def _heading(contact: Contact, config: CompilerConfig = DEFAULT_COMPILER_CONFIG) -> list[str]:
     """Render the contact header."""
     for field_name in REQUIRED_CONTACT_FIELDS:
         if not getattr(contact, field_name, "").strip():
@@ -63,10 +73,17 @@ def _heading(contact: Contact) -> list[str]:
                 f"a header without it."
             )
 
-    links = [contact.phone, _href(f"mailto:{contact.email}", contact.email)]
-    for url in (contact.website, contact.linkedin, contact.github):
-        if url:
-            links.append(_href(url, _display_url(url)))
+    if config.clickable_links:
+        links = [contact.phone, _href(f"mailto:{contact.email}", contact.email)]
+        for url in (contact.website, contact.linkedin, contact.github):
+            if url:
+                links.append(_href(url, _display_url(url)))
+    else:
+        links = [contact.phone, contact.email]
+        for url in (contact.website, contact.linkedin, contact.github):
+            if url:
+                links.append(_display_url(url))
+
     return [
         r"\begin{center}",
         rf"    \textbf{{\Huge \scshape {contact.name}}} \\ \vspace{{1pt}}",
@@ -76,18 +93,26 @@ def _heading(contact: Contact) -> list[str]:
     ]
 
 
-def _education(profile: Profile) -> list[str]:
+def _education(profile: Profile, config: CompilerConfig = DEFAULT_COMPILER_CONFIG) -> list[str]:
     lines = [r"\section{Education}", r"  \resumeSubHeadingListStart"]
     for entry in profile.education:
+        location = entry.location if config.include_locations else ""
+        degree_text = entry.degree
+        if config.include_gpa and entry.gpa:
+            degree_text = f"{degree_text} $|$ GPA: {entry.gpa}"
+
         lines += [
             r"    \resumeSubheading",
-            rf"      {{{entry.institution}}}{{{entry.location}}}",
-            rf"      {{{entry.degree}}}{{{entry.date}}}",
+            rf"      {{{entry.institution}}}{{{location}}}",
+            rf"      {{{degree_text}}}{{{entry.date}}}",
         ]
-        if entry.coursework:
+        if entry.coursework and config.coursework_mode != CourseworkMode.NONE:
+            courses = entry.coursework
+            if config.coursework_mode == CourseworkMode.CONDENSED and len(courses) > 4:
+                courses = courses[:4]
             lines += [
                 r"      \resumeItemListStart",
-                rf"        \resumeItem{{Relevant Coursework: {', '.join(entry.coursework)}.}}",
+                rf"        \resumeItem{{Relevant Coursework: {', '.join(courses)}.}}",
                 r"      \resumeItemListEnd",
             ]
     return [*lines, r"  \resumeSubHeadingListEnd", ""]
@@ -130,7 +155,7 @@ def _projects(profile: Profile, selection: Selection) -> list[str]:
     return [*lines, r"  \resumeSubHeadingListEnd", ""]
 
 
-def _skills(selection: Selection) -> list[str]:
+def _skills(selection: Selection, config: CompilerConfig = DEFAULT_COMPILER_CONFIG) -> list[str]:
     rows = []
     for group, items in selection.skills.items():
         if not items:
@@ -140,14 +165,27 @@ def _skills(selection: Selection) -> list[str]:
                 f"Unknown skill group '{group}' has no display label in SKILL_GROUP_LABELS: "
                 f"{list(SKILL_GROUP_LABELS.keys())}."
             )
-        rows.append(rf"     \textbf{{{SKILL_GROUP_LABELS[group]}}}{{: {', '.join(items)}}}")
+        rows.append(rf"\textbf{{{SKILL_GROUP_LABELS[group]}}}{{: {', '.join(items)}}}")
+
+    if not rows:
+        return []
+
+    if config.compact_skills:
+        return [
+            r"\section{Technical Skills}",
+            r"  \begin{itemize}[leftmargin=0.15in, label={}]",
+            r"    \small{\item{" + " $|$ ".join(rows) + r"}}",
+            r"  \end{itemize}",
+            "",
+        ]
+
     body = [row + (r" \\" if i < len(rows) - 1 else "") for i, row in enumerate(rows)]
     return [
         r"\section{Technical Skills}",
-        r" \begin{itemize}[leftmargin=0.15in, label={}]",
+        r"  \begin{itemize}[leftmargin=0.15in, label={}]",
         r"    \small{\item{",
         *body,
         r"    }}",
-        r" \end{itemize}",
+        r"  \end{itemize}",
         "",
     ]

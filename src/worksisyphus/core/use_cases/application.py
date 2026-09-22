@@ -21,7 +21,15 @@ from ...adapters.outbound.filesystem.profile_loader import load_profile
 from ...adapters.outbound.pdf.ats_parser import check_pdf_ats
 from ...ports.compiler import CompileResult
 from ...ports.parser import ATSCheckResult, scoring_text
-from ..domain.models import DEFAULT_PROFILE_PATH, Contact, Profile, validate_contact
+from ..domain.ats_matcher import score_ats_keywords
+from ..domain.models import (
+    DEFAULT_COMPILER_CONFIG,
+    DEFAULT_PROFILE_PATH,
+    CompilerConfig,
+    Contact,
+    Profile,
+    validate_contact,
+)
 from .gates import run_resume_gates
 from .pipeline import tailor
 
@@ -303,6 +311,7 @@ def apply(
     sync_cloud: bool = True,
     allow_branch: bool = False,
     no_git_check: bool = False,
+    config: CompilerConfig = DEFAULT_COMPILER_CONFIG,
     log: Log = _silent,
 ) -> tuple[Path, CompileResult, ATSCheckResult]:
     """Tailor, validate, compile atomically into applications/<app>, run ATS/quality gates, and sync."""
@@ -364,6 +373,7 @@ def apply(
             profile_path=profile_path,
             pdf_dir=staging_dir,
             tex_dir=tex_build_dir,
+            config=config,
             log=log,
         )
 
@@ -395,6 +405,7 @@ def apply(
             candidate_email=active_profile.contact.email,
             candidate_phone=active_profile.contact.phone,
             expected_pages=1,
+            allow_gpa=config.include_gpa,
         )
         for warning in ats_result.warnings:
             log(f"Warning: ATS: {warning}")
@@ -414,6 +425,15 @@ def apply(
             candidate_name=active_profile.contact.name,
         )
         meta["evaluation"] = evaluation
+
+        # 3c. Deterministic ATS keyword coverage check
+        ats_keyword_match = score_ats_keywords(resume_text=ats_result.text, jd_text=jd_text)
+        meta["ats_keyword_match"] = ats_keyword_match.as_meta()
+        log(
+            f"ATS Keyword Coverage: {ats_keyword_match.coverage_score}% "
+            f"({len(ats_keyword_match.matched_keywords)} matched, {len(ats_keyword_match.missing_keywords)} missing)"
+        )
+
         (staging_dir / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
         # 4. Atomic publish with retry allocation. Compilation is slow enough that a concurrent

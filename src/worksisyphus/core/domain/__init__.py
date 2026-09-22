@@ -1,5 +1,10 @@
 """Core domain layer: entities, value objects, domain rules, and scoring specifications."""
 
+from .ats_matcher import (
+    ATSKeywordMatchResult,
+    extract_keywords,
+    score_ats_keywords,
+)
 from .gates import (
     BANNED_METRIC_PATTERNS,
     BANNED_TOOLS,
@@ -15,7 +20,9 @@ from .models import (
     DEFAULT_PROFILE_PATH,
     REQUIRED_CONTACT_FIELDS,
     TAILORED_NAME,
+    CompilerConfig,
     Contact,
+    CourseworkMode,
     Education,
     Experience,
     Pick,
@@ -40,9 +47,12 @@ __all__ = [
     "MIN_BULLETS",
     "REQUIRED_CONTACT_FIELDS",
     "TAILORED_NAME",
+    "ATSKeywordMatchResult",
     "Category",
     "CategoryScore",
+    "CompilerConfig",
     "Contact",
+    "CourseworkMode",
     "Deductions",
     "Education",
     "Experience",
@@ -57,10 +67,12 @@ __all__ = [
     "check_density_gate",
     "check_gpa_gate",
     "check_latex_leak_gate",
+    "extract_keywords",
     "full_selection",
     "parse_plan",
     "profile_index",
     "profile_to_dict",
+    "score_ats_keywords",
     "synthesize_role_rubric",
     "trim_step",
     "validate_contact",

@@ -11,7 +11,14 @@ from ...adapters.outbound.filesystem.profile_loader import load_profile as _defa
 from ...adapters.outbound.latex.compiler import compile_tex as _default_compile_tex
 from ...ports.compiler import CompileResult, CompilerPort
 from ..domain.gates import check_profile_gates
-from ..domain.models import DEFAULT_PROFILE_PATH, Profile, Selection
+from ..domain.models import (
+    DEFAULT_COMPILER_CONFIG,
+    DEFAULT_PROFILE_PATH,
+    CompilerConfig,
+    CourseworkMode,
+    Profile,
+    Selection,
+)
 from ..domain.plan import parse_plan
 from ..domain.rules import TrimCut, full_selection, trim_step
 from ..rendering.latex import render_resume
@@ -45,6 +52,7 @@ def build_canonical(
     profile_path: Path = DEFAULT_PROFILE_PATH,
     log: Log = _silent,
     compiler: CompilerPort | None = None,
+    config: CompilerConfig = DEFAULT_COMPILER_CONFIG,
 ) -> CompileResult:
     """Rebuild the full everything-included resume; no page limit applies."""
     profile = load_profile(profile_path)
@@ -59,7 +67,9 @@ def build_canonical(
     log("Rendering canonical resume...")
     active_compiler = compiler or _get_default_compiler()
     TEX_DIR.mkdir(parents=True, exist_ok=True)
-    result = active_compiler.compile_tex(render_resume(profile, selection), selection.name, TEX_DIR, TEX_DIR)
+    result = active_compiler.compile_tex(
+        render_resume(profile, selection, config=config), selection.name, TEX_DIR, TEX_DIR
+    )
     final_pdf = TEX_DIR / f"{selection.name}.pdf"
     if result.pdf_path.resolve() != final_pdf.resolve():
         shutil.copyfile(result.pdf_path, final_pdf)
@@ -78,6 +88,7 @@ def tailor(
     tex_dir: Path = TEX_DIR,
     pdf_dir: Path = PREVIEW_DIR,
     compiler: CompilerPort | None = None,
+    config: CompilerConfig = DEFAULT_COMPILER_CONFIG,
 ) -> CompileResult:
     """Render the plan and trim deterministically until it fits one page."""
     if not plan_text.strip():
@@ -101,11 +112,12 @@ def tailor(
     cuts: list[TrimCut] = []
     final_pdf = pdf_dir / f"{initial_selection.name}.pdf"
     staged_pdfs: list[Path] = []
+    active_config = config
 
     try:
         while selection is not None:
             result = active_compiler.compile_tex(
-                render_resume(active_profile, selection),
+                render_resume(active_profile, selection, config=active_config),
                 selection.name,
                 tex_dir,
                 pdf_dir,
@@ -129,11 +141,30 @@ def tailor(
                 log(f"Exported {final_pdf} ({result.pages} page).")
                 return replace(result, pdf_path=final_pdf, trimmed=tuple(cuts))
 
-            log(f"{result.pages} pages; trimming and recompiling...")
+            log(f"{result.pages} pages; adjusting density or trimming...")
             if result.pdf_path.is_file() and result.pdf_path.resolve() != final_pdf.resolve():
                 result.pdf_path.unlink(missing_ok=True)
                 if result.pdf_path in staged_pdfs:
                     staged_pdfs.remove(result.pdf_path)
+
+            # Density ladder: non-destructive layout toggles before dropping items
+            if active_config.enable_density_ladder:
+                if active_config.coursework_mode == CourseworkMode.FULL and any(
+                    e.coursework for e in active_profile.education
+                ):
+                    active_config = replace(active_config, coursework_mode=CourseworkMode.CONDENSED)
+                    log("Applying density toggle: condensed coursework")
+                    continue
+                if not active_config.compact_skills and selection.skills:
+                    active_config = replace(active_config, compact_skills=True)
+                    log("Applying density toggle: compact skills layout")
+                    continue
+                if active_config.coursework_mode == CourseworkMode.CONDENSED and any(
+                    e.coursework for e in active_profile.education
+                ):
+                    active_config = replace(active_config, coursework_mode=CourseworkMode.NONE)
+                    log("Applying density toggle: omit coursework")
+                    continue
 
             step = trim_step(selection)
             if step is None:

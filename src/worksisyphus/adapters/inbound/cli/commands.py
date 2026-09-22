@@ -8,8 +8,9 @@ import json
 import sys
 from datetime import date
 from pathlib import Path
+from typing import Any
 
-from ....core.domain.models import Selection, profile_index
+from ....core.domain.models import CompilerConfig, CourseworkMode, Selection, profile_index
 from ....core.domain.plan import parse_plan
 from ....core.use_cases.application import (
     STATUSES,
@@ -106,6 +107,39 @@ def _add_git_sync_flags(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--no-git-check", action="store_true", help="Skip git freshness checks before cloud sync.")
 
 
+def _add_compiler_config_flags(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--include-gpa",
+        action="store_true",
+        help="Include GPA in the education section if present in the profile (default: False).",
+    )
+    parser.add_argument(
+        "--compact-skills",
+        action="store_true",
+        help="Format technical skills into a single inline paragraph.",
+    )
+    parser.add_argument(
+        "--coursework",
+        choices=["full", "condensed", "none"],
+        default="full",
+        help="Coursework density rendering mode (default: full).",
+    )
+    parser.add_argument(
+        "--density-ladder",
+        action="store_true",
+        help="Progressively compact coursework and skills before trimming content to fit one page.",
+    )
+
+
+def _build_compiler_config(args: argparse.Namespace) -> CompilerConfig:
+    return CompilerConfig(
+        include_gpa=getattr(args, "include_gpa", False),
+        compact_skills=getattr(args, "compact_skills", False),
+        coursework_mode=CourseworkMode(getattr(args, "coursework", "full")),
+        enable_density_ladder=getattr(args, "density_ladder", False),
+    )
+
+
 def _sync_cloud_and_report(*, allow_branch: bool, no_git_check: bool) -> bool:
     """Push to Turso, catching unexpected errors so an exception always surfaces as a plain False.
 
@@ -147,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help=f"Directory to write the preview PDF into (default: {PREVIEW_DIR}/).",
     )
+    _add_compiler_config_flags(tailor_cmd)
     apply_cmd = sub.add_parser(
         "apply",
         help="Tailor, validate, compile directly into applications/<app>, run ATS check, and sync to Turso.",
@@ -162,6 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     apply_cmd.add_argument("--no-sync", action="store_true", help="Skip Turso cloud sync.")
     _add_git_sync_flags(apply_cmd)
+    _add_compiler_config_flags(apply_cmd)
     validate_cmd = sub.add_parser("validate", help="Parse a plan and print the resolved selection; no LaTeX involved.")
     validate_cmd.add_argument("--plan", required=True, help="Path to a plan JSON file, or - for stdin.")
     status_cmd = sub.add_parser("status", help="List all applications and their current statuses.")
@@ -269,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
                 best_plan, _, _ = optimize_plan(profile, jd_text, role_name=args.role or "software_engineer")
                 plan_text = json.dumps(best_plan, indent=2)
 
+            config = _build_compiler_config(args)
             folder, _compile_res, ats_res = apply_app(
                 plan_text=plan_text,
                 jd_text=jd_text,
@@ -278,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
                 sync_cloud=not args.no_sync,
                 allow_branch=args.allow_branch,
                 no_git_check=args.no_git_check,
+                config=config,
                 log=print,
             )
             print(f"Exported {folder / 'Simon_Chen_Resume.pdf'} (1 page).")
@@ -565,10 +603,14 @@ def main(argv: list[str] | None = None) -> int:
                 out_path.write_text(json.dumps(best_plan, indent=2) + "\n", encoding="utf-8")
                 print(f"\nOptimal plan written to: {out_path}")
         elif args.command == "tailor":
+            config = _build_compiler_config(args)
+            tailor_kwargs: dict[str, Any] = {"log": print}
+            if config != CompilerConfig():
+                tailor_kwargs["config"] = config
             tailor(
                 read_input.read(args.plan, "plan"),
                 pdf_dir=Path(args.output) if args.output else PREVIEW_DIR,
-                log=print,
+                **tailor_kwargs,
             )
             print("Preview build only - run `worksisyphus apply` to produce a delivered resume.")
         else:
