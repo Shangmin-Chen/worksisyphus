@@ -8,7 +8,7 @@
 | **Author** | Simon Chen & Antigravity |
 | **Created** | 2026-09-23 |
 | **Updated** | 2026-09-23 |
-| **Supersedes** | None |
+| **Supersedes** | Partially supersedes [SPEC-007](SPEC-007-pruning-legacy-services-and-cli-modularization.md) Section 3.1 (Local SQLite Authority) |
 | **Superseded By** | None |
 | **Related Issues/PRs** | PR #92, PR #93, PR #94, PR #95 |
 

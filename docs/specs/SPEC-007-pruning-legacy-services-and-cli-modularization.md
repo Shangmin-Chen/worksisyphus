@@ -9,8 +9,8 @@
 | **Created** | 2026-09-23 |
 | **Updated** | 2026-09-23 |
 | **Supersedes** | None |
-| **Superseded By** | None |
-| **Related Issues/PRs** | PR #90, PR #91 |
+| **Superseded By** | Partially superseded by [SPEC-008](SPEC-008-pure-filesystem-architecture-and-sqlite-decommissioning.md) (SQLite decommissioned in favor of pure filesystem architecture) |
+| **Related Issues/PRs** | PR #92, PR #93, PR #94, PR #95 |
 
 ---
 
