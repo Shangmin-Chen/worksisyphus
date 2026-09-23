@@ -189,7 +189,7 @@ def cross_check_contact_against_db(
     # argument that was false at the time (seed_database validated only that profile.json
     # *existed*, not what it held) and is only now true. Defence in depth is still worth its
     # two lines: corruption can arrive by routes that never touch seed_database -- a hand-run
-    # UPDATE, a restore of a Turso copy poisoned before this fix, a database that predates it
+    # UPDATE, a corrupted copy, or a database that predates it
     # -- and this check cannot block a build that the mismatch list below would have let
     # through. A placeholder in the database either differs from the profile (mismatch, blocked
     # either way) or matches it, which is unreachable: validate_contact ran over the profile in
@@ -485,9 +485,6 @@ def apply(
                 evaluation_json=json.dumps(evaluation, sort_keys=True),
             )
 
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
-
     return target_folder, compile_result, ats_result
 
 
@@ -604,22 +601,6 @@ def backfill_evaluations(
     return scored
 
 
-def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> bool:
-    """Push local database state to Turso, reporting failure rather than swallowing it.
-
-    sync_to_turso signals failure by returning False rather than raising, so the return
-    value must be checked; the try/except only guards against unexpected import or call errors.
-    """
-    from worksisyphus.db import sync_to_turso
-
-    try:
-        synced = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
-    except Exception as exc:
-        log(f"Warning: Turso cloud sync failed: {exc}")
-        return False
-    return synced
-
-
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
     """List all applications with metadata, newest date first (retry order within a day)."""
     applications_dir = _resolve_applications_dir(applications_dir)
@@ -704,8 +685,5 @@ def update_application_status(
     if _is_default_applications_dir(applications_dir) and DEFAULT_DB_PATH.is_file():
         with _db_connection(DEFAULT_DB_PATH) as conn:
             update_application_status_in_db(conn, target_folder.name, new_status)
-
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
 
     return target_folder, old_status, new_status

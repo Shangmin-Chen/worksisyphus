@@ -8,7 +8,8 @@ from .sqlite import (
     ACTION_UPDATE,
     DEFAULT_DB_PATH,
     SCHEMA_SQL,
-    build_sync_sql,
+    SqliteStorageAdapter,
+    SqliteTursoAdapter,
     export_profile_json,
     get_audit_history,
     get_connection,
@@ -18,7 +19,6 @@ from .sqlite import (
     log_audit_event,
     save_application_to_db,
     seed_database,
-    sync_to_turso,
     update_application_status_in_db,
 )
 
@@ -30,7 +30,8 @@ __all__ = [
     "ACTION_UPDATE",
     "DEFAULT_DB_PATH",
     "SCHEMA_SQL",
-    "build_sync_sql",
+    "SqliteStorageAdapter",
+    "SqliteTursoAdapter",
     "export_profile_json",
     "get_audit_history",
     "get_connection",
@@ -40,6 +41,5 @@ __all__ = [
     "log_audit_event",
     "save_application_to_db",
     "seed_database",
-    "sync_to_turso",
     "update_application_status_in_db",
 ]

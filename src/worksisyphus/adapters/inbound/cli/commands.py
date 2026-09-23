@@ -140,32 +140,6 @@ def _build_compiler_config(args: argparse.Namespace) -> CompilerConfig:
     )
 
 
-def _sync_cloud_and_report(*, allow_branch: bool, no_git_check: bool) -> bool:
-    """Push to Turso, catching unexpected errors so an exception always surfaces as a plain False.
-
-    sync_to_turso already reports *why* it skipped or failed (git-guard blocked, Turso CLI
-    missing, network error, ...) through the ``log`` callback passed in below, so that reason
-    -- distinguishing "blocked by git state" from "Turso unreachable" -- already reaches the
-    printed log without any extra plumbing here. The try/except only normalizes the *unexpected*
-    case: an exception escaping sync_to_turso is logged with its message and turned into a
-    return value like any other failure, instead of propagating raw.
-
-    This function does not decide whether that False is fatal -- callers do. For backfill-evals
-    and `db init`, local work is the point and the cloud push is a documented bonus on top of it
-    (application.py's "cloud sync (reported, non-fatal)" pattern), so a False here is a warning,
-    not a command failure. `db sync` is different: syncing IS the whole job, so its caller below
-    turns a False from this function into exit 1 -- see the fail-closed history in db.py
-    (61acb90, 81500c8, e92de45) that this mirrors for the one command whose only purpose is sync.
-    """
-    from worksisyphus.db import sync_to_turso
-
-    try:
-        return sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=print)
-    except Exception as exc:
-        print(f"Warning: Turso cloud sync failed: {exc}")
-        return False
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="worksisyphus", description="Resume compiler.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -375,9 +349,6 @@ def main(argv: list[str] | None = None) -> int:
                     seed_database(conn)
                 finally:
                     conn.close()
-                if not args.no_sync:
-                    ok = _sync_cloud_and_report(allow_branch=args.allow_branch, no_git_check=args.no_git_check)
-                    print(f"Turso cloud sync: {'synced' if ok else 'skipped / failed'}")
                 print(f"Scored {len(scored)} application(s).")
         elif args.command == "db":
             from worksisyphus.db import (
@@ -394,20 +365,9 @@ def main(argv: list[str] | None = None) -> int:
                 if args.db_action == "init":
                     seed_database(conn)
                     print(f"Initialized and seeded {DEFAULT_DB_PATH}")
-                    turso_ok = _sync_cloud_and_report(allow_branch=args.allow_branch, no_git_check=args.no_git_check)
-                    print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
                 elif args.db_action == "sync":
                     seed_database(conn)
                     print("Synced profile.json to SQLite")
-                    turso_ok = _sync_cloud_and_report(allow_branch=args.allow_branch, no_git_check=args.no_git_check)
-                    print(f"Turso cloud sync: {'synced' if turso_ok else 'skipped / failed'}")
-                    if not turso_ok:
-                        # Unlike `db init`, this command's only job is the Turso push: the local
-                        # seed above is a means, not the goal. Fail closed so a caller that checks
-                        # $? (a script, a CI step) can never read exit 0 as "synced" when nothing
-                        # reached Turso -- the reason for the miss is already in the log above.
-                        print("error: Turso cloud sync did not complete.", file=sys.stderr)
-                        return 1
                 elif args.db_action == "export-profile":
                     destination = Path(args.output)
                     if destination.exists() and not args.force:
