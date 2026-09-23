@@ -610,7 +610,7 @@ def test_apply_records_trim_cuts_in_meta_json(small_profile, monkeypatch, tmp_pa
     assert meta["trimmed"] == [{"kind": "project", "slug": "proj2"}]
 
 
-def test_apply_records_the_hackerrank_evaluation(small_profile, monkeypatch, tmp_path) -> None:
+def test_apply_records_the_evaluation(small_profile, monkeypatch, tmp_path) -> None:
     """Every application must carry the score that was true when it was sent."""
 
     def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
@@ -632,14 +632,13 @@ def test_apply_records_the_hackerrank_evaluation(small_profile, monkeypatch, tmp
         when=date(2026, 8, 20),
         profile=small_profile,
         applications_dir=tmp_path / "applications",
-        sync_cloud=False,
     )
 
     meta = json.loads((folder / "meta.json").read_text())
     ev = meta["evaluation"]
-    assert ev["role_rubric"] == "founding_product_engineer"
+    assert ev["role_title"] == "Founding Product Engineer"
     assert ev["total_score"] > 0
-    assert len(ev["scores"]) == 3
+    assert ev["role_alignment_score"] > 0
     assert ev["evaluated_at"]
 
 

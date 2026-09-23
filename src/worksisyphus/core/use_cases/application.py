@@ -30,7 +30,7 @@ from ..domain.models import (
     Profile,
     validate_contact,
 )
-from .gates import run_resume_gates
+from .gates import GateResult, run_resume_gates
 from .pipeline import tailor
 
 APPLICATIONS_DIR = Path("applications")
@@ -423,6 +423,8 @@ def apply(
             jd_text=jd_text,
             role=role,
             candidate_name=active_profile.contact.name,
+            pdf_path=staging_dir / "Simon_Chen_Resume.pdf",
+            gate_results=gate_results,
         )
         meta["evaluation"] = evaluation
 
@@ -491,28 +493,35 @@ def apply(
 def evaluate_application(
     resume_text: str,
     jd_text: str,
-    role: str,
+    role: str = "",
     candidate_name: str = "",
+    pdf_path: Path | None = None,
+    gate_results: tuple[GateResult, ...] | None = None,
 ) -> dict[str, Any]:
-    """Score a resume with the HackerRank hiring agent, keyed to the role it was sent for.
+    """Score a resume against the target role and JD using deterministic rubric evaluation."""
+    from .evaluator import evaluate_resume_text
 
-    The role title is free text ("Founding Product Engineer"); load_role normalizes it, uses a
-    curated rubric when one exists, and otherwise synthesizes one in memory from the JD.
-    """
-    from .hiring_agent import HackerRankHiringAgent
-
-    agent = HackerRankHiringAgent(role_name=role or "software_engineer", jd_text=jd_text)
-    result = agent.evaluate(resume_text=resume_text, candidate_name=candidate_name)
+    report = evaluate_resume_text(
+        resume_text=resume_text,
+        jd_text=jd_text,
+        candidate_name=candidate_name or "Simon Chen",
+        pdf_path=pdf_path,
+        gate_results=gate_results,
+    )
     return {
-        "role_rubric": agent.role.name,
-        "role_title": agent.role.position_title,
-        "total_score": result.get("total_score"),
-        "max_possible": result.get("max_possible"),
-        "scores": result.get("scores", {}),
-        "bonus_points": result.get("bonus_points", {}),
-        "deductions": result.get("deductions", {}),
-        "key_strengths": result.get("key_strengths", []),
-        "areas_for_improvement": result.get("areas_for_improvement", []),
+        "role_title": role or "software_engineer",
+        "total_score": report.overall_score,
+        "max_possible": 100,
+        "role_alignment_score": report.role_alignment_score,
+        "technical_depth_score": report.technical_depth_score,
+        "impact_metrics_score": report.impact_metrics_score,
+        "gate_compliance_score": report.gate_compliance_score,
+        "matched_keywords": list(report.matched_keywords),
+        "missing_keywords": list(report.missing_keywords),
+        "extracted_metrics": list(report.extracted_metrics),
+        "strengths": list(report.strengths),
+        "suggestions": list(report.suggestions),
+        "gate_diagnostics": list(report.gate_diagnostics),
         "evaluated_at": datetime.now(UTC).isoformat(),
     }
 

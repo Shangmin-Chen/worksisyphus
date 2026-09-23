@@ -24,7 +24,6 @@ from .evaluator import (
     selection_to_plain_text,
 )
 from .gates import check_resume_gates, run_resume_gates
-from .hiring_agent import HackerRankHiringAgent, build_evaluation_model, check_upstream_status
 from .optimizer import OptimizerError, optimize_plan, score_bullet
 from .pipeline import PAGE_LIMIT, PREVIEW_DIR, TEX_DIR, build_canonical, tailor
 
@@ -37,13 +36,10 @@ __all__ = [
     "TEX_DIR",
     "ContactCrossCheck",
     "EvaluationReport",
-    "HackerRankHiringAgent",
     "OptimizerError",
     "apply",
     "build_canonical",
-    "build_evaluation_model",
     "check_resume_gates",
-    "check_upstream_status",
     "cross_check_contact_against_db",
     "evaluate_application",
     "evaluate_pdf_against_jd",

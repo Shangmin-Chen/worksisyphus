@@ -24,7 +24,7 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
 3. Claude runs the unified `apply` pipeline: reads the slug index, ranks content into a plan (order = relevance), validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, and freezes the exact plan alongside it, then runs the ATS extraction check.
 4. The resume is done when `apply` succeeds (exactly one page, no horizontal overflow, ATS check passed) — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut.
 5. The delivered PDF lives only at `applications/<date>_<company>_<role>/Simon_Chen_Resume.pdf`. The 3-page canonical is a local build artifact and never goes out.
-6. The application is automatically tracked in SQLite with full metadata, JD text, audit logs, and the HackerRank hiring-agent score for the resume as sent.
+6. The application is automatically tracked in SQLite with full metadata, JD text, audit logs, and the evaluation score for the resume as sent.
 
 List tracked applications with `worksisyphus status` (grouped per company with `App#` for repeat
 applications; filter with `--company <name>`). Update one with
@@ -51,9 +51,7 @@ uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status ph
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
 uv run worksisyphus evaluate --plan <file|-> --jd <file|->  # score a plan against a JD
-uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluate canonical database directly
-uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
-uv run worksisyphus evaluate --check-upstream     # check sync status against upstream hiring-agent
+uv run worksisyphus evaluate --profile --jd <file|->  # evaluate canonical database directly
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find optimal plan
 uv run worksisyphus backfill-evals [--overwrite]
 uv run worksisyphus db status                     # show database stats and metrics
@@ -80,11 +78,10 @@ Every tailored resume compiles straight into `applications/<date>_<company>_<rol
 │   │   ├── domain/         # models, trim rules, plan resolution, quality gates, scoring
 │   │   ├── use_cases/      # application lifecycle, pipeline, optimizer, evaluator, gates
 │   │   └── rendering/      # Jake's LaTeX resume renderer
-│   ├── ports/              # abstract interfaces (compiler, storage, ATS, rubrics)
+│   ├── ports/              # abstract interfaces (compiler, storage, ATS)
 │   ├── adapters/
 │   │   ├── inbound/cli/    # CLI entrypoints, status, argument parsing
 │   │   └── outbound/       # latex/pdflatex, persistence/sqlite, pdf/ats, filesystem
-│   ├── roles/              # role rubrics and criteria templates
 │   └── *.py                # backward-compatibility facades (application, cli, db, pipeline, etc.)
 ├── tex_files/              # rendered TeX (only the canonical one is tracked)
 └── applications/           # delivered resumes + JD/plan/meta (gitignored)

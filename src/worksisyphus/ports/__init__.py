@@ -2,7 +2,6 @@
 
 from .compiler import CompileError, CompileResult, CompilerPort
 from .parser import ATSCheckResult, AtsExtractorPort
-from .rubrics import RoleRubricPort
 from .storage import StoragePort
 
 __all__ = [
@@ -11,6 +10,5 @@ __all__ = [
     "CompileError",
     "CompileResult",
     "CompilerPort",
-    "RoleRubricPort",
     "StoragePort",
 ]

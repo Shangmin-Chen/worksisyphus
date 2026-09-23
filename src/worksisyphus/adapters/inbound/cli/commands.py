@@ -236,19 +236,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Evaluate the full profile.json canonical database directly without a PDF or plan.",
     )
     eval_cmd.add_argument(
-        "--hackerrank",
-        action="store_true",
-        help="Run 1:1 HackerRank hiring agent rubric evaluation.",
-    )
-    eval_cmd.add_argument(
-        "--check-upstream",
-        action="store_true",
-        help="Check HackerRank upstream repository commit status and rubric sync.",
-    )
-    eval_cmd.add_argument(
         "--role",
         default="software_engineer",
-        help="Role rubric for HackerRank evaluation (e.g. software_engineer, product_engineer, startup_product_engineer, ai_engineer, mle, systems_engineer, quant_engineer, software_engineering_intern).",
+        help="Target role name for evaluation reporting.",
     )
     opt_cmd = sub.add_parser("optimize", help="Combinatorially search and find the highest-scoring plan for a JD.")
     opt_cmd.add_argument("--jd", required=True, help="Job description text file or - for stdin.")
@@ -433,33 +423,12 @@ def main(argv: list[str] | None = None) -> int:
                 conn.close()
         elif args.command == "evaluate":
             from worksisyphus.application import resolve_application_folder
-            from worksisyphus.ats import check_pdf_ats, scoring_text
             from worksisyphus.evaluator import (
                 evaluate_pdf_against_jd,
                 evaluate_resume_text,
                 format_evaluation_report,
                 selection_to_plain_text,
             )
-            from worksisyphus.hiring_agent import (
-                HackerRankHiringAgent,
-                check_upstream_status,
-                format_hackerrank_report,
-            )
-
-            if args.check_upstream:
-                status = check_upstream_status()
-                print("=" * 68)
-                print(f"HACKERRANK UPSTREAM SYNC STATUS: {status.get('upstream_repo', '')}")
-                print("=" * 68)
-                print(f"Status:          {status.get('status', '').upper()}")
-                print(f"Local Commit:    {status.get('local_commit')}")
-                print(f"Remote Commit:   {status.get('remote_commit')}")
-                print(f"Synced Date:     {status.get('synced_date')}")
-                print(f"Reference Role:  {status.get('reference_role')}")
-                print(f"Custom Tracks:   {', '.join(status.get('custom_tracks', []))}")
-                print(f"Message:         {status.get('message')}")
-                print("=" * 68)
-                return 0
 
             profile = load_profile()
             resume_text = ""
@@ -474,20 +443,10 @@ def main(argv: list[str] | None = None) -> int:
                 jd_text = jd_file.read_text(encoding="utf-8")
                 pdf_path = app_path / "Simon_Chen_Resume.pdf"
                 role_label = app_path.name
-                if pdf_path.is_file():
-                    if args.hackerrank:
-                        ats = check_pdf_ats(pdf_path, name=profile.contact.name)
-                        extracted: str | None = scoring_text(ats)
-                        if extracted is None:
-                            detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
-                            raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
-                        resume_text = extracted
-                    else:
-                        resume_text = ""
             else:
-                if not args.jd and not args.hackerrank:
-                    raise ValueError("Job description required: pass --jd <file|->, --app <name>, or --hackerrank")
-                jd_text = read_input.read(args.jd, "jd") if args.jd else ""
+                if not args.jd:
+                    raise ValueError("Job description required: pass --jd <file|-> or --app <name>")
+                jd_text = read_input.read(args.jd, "jd")
 
                 if args.profile:
                     from worksisyphus.selection import full_selection
@@ -498,16 +457,6 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.resume:
                     pdf_path = Path(args.resume)
                     role_label = pdf_path.stem
-                    if pdf_path.is_file():
-                        if args.hackerrank:
-                            ats = check_pdf_ats(pdf_path, name=profile.contact.name)
-                            extracted = scoring_text(ats)
-                            if extracted is None:
-                                detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
-                                raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
-                            resume_text = extracted
-                        else:
-                            resume_text = ""
                 elif args.plan:
                     plan_text = read_input.read(args.plan, "plan")
                     selection = parse_plan(plan_text, profile)
@@ -519,15 +468,6 @@ def main(argv: list[str] | None = None) -> int:
                     pdf_path = _latest_application_pdf()
                     if pdf_path is not None and pdf_path.is_file():
                         role_label = pdf_path.parent.name
-                        if args.hackerrank:
-                            ats = check_pdf_ats(pdf_path, name=profile.contact.name)
-                            extracted = scoring_text(ats)
-                            if extracted is None:
-                                detail = "; ".join(ats.problems) if ats.problems else "no text extracted"
-                                raise ValueError(f"could not extract resume text from {pdf_path}: {detail}")
-                            resume_text = extracted
-                        else:
-                            resume_text = ""
                     else:
                         from worksisyphus.selection import full_selection
 
@@ -535,21 +475,16 @@ def main(argv: list[str] | None = None) -> int:
                         resume_text = selection_to_plain_text(full_selection(profile), profile)
                         role_label = "profile_json"
 
-            if args.hackerrank:
-                agent = HackerRankHiringAgent(role_name=args.role, jd_text=jd_text)
-                result = agent.evaluate(resume_text=resume_text, candidate_name=profile.contact.name)
-                print(format_hackerrank_report(result, role_name=args.role))
+            if pdf_path and pdf_path.is_file():
+                report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
             else:
-                if pdf_path and pdf_path.is_file():
-                    report = evaluate_pdf_against_jd(pdf_path, jd_text, candidate_name=profile.contact.name)
-                else:
-                    report = evaluate_resume_text(
-                        resume_text,
-                        jd_text,
-                        candidate_name=profile.contact.name,
-                        pdf_path=pdf_path,
-                    )
-                print(format_evaluation_report(report, target_role=role_label))
+                report = evaluate_resume_text(
+                    resume_text,
+                    jd_text,
+                    candidate_name=profile.contact.name,
+                    pdf_path=pdf_path,
+                )
+            print(format_evaluation_report(report, target_role=role_label))
         elif args.command == "optimize":
             from worksisyphus.optimizer import format_optimization_report, optimize_plan
 

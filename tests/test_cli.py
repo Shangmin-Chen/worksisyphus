@@ -288,33 +288,6 @@ def test_cli_evaluate_missing_app_error(capsys) -> None:
     assert "error:" in err
 
 
-def test_cli_evaluate_hackerrank_rejects_unparseable_pdf(tmp_path, capsys) -> None:
-    pdf = tmp_path / "broken.pdf"
-    pdf.write_bytes(b"not a pdf")
-
-    ret = cli.main(["evaluate", "--hackerrank", "--resume", str(pdf), "--role", "software_engineer"])
-
-    assert ret == 1
-    err = capsys.readouterr().err
-    assert "error: could not extract resume text" in err
-
-
-def test_cli_evaluate_hackerrank_mode(capsys) -> None:
-    ret = cli.main(["evaluate", "--hackerrank", "--role", "startup_product_engineer"])
-    assert ret == 0
-    out = capsys.readouterr().out
-    assert "HACKERRANK HIRING AGENT SCORECARD" in out
-    assert "Overall Candidate Score:" in out
-
-
-def test_cli_evaluate_profile_mode(capsys) -> None:
-    ret = cli.main(["evaluate", "--profile", "--hackerrank", "--role", "software_engineer"])
-    assert ret == 0
-    out = capsys.readouterr().out
-    assert "HACKERRANK HIRING AGENT SCORECARD" in out
-    assert "Overall Candidate Score:" in out
-
-
 def test_cli_evaluate_profile_with_jd(tmp_path, capsys) -> None:
     jd_file = tmp_path / "jd.txt"
     jd_file.write_text("Backend engineer with Python, C++, and Distributed Systems.", encoding="utf-8")
@@ -325,14 +298,6 @@ def test_cli_evaluate_profile_with_jd(tmp_path, capsys) -> None:
     assert "Overall Match Score:" in out
 
 
-def test_cli_evaluate_check_upstream(capsys) -> None:
-    ret = cli.main(["evaluate", "--check-upstream"])
-    assert ret == 0
-    out = capsys.readouterr().out
-    assert "HACKERRANK UPSTREAM SYNC STATUS" in out
-    assert "interviewstreet/hiring-agent" in out
-
-
 def test_cli_optimize_command(tmp_path, capsys) -> None:
     jd_file = tmp_path / "jd.txt"
     jd_file.write_text("Looking for a distributed systems engineer with C++ and Python.", encoding="utf-8")
@@ -341,7 +306,7 @@ def test_cli_optimize_command(tmp_path, capsys) -> None:
     ret = cli.main(["optimize", "--jd", str(jd_file), "--role", "systems_engineer", "--output", str(out_file)])
     assert ret == 0
     out = capsys.readouterr().out
-    assert "HACKERRANK KNAPSACK OPTIMIZER REPORT" in out
+    assert "KNAPSACK OPTIMIZER REPORT" in out
     assert out_file.is_file()
 
 
