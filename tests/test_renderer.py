@@ -115,3 +115,66 @@ def test_render_raises_on_unknown_skill_group(small_profile) -> None:
     )
     with pytest.raises(ValueError, match=r"Unknown skill group 'nonexistent_group' has no display label"):
         render_resume(small_profile, selection)
+
+
+def test_render_faithfully_matches_jakes_resume_structure() -> None:
+    from worksisyphus.core.domain.models import Contact, Education, Experience, Profile, Project
+
+    jake_profile = Profile(
+        contact=Contact(
+            name="Jake Ryan",
+            email="jake@su.edu",
+            phone="123-456-7890",
+            linkedin="https://linkedin.com/in/jake",
+            github="https://github.com/jake",
+        ),
+        education=(
+            Education(
+                institution="Southwestern University",
+                location="Georgetown, TX",
+                degree="Bachelor of Arts in Computer Science",
+                date="Aug. 2018 -- May 2021",
+            ),
+        ),
+        experiences={
+            "tamu": Experience(
+                id="tamu",
+                role="Undergraduate Research Assistant",
+                org=r"Texas A\&M University",
+                location="College Station, TX",
+                date="June 2020 -- Present",
+                bullets={"b1": "Developed REST API using FastAPI"},
+            ),
+        },
+        projects={
+            "gitlytics": Project(
+                id="gitlytics",
+                name="Gitlytics",
+                tech="Python, Flask, React",
+                date="June 2020 -- Present",
+                bullets={"p1": "Developed full-stack web application"},
+            ),
+        },
+        skills={"languages": ("Java", "Python")},
+    )
+
+    selection = Selection(
+        name="Jake_Ryan_Resume",
+        experiences=(Pick("tamu", ("b1",)),),
+        projects=(Pick("gitlytics", ("p1",)),),
+        skills={"languages": ("Java", "Python")},
+    )
+
+    tex = render_resume(jake_profile, selection)
+
+    # Verifies exact formatting tags and macros from Jake's template
+    assert r"\textbf{\Huge \scshape Jake Ryan}" in tex
+    assert r"123-456-7890 $|$ \href{mailto:jake@su.edu}{\underline{jake@su.edu}}" in tex
+    assert r"\resumeSubheading" in tex
+    assert r"{Southwestern University}{Georgetown, TX}" in tex
+    assert r"{Undergraduate Research Assistant}{June 2020 -- Present}" in tex
+    assert r"{Texas A\&M University}{College Station, TX}" in tex
+    assert r"\resumeProjectHeading" in tex
+    assert r"{\textbf{Gitlytics} $|$ \emph{Python, Flask, React}}{June 2020 -- Present}" in tex
+    assert r"\resumeItem{Developed full-stack web application}" in tex
+    assert r"\textbf{Languages}{: Java, Python}" in tex
