@@ -26,10 +26,10 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 2. Compose the plan JSON yourself (order = rank; format in README "Plan files"). Plans are **inputs,
    not artifacts**: there is no `plans/` directory. Write it to scratch outside version control
    (e.g. `$TMPDIR/<company>_<role>.json`) — `apply` freezes the exact plan into
-   `applications/<YYYY-MM-DD>_<stem>/plan.json` and syncs it to Turso, which is the record.
+   `applications/<YYYY-MM-DD>_<stem>/plan.json` and records it to `worksisyphus.db`.
 3. Optional pre-flight: `cat <plan> | uv run worksisyphus validate --plan -` catches unknown slugs
    without compiling (`apply` validates too, so this step is skippable).
-4. **Apply (1-step compile, ATS check, freeze & Turso sync):**
+4. **Apply (1-step compile, ATS check, freeze & SQLite sync):**
 
    ```bash
    cat << 'EOF' | uv run worksisyphus apply --company <Company> --jd - [--role <Role>] [--url <posting url>] [--plan <scratch plan file>]
@@ -40,14 +40,12 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
    `--plan` is optional. When omitted, `apply` runs the knapsack optimizer to choose the plan for
    you; the optimizer enforces the selection guardrails above (weak-project, personal-website,
    BU IT, persephone-first) in code. Prefer writing the plan yourself when the JD needs judgment
-   the rubric cannot express. Add `--no-sync` to skip the Turso push. Cloud sync itself runs only
-   from `main` when HEAD is not behind `origin/main`; local apply still completes if sync is
-   skipped. Named feature branches can sync with `--allow-branch`; `--no-git-check` skips the gate.
+   the rubric cannot express.
 
    `--jd` is **required**. Pass the user's pasted JD via stdin (`--jd -`) to avoid leaving temporary files in the repository root. If there is genuinely no JD (internal referral, career fair), pass a note explaining the absence (e.g. "Internal referral — no formal job description.") via stdin. The command refuses empty JD text.
    Only one of `--jd`/`--plan` may read stdin at a time: when the JD comes via `-`, pass the plan by file path (and vice versa).
 
-   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`, `evaluation` — the HackerRank hiring-agent score for the resume as sent — and `contact_verification`, recording whether the contact block was cross-checked against the database and, if not, why; folders published before that field existed simply omit it, which reads as "not recorded"), runs the ATS extraction check, inserts into `worksisyphus.db` (including `evaluation_json`), and syncs to Turso when the git gate allows it. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
+   This creates `applications/<YYYY-MM-DD>_<app-stem>/` with `jd.txt` (verbatim posting), `plan.json`, `Simon_Chen_Resume.pdf`, and `meta.json` (`company`, `role`, `date`, `source_url`, `status: "applied"`, `evaluation` — the deterministic ATS and rubric match score for the resume as sent — and `contact_verification`, recording whether the contact block was cross-checked against the database and, if not, why; folders published before that field existed simply omit it, which reads as "not recorded"), runs the ATS extraction check, inserts into `worksisyphus.db` (including `evaluation_json`), and records the audit event. The resume is compiled directly into that folder and written nowhere else — `applications/` is the only place a delivered resume exists on disk.
 
    `contact_verification` exists because a hardcoded placeholder blocklist can only catch placeholder strings someone thought to enumerate in advance. It was replaced by a rendered-output cross-check — `validate_contact` plus `cross_check_contact_against_db` plus `run_resume_gates(require_contact=True)` — that verifies the actual PDF's contact block against the authoritative database copy instead of pattern-matching for known-bad values.
 
@@ -65,25 +63,23 @@ You are operating Simon Chen's resume compiler. Given a job description, your jo
 ## Commands
 
 ```bash
-uv run worksisyphus apply --company <name> --jd <file|-> [--role <role>] [--url <url>] [--plan <plan>] [--no-sync] [--allow-branch] [--no-git-check]  # 1-step compile, validate, freeze & Turso sync
+uv run worksisyphus apply --company <name> --jd <file|-> [--role <role>] [--url <url>] [--plan <plan>]  # 1-step compile, validate, freeze & SQLite sync
 uv run worksisyphus compile                      # canonical 3-page database view (never for employers)
 uv run worksisyphus index                        # list all selectable slugs
 uv run worksisyphus validate --plan <file|->     # parse + resolve a plan, no LaTeX needed
 uv run worksisyphus tailor --plan <file|-> [--output <dir>]  # PREVIEW build into tex_files/ (never delivers; use apply)
 uv run worksisyphus status                       # list all applications and their status
-uv run worksisyphus update-status --app <name> --status <status> [--no-sync] [--allow-branch] [--no-git-check]  # update status & Turso sync
+uv run worksisyphus update-status --app <name> --status <status>  # update status & SQLite audit
 uv run worksisyphus evaluate --app <name>        # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
 uv run worksisyphus evaluate --plan <file|-> --jd <file|->  # score a plan against a JD
-uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluate the full profile.json canonical database directly
-uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
-uv run worksisyphus evaluate --check-upstream        # check sync status against upstream interviewstreet/hiring-agent
+uv run worksisyphus evaluate --profile --jd <file|->  # evaluate the full profile.json canonical database directly
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find highest-scoring plan for a JD
-uv run worksisyphus backfill-evals [--overwrite] [--no-sync] [--allow-branch] [--no-git-check]  # score applications that predate evaluation recording
+uv run worksisyphus backfill-evals [--overwrite]  # score applications that predate evaluation recording
 uv run worksisyphus db status                    # show database overview, metrics, and connection status
 uv run worksisyphus db history [--limit N]       # show append-only timestamped audit trail
-uv run worksisyphus db init [--allow-branch] [--no-git-check]   # create the schema and seed it from profile.json and applications/
-uv run worksisyphus db sync [--allow-branch] [--no-git-check]  # load profile.json into SQLite and push to Turso cloud
+uv run worksisyphus db init                      # create the schema and seed it from profile.json and applications/
+uv run worksisyphus db sync                      # load profile.json and applications into SQLite
 uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery path for a lost profile; refuses to write a placeholder contact block, --force or not)
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run ruff check .                             # linter

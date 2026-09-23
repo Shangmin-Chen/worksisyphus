@@ -22,6 +22,7 @@ from ...adapters.outbound.pdf.ats_parser import check_pdf_ats
 from ...ports.compiler import CompileResult
 from ...ports.parser import ATSCheckResult, scoring_text
 from ..domain.ats_matcher import score_ats_keywords
+from ..domain.gates import GateResult
 from ..domain.models import (
     DEFAULT_COMPILER_CONFIG,
     DEFAULT_PROFILE_PATH,
@@ -485,37 +486,41 @@ def apply(
                 evaluation_json=json.dumps(evaluation, sort_keys=True),
             )
 
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
-
     return target_folder, compile_result, ats_result
 
 
 def evaluate_application(
     resume_text: str,
     jd_text: str,
-    role: str,
+    role: str = "",
     candidate_name: str = "",
+    pdf_path: Path | None = None,
+    gate_results: tuple[GateResult, ...] | None = None,
 ) -> dict[str, Any]:
-    """Score a resume with the HackerRank hiring agent, keyed to the role it was sent for.
+    """Score a resume against the target role and JD using deterministic rubric evaluation."""
+    from .evaluator import evaluate_resume_text
 
-    The role title is free text ("Founding Product Engineer"); load_role normalizes it, uses a
-    curated rubric when one exists, and otherwise synthesizes one in memory from the JD.
-    """
-    from .hiring_agent import HackerRankHiringAgent
-
-    agent = HackerRankHiringAgent(role_name=role or "software_engineer", jd_text=jd_text)
-    result = agent.evaluate(resume_text=resume_text, candidate_name=candidate_name)
+    report = evaluate_resume_text(
+        resume_text=resume_text,
+        jd_text=jd_text,
+        candidate_name=candidate_name or "Simon Chen",
+        pdf_path=pdf_path,
+        gate_results=gate_results,
+    )
     return {
-        "role_rubric": agent.role.name,
-        "role_title": agent.role.position_title,
-        "total_score": result.get("total_score"),
-        "max_possible": result.get("max_possible"),
-        "scores": result.get("scores", {}),
-        "bonus_points": result.get("bonus_points", {}),
-        "deductions": result.get("deductions", {}),
-        "key_strengths": result.get("key_strengths", []),
-        "areas_for_improvement": result.get("areas_for_improvement", []),
+        "role_title": role or "software_engineer",
+        "total_score": report.overall_score,
+        "max_possible": 100,
+        "role_alignment_score": report.role_alignment_score,
+        "technical_depth_score": report.technical_depth_score,
+        "impact_metrics_score": report.impact_metrics_score,
+        "gate_compliance_score": report.gate_compliance_score,
+        "matched_keywords": list(report.matched_keywords),
+        "missing_keywords": list(report.missing_keywords),
+        "extracted_metrics": list(report.extracted_metrics),
+        "strengths": list(report.strengths),
+        "suggestions": list(report.suggestions),
+        "gate_diagnostics": list(report.gate_diagnostics),
         "evaluated_at": datetime.now(UTC).isoformat(),
     }
 
@@ -604,22 +609,6 @@ def backfill_evaluations(
     return scored
 
 
-def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> bool:
-    """Push local database state to Turso, reporting failure rather than swallowing it.
-
-    sync_to_turso signals failure by returning False rather than raising, so the return
-    value must be checked; the try/except only guards against unexpected import or call errors.
-    """
-    from worksisyphus.db import sync_to_turso
-
-    try:
-        synced = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
-    except Exception as exc:
-        log(f"Warning: Turso cloud sync failed: {exc}")
-        return False
-    return synced
-
-
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
     """List all applications with metadata, newest date first (retry order within a day)."""
     applications_dir = _resolve_applications_dir(applications_dir)
@@ -704,8 +693,5 @@ def update_application_status(
     if _is_default_applications_dir(applications_dir) and DEFAULT_DB_PATH.is_file():
         with _db_connection(DEFAULT_DB_PATH) as conn:
             update_application_status_in_db(conn, target_folder.name, new_status)
-
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
 
     return target_folder, old_status, new_status

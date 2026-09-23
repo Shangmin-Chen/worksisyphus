@@ -16,6 +16,7 @@ All specifications are tracked with permanent sequential identifiers (`SPEC-XXX`
 | [**SPEC-004**](SPEC-004-agent-workflows-and-cli.md) | Agent Workflows, CLI Registry & Operational Rules | `Active` | 2026-09-13 | CLI / Workflows | Operational instructions for autonomous agents, command registry (live and retired). |
 | [**SPEC-005**](SPEC-005-documentation-drift.md) | Documentation Drift, Code Disagreements & Unmerged Branches | `Active` | 2026-09-13 | Quality / Drift | Comprehensive audit of divergence between prose documentation, code reality, and unmerged PRs. |
 | [**SPEC-006**](SPEC-006-ats-keyword-adaptation-and-compiler.md) | Truth-Preserving ATS Keyword Adaptation & Configurable Compiler Architecture | `Active` | 2026-09-23 | Architecture / Compiler | Truth-preserving keyword alignment, configurable LaTeX compiler (`CompilerConfig`), density ladder, and mechanical GPA suppression. |
+| [**SPEC-007**](SPEC-007-pruning-legacy-services-and-cli-modularization.md) | Pruning Legacy Services (Turso, HackerRank) and CLI Architecture Modularization | `Active` | 2026-09-23 | Architecture / Cleanup | Pruning of Turso cloud replication, requests dependency, and HackerRank evaluator in favor of local SQLite and modular CLI router. |
 
 ---
 
@@ -32,6 +33,6 @@ All specifications are tracked with permanent sequential identifiers (`SPEC-XXX`
 
 ## Operating Guidelines
 
-1. **Sequential Incremental IDs**: Next available spec ID is **`SPEC-007`**.
+1. **Sequential Incremental IDs**: Next available spec ID is **`SPEC-008`**.
 2. **Never Rewrite Past Decisions**: Prior specs are immutable records of design rationale at their creation time. When requirements shift or architecture evolves, create a new spec and mark the predecessor as `Superseded`.
 3. **Skill Reference**: See [`.agents/skills/spec-authoring/SKILL.md`](file://../../.agents/skills/spec-authoring/SKILL.md) for templates and authoring guidelines.

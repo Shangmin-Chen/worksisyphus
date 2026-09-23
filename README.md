@@ -21,10 +21,10 @@ The intended workflow is agent-driven. `CLAUDE.md` teaches Claude Code the rules
 1. Open Claude Code in this repo: `claude`
 2. Paste the job description:
    > Tailor my resume to this JD: *(paste the whole posting, company name included)*
-3. Claude runs the unified `apply` pipeline: reads the slug index, ranks content into a plan (order = relevance), validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, and freezes the exact plan alongside it, then runs the ATS extraction check and syncs to Turso when the git gate allows it (`main`, not behind `origin/main`).
+3. Claude runs the unified `apply` pipeline: reads the slug index, ranks content into a plan (order = relevance), validates it, compiles the one-page PDF directly into `applications/<date>_<company>_<role>/`, freezes the exact plan alongside it, runs the ATS extraction check, and records the application into the local SQLite database (`worksisyphus.db`).
 4. The resume is done when `apply` succeeds (exactly one page, no horizontal overflow, ATS check passed) — no sign-off loop. Claude delivers the PDF with what it picked, why, and anything the trim loop cut.
 5. The delivered PDF lives only at `applications/<date>_<company>_<role>/Simon_Chen_Resume.pdf`. The 3-page canonical is a local build artifact and never goes out.
-6. The application is automatically tracked in SQLite and Turso cloud with full metadata, JD text, audit logs, and the HackerRank hiring-agent score for the resume as sent.
+6. The application is automatically tracked in the local SQLite database (`worksisyphus.db`) with full metadata, JD text, audit logs, and the ATS keyword and rubric score for the resume as sent.
 
 List tracked applications with `worksisyphus status` (grouped per company with `App#` for repeat
 applications; filter with `--company <name>`). Update one with
@@ -40,27 +40,24 @@ Useful follow-up prompts: "swap hermes-letters for the home server", "make it le
 ## Manual usage (no agent)
 
 ```bash
-uv run worksisyphus apply --company <company> --jd <file|-> [--role <role>] [--url <url>] [--plan <file|->] [--no-sync] [--allow-branch] [--no-git-check] # 1-step compile, validate, freeze & Turso sync
+uv run worksisyphus apply --company <company> --jd <file|-> [--role <role>] [--url <url>] [--plan <file|->] # 1-step compile, validate, freeze & SQLite sync
 #   omitting --plan runs the guardrail-aware knapsack optimizer to pick the plan for you;
-#   only one of --jd/--plan may read stdin at a time (pass the other by file path);
-#   Turso sync requires main not behind origin/main (override with --allow-branch / --no-git-check)
+#   only one of --jd/--plan may read stdin at a time (pass the other by file path)
 uv run worksisyphus index                         # list every slug a plan can reference
 uv run worksisyphus validate --plan <file|->      # check a plan and print the resolved selection
 uv run worksisyphus tailor --plan <file|-> [--output <dir>]  # preview build into tex_files/ (never delivers; use apply)
 uv run worksisyphus status                        # list applications and identifiers
-uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen [--no-sync] [--allow-branch] [--no-git-check]
+uv run worksisyphus update-status --app <folder-or-unique-plan-stem> --status phone_screen
 uv run worksisyphus evaluate --app <name>         # evaluate & score an application against its JD
 uv run worksisyphus evaluate --resume <pdf> --jd <file|->  # score any resume against a JD
 uv run worksisyphus evaluate --plan <file|-> --jd <file|->  # score a plan against a JD
-uv run worksisyphus evaluate --profile [--jd <file|->] [--hackerrank]  # evaluate canonical database directly
-uv run worksisyphus evaluate --hackerrank [--role <role>]  # 1:1 HackerRank evaluation
-uv run worksisyphus evaluate --check-upstream     # check sync status against upstream hiring-agent
+uv run worksisyphus evaluate --profile --jd <file|->  # evaluate canonical database directly
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find optimal plan
-uv run worksisyphus backfill-evals [--overwrite] [--no-sync] [--allow-branch] [--no-git-check]
+uv run worksisyphus backfill-evals [--overwrite]  # backfill scores for applications predating evaluations
 uv run worksisyphus db status                     # show database stats and metrics
 uv run worksisyphus db history [--limit N]        # show timestamped append-only audit trail
-uv run worksisyphus db init [--allow-branch] [--no-git-check]   # create the schema and seed it from profile.json and applications/
-uv run worksisyphus db sync [--allow-branch] [--no-git-check]  # load profile.json into SQLite and push to Turso cloud
+uv run worksisyphus db init                       # create schema and seed from profile.json and applications/
+uv run worksisyphus db sync                       # load profile.json and applications into SQLite
 uv run worksisyphus db export-profile [--output <file>] [--force]  # rebuild profile.json FROM the database (recovery)
 uv run worksisyphus compile                       # canonical full resume (./compile.sh is the same)
 uv run python scripts/ats_check.py applications/<app>/Simon_Chen_Resume.pdf  # ATS extraction check
@@ -81,14 +78,13 @@ Every tailored resume compiles straight into `applications/<date>_<company>_<rol
 │   │   ├── domain/         # models, trim rules, plan resolution, quality gates, scoring
 │   │   ├── use_cases/      # application lifecycle, pipeline, optimizer, evaluator, gates
 │   │   └── rendering/      # Jake's LaTeX resume renderer
-│   ├── ports/              # abstract interfaces (compiler, storage, ATS, git guard, rubrics)
+│   ├── ports/              # abstract interfaces (compiler, storage, ATS parser)
 │   ├── adapters/
-│   │   ├── inbound/cli/    # CLI entrypoints, status, argument parsing
-│   │   └── outbound/       # latex/pdflatex, sqlite/turso, pdf/ats, filesystem, git
-│   ├── roles/              # role rubrics and criteria templates
+│   │   ├── inbound/cli/    # router and dedicated subcommand handlers
+│   │   └── outbound/       # latex/pdflatex, sqlite persistence, pdf/ats, filesystem
 │   └── *.py                # backward-compatibility facades (application, cli, db, pipeline, etc.)
 ├── tex_files/              # rendered TeX (only the canonical one is tracked)
-└── applications/           # delivered resumes + JD/plan/meta (gitignored; mirrored to Turso)
+└── applications/           # delivered resumes + JD/plan/meta (gitignored)
 ```
 
 ## Plan files

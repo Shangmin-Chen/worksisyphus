@@ -1,7 +1,7 @@
-"""SQLite and Turso LibSQL database layer for worksisyphus.
+"""SQLite database layer for worksisyphus.
 
 Provides:
-- SQLite connection management with Turso sync support.
+- SQLite connection management.
 - Schema creation & initialization.
 - Append-only audit/changelog tracking with ISO timestamps.
 - Profile loading, seeding, and export.
@@ -11,10 +11,7 @@ Provides:
 from __future__ import annotations
 
 import json
-import shutil
 import sqlite3
-import subprocess
-from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -242,22 +239,27 @@ def seed_database(
     conn: sqlite3.Connection,
     profile_path: Path = Path("profile.json"),
     applications_dir: Path = Path("applications"),
+    profile: Profile | None = None,
 ) -> None:
     """Populate database from profile.json and applications/, auditing only genuine changes."""
-    profile_path = Path(profile_path)
-    try:
-        loaded = load_profile(profile_path)
-    except FileNotFoundError as exc:
-        raise FileNotFoundError(
-            f"Refusing to seed the database: {exc} Nothing has been written, so the database "
-            f"still holds the last good profile -- restore profile.json from it first, then "
-            f"seed."
-        ) from exc
+    if profile is not None:
+        loaded = profile
+        validate_contact(loaded.contact, source="the supplied profile")
+    else:
+        profile_path = Path(profile_path)
+        try:
+            loaded = load_profile(profile_path)
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Refusing to seed the database: {exc} Nothing has been written, so the database "
+                f"still holds the last good profile -- restore profile.json from it first, then "
+                f"seed."
+            ) from exc
 
-    try:
-        validate_contact(loaded.contact, source=str(profile_path))
-    except ValueError as exc:
-        raise ValueError(f"Refusing to seed the database: {exc}") from exc
+        try:
+            validate_contact(loaded.contact, source=str(profile_path))
+        except ValueError as exc:
+            raise ValueError(f"Refusing to seed the database: {exc}") from exc
 
     data = profile_to_dict(loaded)
 
@@ -735,92 +737,11 @@ def get_audit_history(
     return events
 
 
-DROP_ALL_SQL = """DROP TABLE IF EXISTS audit_events;
-DROP TABLE IF EXISTS applications;
-DROP TABLE IF EXISTS skills;
-DROP TABLE IF EXISTS project_bullets;
-DROP TABLE IF EXISTS projects;
-DROP TABLE IF EXISTS experience_bullets;
-DROP TABLE IF EXISTS experiences;
-DROP TABLE IF EXISTS education;
-DROP TABLE IF EXISTS contact;
-"""
+class SqliteStorageAdapter:
+    """StoragePort implementation using local SQLite."""
 
-_TRANSACTION_MARKER = "BEGIN TRANSACTION;"
-
-
-def build_sync_sql(dump_sql: str) -> str | None:
-    """Splice the table drops inside the dump's own transaction, or return None if unusable.
-
-    sqlite3 .dump wraps its output in BEGIN TRANSACTION/COMMIT. Prepending the drops ahead of
-    that marker would commit them independently, so a restore that fails partway would leave the
-    remote database empty. Placing them after the marker makes drop-and-restore a single unit.
-    """
-    if not dump_sql.strip() or "CREATE TABLE" not in dump_sql:
-        return None
-    if _TRANSACTION_MARKER not in dump_sql:
-        return None
-    head, _, tail = dump_sql.partition(_TRANSACTION_MARKER)
-    return head + _TRANSACTION_MARKER + "\n" + DROP_ALL_SQL + tail
-
-
-def sync_to_turso(
-    db_path: Path = DEFAULT_DB_PATH,
-    turso_db_name: str = "worksisyphus",
-    allow_branch: bool = False,
-    no_git_check: bool = False,
-    log: Callable[[str], None] = lambda _: None,
-) -> bool:
-    """Push local SQLite database state to Turso cloud via Turso CLI, protected by git freshness."""
-    if not no_git_check:
-        from ..git.subprocess_guard import check_git_freshness_for_sync
-
-        freshness = check_git_freshness_for_sync(allow_branch=allow_branch)
-        if not freshness.allowed:
-            log(f"Warning: Turso cloud sync skipped: {freshness.reason}")
-            return False
-
-    home_turso = Path.home() / ".turso" / "turso"
-    turso_bin = shutil.which("turso") or (str(home_turso) if home_turso.is_file() else None)
-    if not turso_bin:
-        log("Warning: Turso CLI not found; cloud sync skipped.")
-        return False
-    if not db_path.is_file():
-        log(f"Warning: Database file not found at {db_path}; cloud sync skipped.")
-        return False
-    try:
-        dump_proc = subprocess.run(
-            ["sqlite3", str(db_path), ".dump"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        full_sync_sql = build_sync_sql(dump_proc.stdout)
-        if full_sync_sql is None:
-            log("Warning: Failed to construct valid sync SQL payload; cloud sync skipped.")
-            return False
-        proc = subprocess.run(
-            [turso_bin, "db", "shell", turso_db_name],
-            input=full_sync_sql,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-        if proc.returncode != 0:
-            log(f"Warning: Turso command exited with code {proc.returncode}: {proc.stderr.strip()}")
-            return False
-        return True
-    except Exception as exc:
-        log(f"Warning: Turso cloud sync failed with exception: {exc}")
-        return False
-
-
-class SqliteTursoAdapter:
-    """StoragePort implementation using local SQLite and Turso cloud."""
-
-    def __init__(self, db_path: Path = DEFAULT_DB_PATH, turso_db_name: str = "worksisyphus") -> None:
+    def __init__(self, db_path: Path = DEFAULT_DB_PATH) -> None:
         self.db_path = db_path
-        self.turso_db_name = turso_db_name
 
     def save_application(
         self,
@@ -872,10 +793,20 @@ class SqliteTursoAdapter:
         finally:
             conn.close()
 
-    def sync_cloud(self, allow_branch: bool = False, no_git_check: bool = False) -> bool:
-        return sync_to_turso(
-            db_path=self.db_path,
-            turso_db_name=self.turso_db_name,
-            allow_branch=allow_branch,
-            no_git_check=no_git_check,
-        )
+    def seed_database(self, profile: Profile) -> None:
+        conn = get_connection(self.db_path)
+        try:
+            seed_database(conn, profile=profile)
+        finally:
+            conn.close()
+
+    def get_audit_history(self, limit: int = 50, entity_type: str | None = None) -> list[dict[str, Any]]:
+        conn = get_connection(self.db_path)
+        try:
+            return get_audit_history(conn, limit=limit, entity_type=entity_type)
+        finally:
+            conn.close()
+
+
+# Backward compatibility alias
+SqliteTursoAdapter = SqliteStorageAdapter

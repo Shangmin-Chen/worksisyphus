@@ -43,10 +43,6 @@ class StoragePort(Protocol):
         """Seed storage with a canonical profile."""
         ...
 
-    def sync_to_cloud(self, allow_branch: bool = False, no_git_check: bool = False) -> tuple[bool, str]:
-        """Push local changes to Turso cloud."""
-        ...
-
     def get_audit_history(self, limit: int = 50, entity_type: str | None = None) -> list[dict[str, Any]]:
         """Retrieve append-only audit trail records."""
         ...

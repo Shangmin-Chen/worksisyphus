@@ -1,4 +1,4 @@
-"""Backward-compatibility facade for SQLite and Turso persistence."""
+"""Backward-compatibility facade for SQLite persistence."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from .adapters.outbound.persistence.sqlite import (
     ACTION_STATUS_CHANGE,
     ACTION_UPDATE,
     DEFAULT_DB_PATH,
+    SqliteStorageAdapter,
     SqliteTursoAdapter,
-    build_sync_sql,
     export_profile_json,
     get_audit_history,
     get_connection,
@@ -23,7 +23,6 @@ from .adapters.outbound.persistence.sqlite import (
     log_audit_event,
     save_application_to_db,
     seed_database,
-    sync_to_turso,
     update_application_status_in_db,
 )
 
@@ -36,8 +35,8 @@ __all__ = [
     "ACTION_STATUS_CHANGE",
     "ACTION_UPDATE",
     "DEFAULT_DB_PATH",
+    "SqliteStorageAdapter",
     "SqliteTursoAdapter",
-    "build_sync_sql",
     "export_profile_json",
     "get_audit_history",
     "get_connection",
@@ -47,6 +46,5 @@ __all__ = [
     "log_audit_event",
     "save_application_to_db",
     "seed_database",
-    "sync_to_turso",
     "update_application_status_in_db",
 ]

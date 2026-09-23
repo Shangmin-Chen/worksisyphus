@@ -36,7 +36,6 @@ from .models import (
 )
 from .plan import parse_plan
 from .rules import MIN_BULLETS, full_selection, trim_step
-from .scoring import Category, CategoryScore, Deductions, Role, synthesize_role_rubric
 
 __all__ = [
     "BANNED_METRIC_PATTERNS",
@@ -48,12 +47,9 @@ __all__ = [
     "REQUIRED_CONTACT_FIELDS",
     "TAILORED_NAME",
     "ATSKeywordMatchResult",
-    "Category",
-    "CategoryScore",
     "CompilerConfig",
     "Contact",
     "CourseworkMode",
-    "Deductions",
     "Education",
     "Experience",
     "GateResult",
@@ -61,7 +57,6 @@ __all__ = [
     "PlanError",
     "Profile",
     "Project",
-    "Role",
     "Selection",
     "check_banned_content_gate",
     "check_density_gate",
@@ -73,7 +68,6 @@ __all__ = [
     "profile_index",
     "profile_to_dict",
     "score_ats_keywords",
-    "synthesize_role_rubric",
     "trim_step",
     "validate_contact",
 ]

@@ -291,32 +291,6 @@ def test_real_profile_json_roundtrip_through_db(tmp_path: Path) -> None:
     assert exported_data["skills"] == real_data["skills"]
 
 
-def test_build_sync_sql_places_drops_inside_the_transaction() -> None:
-    """A failed restore must roll the drops back, so they cannot precede BEGIN TRANSACTION."""
-    from worksisyphus.db import build_sync_sql
-
-    dump = "PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\nCREATE TABLE contact (id INTEGER);\nCOMMIT;\n"
-    sql = build_sync_sql(dump)
-    assert sql is not None
-
-    begin_at = sql.index("BEGIN TRANSACTION;")
-    first_drop_at = sql.index("DROP TABLE IF EXISTS")
-    commit_at = sql.index("COMMIT;")
-    assert begin_at < first_drop_at < commit_at
-    assert sql.index("CREATE TABLE") > first_drop_at
-
-
-def test_build_sync_sql_rejects_unusable_dumps() -> None:
-    from worksisyphus.db import build_sync_sql
-
-    assert build_sync_sql("") is None
-    assert build_sync_sql("   \n  ") is None
-    # A dump with no schema means sqlite3 produced nothing worth pushing.
-    assert build_sync_sql("BEGIN TRANSACTION;\nCOMMIT;\n") is None
-    # A dump with no transaction wrapper cannot be spliced safely.
-    assert build_sync_sql("CREATE TABLE contact (id INTEGER);\n") is None
-
-
 def _seed_fixture(tmp_path: Path) -> tuple[Any, Path]:
     """Return an in-memory connection plus a writable profile file seeded from the test fixture."""
     from worksisyphus.db import get_connection
