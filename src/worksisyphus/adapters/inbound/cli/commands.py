@@ -27,9 +27,6 @@ from .handlers import (
     compile_cmd as compile_handler,
 )
 from .handlers import (
-    db as db_handler,
-)
-from .handlers import (
     evaluate as evaluate_handler,
 )
 from .handlers import (
@@ -100,7 +97,6 @@ def build_parser() -> argparse.ArgumentParser:
     index_handler.register(sub)
     status_handler.register(sub)
     backfill_handler.register(sub)
-    db_handler.register(sub)
     evaluate_handler.register(sub)
     optimize_handler.register(sub)
 

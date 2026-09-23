@@ -2,7 +2,6 @@
 
 from .compiler import CompileError, CompileResult, CompilerPort
 from .parser import ATSCheckResult, AtsExtractorPort
-from .storage import StoragePort
 
 __all__ = [
     "ATSCheckResult",
@@ -10,5 +9,4 @@ __all__ = [
     "CompileError",
     "CompileResult",
     "CompilerPort",
-    "StoragePort",
 ]

@@ -146,91 +146,6 @@ def test_cli_index(capsys) -> None:
     assert "org-a: Engineer at OrgA" in out
 
 
-def test_cli_db_commands(monkeypatch, tmp_path, capsys) -> None:
-    from worksisyphus import db
-
-    test_db = tmp_path / "test.db"
-    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
-
-    # `db init` and `db sync` read profile.json from the working directory. Run them against
-    # a profile this test owns: they used to silently seed from tests/fixtures/profile.json
-    # whenever profile.json was absent, so a test that depends on the ambient repository
-    # state is a test that passes for the wrong reason on CI.
-    monkeypatch.chdir(tmp_path)
-    Path("profile.json").write_text(
-        json.dumps(
-            {
-                "contact": {
-                    "name": "Real Person",
-                    "email": "real.person@fastmail.dev",
-                    "phone": "617-266-1810",
-                    "website": "",
-                    "github": "",
-                    "linkedin": "",
-                },
-                "education": [],
-                "experiences": {},
-                "projects": {},
-                "skills": {},
-            }
-        ),
-        encoding="utf-8",
-    )
-
-    # 1. Status before init
-    assert cli.main(["db", "status"]) == 0
-    assert "Database not initialized" in capsys.readouterr().out
-
-    # 2. History before init
-    assert cli.main(["db", "history"]) == 0
-    assert "Database not initialized" in capsys.readouterr().out
-
-    # 3. Init
-    assert cli.main(["db", "init"]) == 0
-    init_out = capsys.readouterr().out
-    assert "Initialized and seeded" in init_out
-
-    # 4. Status after init
-    assert cli.main(["db", "status"]) == 0
-    status_out = capsys.readouterr().out
-    assert "Database:" in status_out
-    assert "Contact:" in status_out
-
-    # 5. History after init
-    assert cli.main(["db", "history"]) == 0
-    hist_out = capsys.readouterr().out
-    assert "Timestamp" in hist_out
-    assert "Action" in hist_out
-
-    # 6. Sync
-    assert cli.main(["db", "sync"]) == 0
-    sync_out = capsys.readouterr().out
-    assert "Synced profile.json to SQLite" in sync_out
-
-
-def test_cli_db_sync_refuses_an_invalid_profile(monkeypatch, tmp_path, capsys) -> None:
-    from worksisyphus import db
-
-    test_db = tmp_path / "test.db"
-    monkeypatch.setattr(db, "DEFAULT_DB_PATH", test_db)
-
-    monkeypatch.chdir(tmp_path)
-    fixture = Path(__file__).resolve().parent / "fixtures" / "profile.json"
-    data = json.loads(fixture.read_text(encoding="utf-8"))
-    data["contact"]["email"] = ""
-    Path("profile.json").write_text(json.dumps(data), encoding="utf-8")
-
-    assert cli.main(["db", "sync"]) == 1
-    err = capsys.readouterr().err
-    assert err.startswith("error: ")
-    assert "Refusing to seed the database" in err
-
-    conn = db.get_connection(test_db)
-    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    conn.close()
-    assert "contact" not in tables, "a refused seed must not leave a half-built database behind"
-
-
 def test_cli_evaluate_with_stdin_and_resume(capsys, monkeypatch, delivered_pdf) -> None:
     jd_content = "Looking for a C++ software engineer with Python and low-latency systems experience."
     monkeypatch.setattr("sys.stdin", io.StringIO(jd_content))
@@ -505,7 +420,6 @@ def test_cli_subparsers_documented() -> None:
         "apply",
         "backfill-evals",
         "compile",
-        "db",
         "evaluate",
         "index",
         "optimize",
