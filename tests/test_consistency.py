@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 
 from worksisyphus.application import STATUSES
-from worksisyphus.db import DEFAULT_DB_PATH, get_connection, list_applications_from_db, seed_database
 
 ROOT = Path(__file__).resolve().parents[1]
 APPLICATIONS_DIR = ROOT / "applications"
@@ -60,62 +59,6 @@ def test_every_application_meta_json_is_valid() -> None:
         except json.JSONDecodeError as exc:
             invalid.append(f"{d.name}/meta.json JSON error: {exc}")
     assert invalid == [], f"Invalid meta.json files: {invalid}"
-
-
-def test_applications_db_and_filesystem_consistency() -> None:
-    # Always test against committed fixture set (works in CI without live applications/ or DB)
-    assert FIXTURES_APPLICATIONS_DIR.is_dir() and any(FIXTURES_APPLICATIONS_DIR.iterdir()), (
-        f"Fixture applications directory {FIXTURES_APPLICATIONS_DIR} missing or empty"
-    )
-    conn = get_connection(":memory:")
-    try:
-        seed_database(
-            conn,
-            profile_path=FIXTURES_PROFILE_PATH,
-            applications_dir=FIXTURES_APPLICATIONS_DIR,
-        )
-        db_apps = {app["folder"] for app in list_applications_from_db(conn)}
-        fs_apps = {d.name for d in FIXTURES_APPLICATIONS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")}
-        diff = fs_apps.symmetric_difference(db_apps)
-        assert diff == set(), f"Inconsistency between fixture applications/ and seeded DB: {diff}"
-    finally:
-        conn.close()
-
-    # When live DB and applications/ exist (developer checkout), verify live consistency as well
-    if DEFAULT_DB_PATH.is_file() and APPLICATIONS_DIR.is_dir() and any(APPLICATIONS_DIR.iterdir()):
-        live_conn = get_connection(DEFAULT_DB_PATH)
-        try:
-            live_db_apps = {app["folder"] for app in list_applications_from_db(live_conn)}
-        finally:
-            live_conn.close()
-        live_fs_apps = {d.name for d in APPLICATIONS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")}
-        live_diff = live_fs_apps.symmetric_difference(live_db_apps)
-        assert live_diff == set(), f"Inconsistency between applications/ and DB: {live_diff}"
-
-
-def test_applications_db_and_filesystem_divergence_detected() -> None:
-    """Verify that folder/DB divergence is detected when DB or filesystem has extra/missing entries."""
-    assert FIXTURES_APPLICATIONS_DIR.is_dir() and any(FIXTURES_APPLICATIONS_DIR.iterdir()), (
-        f"Fixture applications directory {FIXTURES_APPLICATIONS_DIR} missing or empty"
-    )
-    conn = get_connection(":memory:")
-    try:
-        seed_database(
-            conn,
-            profile_path=FIXTURES_PROFILE_PATH,
-            applications_dir=FIXTURES_APPLICATIONS_DIR,
-        )
-        # DB has an extra ghost row not on the filesystem:
-        conn.execute(
-            "INSERT INTO applications (id, company, role, date, status) VALUES (?, ?, ?, ?, ?)",
-            ("2026-09-99_ghost-company_swe", "Ghost Co", "SWE", "2026-09-99", "applied"),
-        )
-        db_apps = {app["folder"] for app in list_applications_from_db(conn)}
-        fs_apps = {d.name for d in FIXTURES_APPLICATIONS_DIR.iterdir() if d.is_dir() and not d.name.startswith(".")}
-        diff = fs_apps.symmetric_difference(db_apps)
-        assert diff == {"2026-09-99_ghost-company_swe"}
-    finally:
-        conn.close()
 
 
 def test_contact_verification_blocks_are_well_formed() -> None:

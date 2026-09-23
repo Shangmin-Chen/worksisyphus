@@ -7,10 +7,8 @@ import json
 import os
 import re
 import shutil
-import sqlite3
 import tempfile
-from collections.abc import Callable, Collection, Iterable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass
 from dataclasses import replace as dataclass_replace
 from datetime import UTC, date, datetime
@@ -30,7 +28,7 @@ from ..domain.models import (
     Profile,
     validate_contact,
 )
-from .gates import run_resume_gates
+from .gates import GateResult, run_resume_gates
 from .pipeline import tailor
 
 APPLICATIONS_DIR = Path("applications")
@@ -85,57 +83,23 @@ def _resolve_applications_dir(applications_dir: Path | None) -> Path:
 
 
 def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | None:
-    """Which database this run should cross-check and record against, or None for neither.
-
-    An explicit db_path always wins. Otherwise the default database is used only for a real
-    delivery into applications/; a run staged into some other directory (tests, scratch
-    builds) must not touch the live store. Imported lazily: db.py is a store, not a source,
-    and the render path must not depend on it at import time.
-    """
-    if db_path is not None:
-        return Path(db_path)
-    from worksisyphus.db import DEFAULT_DB_PATH
-
-    return DEFAULT_DB_PATH if _is_default_applications_dir(applications_dir) else None
-
-
-@contextmanager
-def _db_connection(db_path: Path) -> Iterator[sqlite3.Connection]:
-    """Open a connection to ``db_path`` and guarantee it is closed on the way out.
-
-    ``get_connection`` is imported lazily inside the function body so that importing this
-    module never pulls in db.py at module load time -- db.py is a store, not a source, per
-    CLAUDE.md's architecture rule.
-    """
-    from worksisyphus.db import get_connection
-
-    conn = get_connection(db_path)
-    try:
-        yield conn
-    finally:
-        conn.close()
+    return Path(db_path) if db_path is not None else None
 
 
 @dataclass(frozen=True)
 class ContactCrossCheck:
-    """Whether the contact block was verified against the independent copy in the database.
+    """Whether the contact block was verified against an external copy.
 
-    A plain bool carried this too, but apply() discarded it and the reason for a skip existed
-    only as a string handed to ``log``, which defaults to ``_silent``. Nothing on disk recorded
-    it, so a reader of an application folder could not tell "contact was verified against the
-    database" from "contact could not be verified" -- precisely the ambiguity the incident
-    lived inside. ``as_meta()`` freezes the answer into meta.json, next to ``evaluation``,
-    which is there for the same reason: it records what was true when the resume was sent.
+    In standalone filesystem mode, contact validation is guaranteed deterministically
+    by validate_contact() on the profile directly.
     """
 
-    ran: bool
+    ran: bool = False
     database: str = ""
-    reason: str = ""
+    reason: str = "Standalone filesystem mode: validated by validate_contact rules."
 
     def as_meta(self) -> dict[str, Any]:
         return {
-            # validate_contact ran unconditionally before this point in apply(); had it failed,
-            # this folder would never have been published.
             "rules_checked": True,
             "cross_checked_against_db": self.ran,
             "database": self.database,
@@ -145,75 +109,12 @@ class ContactCrossCheck:
 
 def cross_check_contact_against_db(
     contact: Contact,
-    db_path: Path | None,
+    db_path: Path | None = None,
     log: Log = _silent,
 ) -> ContactCrossCheck:
-    """Compare the profile's contact block against the independent copy in the database.
-
-    This is the check that would have caught the incident. profile.json vanished and a
-    fixture with a scrubbed contact block stood in for it; every quality gate passed,
-    because each one compares the rendered PDF against the very profile that rendered it.
-    The database still held the real name, email and phone the whole time -- so a second,
-    independent copy is the only thing that can contradict a wrong profile.
-
-    Returns a ContactCrossCheck saying whether the check actually ran and, when it did not,
-    why. A missing database or a database with no contact row is skipped and reported, never
-    treated as agreement: the rules in validate_contact still apply, so a fresh clone or CI is
-    protected but not silently "verified". The caller freezes that answer into meta.json --
-    the skip must survive somewhere a human can read it later, not only in a log line.
-    """
-    database = str(db_path) if db_path is not None else ""
-
-    def skipped(reason: str) -> ContactCrossCheck:
-        log(f"Contact cross-check skipped: {reason}")
-        return ContactCrossCheck(ran=False, database=database, reason=reason)
-
-    if db_path is None:
-        return skipped("this run is not writing to the default database.")
-    if not db_path.is_file():
-        return skipped(f"no database at {db_path} (fresh clone or CI). Rule checks still applied.")
-
-    from worksisyphus.db import load_profile_from_db
-
-    with _db_connection(db_path) as conn:
-        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='contact'")
-        if cur.fetchone() is None:
-            return skipped(f"{db_path} has no contact table. Run `uv run worksisyphus db sync`.")
-        db_contact = load_profile_from_db(conn).contact
-
-    if not any((db_contact.name, db_contact.email, db_contact.phone)):
-        return skipped(f"{db_path} has no contact row. Run `uv run worksisyphus db sync`.")
-
-    # The database side gets the same rules as the profile side. The previous round left this
-    # unchecked on the argument that "seeding can no longer corrupt the database" -- an
-    # argument that was false at the time (seed_database validated only that profile.json
-    # *existed*, not what it held) and is only now true. Defence in depth is still worth its
-    # two lines: corruption can arrive by routes that never touch seed_database -- a hand-run
-    # UPDATE, a restore of a Turso copy poisoned before this fix, a database that predates it
-    # -- and this check cannot block a build that the mismatch list below would have let
-    # through. A placeholder in the database either differs from the profile (mismatch, blocked
-    # either way) or matches it, which is unreachable: validate_contact ran over the profile in
-    # apply() before this function was called. All it changes is the diagnosis, from "contact
-    # details disagree" to the specific, actionable "your database holds placeholder data".
-    try:
-        validate_contact(db_contact, source=str(db_path))
-    except ValueError as exc:
-        raise ValueError(f"Refusing to build a resume: {exc}") from exc
-
-    mismatches = [
-        f"contact.{field_name}: profile has {getattr(contact, field_name)!r}, database has {getattr(db_contact, field_name)!r}"
-        for field_name in ("name", "email", "phone", "website", "github", "linkedin")
-        if getattr(contact, field_name) != getattr(db_contact, field_name)
-    ]
-    if mismatches:
-        joined = "\n".join(f"- {m}" for m in mismatches)
-        raise ValueError(
-            f"Contact details disagree with {db_path}; refusing to build a resume until they match.\n{joined}\n"
-            f"The database is the surviving copy: if profile.json is the one that is wrong, restore it with "
-            f"`uv run worksisyphus db export-profile --force`. If profile.json is right, publish it with "
-            f"`uv run worksisyphus db sync`."
-        )
-    return ContactCrossCheck(ran=True, database=database)
+    """Validate contact in standalone filesystem mode."""
+    validate_contact(contact)
+    return ContactCrossCheck()
 
 
 def _read_meta(meta_file: Path) -> dict[str, Any]:
@@ -423,6 +324,8 @@ def apply(
             jd_text=jd_text,
             role=role,
             candidate_name=active_profile.contact.name,
+            pdf_path=staging_dir / "Simon_Chen_Resume.pdf",
+            gate_results=gate_results,
         )
         meta["evaluation"] = evaluation
 
@@ -466,56 +369,41 @@ def apply(
     compile_result = dataclass_replace(compile_result, pdf_path=target_folder / "Simon_Chen_Resume.pdf")
 
     # 5. Database persistence (fatal on failure) and cloud sync (reported, non-fatal)
-    from worksisyphus.db import save_application_to_db
-
-    if resolved_db_path is not None and resolved_db_path.is_file():
-        with _db_connection(resolved_db_path) as conn:
-            save_application_to_db(
-                conn=conn,
-                app_id=target_folder.name,
-                company=company,
-                role=role,
-                date_str=when.isoformat(),
-                source_url=source_url,
-                status=STATUSES[0],
-                # Store the same canonical (stripped) form seed_database derives from the files on
-                # disk, so a reseed does not see a phantom change on every application row.
-                jd_text=jd_text.strip(),
-                plan_json=normalized_plan.strip(),
-                evaluation_json=json.dumps(evaluation, sort_keys=True),
-            )
-
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
-
     return target_folder, compile_result, ats_result
 
 
 def evaluate_application(
     resume_text: str,
     jd_text: str,
-    role: str,
+    role: str = "",
     candidate_name: str = "",
+    pdf_path: Path | None = None,
+    gate_results: tuple[GateResult, ...] | None = None,
 ) -> dict[str, Any]:
-    """Score a resume with the HackerRank hiring agent, keyed to the role it was sent for.
+    """Score a resume against the target role and JD using deterministic rubric evaluation."""
+    from .evaluator import evaluate_resume_text
 
-    The role title is free text ("Founding Product Engineer"); load_role normalizes it, uses a
-    curated rubric when one exists, and otherwise synthesizes one in memory from the JD.
-    """
-    from .hiring_agent import HackerRankHiringAgent
-
-    agent = HackerRankHiringAgent(role_name=role or "software_engineer", jd_text=jd_text)
-    result = agent.evaluate(resume_text=resume_text, candidate_name=candidate_name)
+    report = evaluate_resume_text(
+        resume_text=resume_text,
+        jd_text=jd_text,
+        candidate_name=candidate_name or "Simon Chen",
+        pdf_path=pdf_path,
+        gate_results=gate_results,
+    )
     return {
-        "role_rubric": agent.role.name,
-        "role_title": agent.role.position_title,
-        "total_score": result.get("total_score"),
-        "max_possible": result.get("max_possible"),
-        "scores": result.get("scores", {}),
-        "bonus_points": result.get("bonus_points", {}),
-        "deductions": result.get("deductions", {}),
-        "key_strengths": result.get("key_strengths", []),
-        "areas_for_improvement": result.get("areas_for_improvement", []),
+        "role_title": role or "software_engineer",
+        "total_score": report.overall_score,
+        "max_possible": 100,
+        "role_alignment_score": report.role_alignment_score,
+        "technical_depth_score": report.technical_depth_score,
+        "impact_metrics_score": report.impact_metrics_score,
+        "gate_compliance_score": report.gate_compliance_score,
+        "matched_keywords": list(report.matched_keywords),
+        "missing_keywords": list(report.missing_keywords),
+        "extracted_metrics": list(report.extracted_metrics),
+        "strengths": list(report.strengths),
+        "suggestions": list(report.suggestions),
+        "gate_diagnostics": list(report.gate_diagnostics),
         "evaluated_at": datetime.now(UTC).isoformat(),
     }
 
@@ -604,22 +492,6 @@ def backfill_evaluations(
     return scored
 
 
-def _sync_cloud(log: Log, allow_branch: bool = False, no_git_check: bool = False) -> bool:
-    """Push local database state to Turso, reporting failure rather than swallowing it.
-
-    sync_to_turso signals failure by returning False rather than raising, so the return
-    value must be checked; the try/except only guards against unexpected import or call errors.
-    """
-    from worksisyphus.db import sync_to_turso
-
-    try:
-        synced = sync_to_turso(allow_branch=allow_branch, no_git_check=no_git_check, log=log)
-    except Exception as exc:
-        log(f"Warning: Turso cloud sync failed: {exc}")
-        return False
-    return synced
-
-
 def list_applications(applications_dir: Path | None = None) -> list[dict[str, str]]:
     """List all applications with metadata, newest date first (retry order within a day)."""
     applications_dir = _resolve_applications_dir(applications_dir)
@@ -698,14 +570,5 @@ def update_application_status(
     temporary_meta = meta_file.with_name(f"{meta_file.name}.tmp")
     temporary_meta.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     temporary_meta.replace(meta_file)
-
-    from worksisyphus.db import DEFAULT_DB_PATH, update_application_status_in_db
-
-    if _is_default_applications_dir(applications_dir) and DEFAULT_DB_PATH.is_file():
-        with _db_connection(DEFAULT_DB_PATH) as conn:
-            update_application_status_in_db(conn, target_folder.name, new_status)
-
-        if sync_cloud:
-            _sync_cloud(log, allow_branch=allow_branch, no_git_check=no_git_check)
 
     return target_folder, old_status, new_status

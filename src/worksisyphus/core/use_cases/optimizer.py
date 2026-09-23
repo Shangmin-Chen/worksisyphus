@@ -1,4 +1,4 @@
-"""Marginal Knapsack & Line-Budgeted Plan Optimizer powered by HackerRank role rubrics."""
+"""Marginal Knapsack & Line-Budgeted Plan Optimizer powered by deterministic scoring."""
 
 from __future__ import annotations
 
@@ -11,8 +11,13 @@ from typing import Any
 
 from ..domain.models import Profile
 from ..domain.plan import parse_plan
-from .evaluator import selection_to_plain_text
-from .hiring_agent import HackerRankHiringAgent
+from .evaluator import (
+    DEPTH_TERMS,
+    _extract_metrics,
+    _extract_technical_keywords,
+    evaluate_resume_text,
+    selection_to_plain_text,
+)
 
 # Physical vertical line budgeting for Jake's 1-page LaTeX template:
 # Total Page Budget ≈ 46 lines.
@@ -61,15 +66,39 @@ def estimate_bullet_lines(text: str) -> float:
         return 3.0
 
 
+def score_bullet_text(text: str, jd_text: str = "") -> float:
+    """Compute deterministic relevance score for a bullet or entry text.
+
+    Scoring components:
+    - Base credit: 5.0 (every verifiable bullet starts with a positive baseline)
+    - JD keyword overlap: 10.0 points per matched keyword from the job description
+    - Technical keywords: 2.0 points per recognized tool/language
+    - High-signal systems depth terms: 5.0 points per depth term (concurrency, lock-free, etc.)
+    - Quantified impact metrics: 3.0 points per verified metric ($8K, 584ns, 75%, etc.)
+    """
+    score = 5.0
+    bullet_keywords = _extract_technical_keywords(text)
+    if jd_text:
+        jd_keywords = _extract_technical_keywords(jd_text)
+        matched_jd = bullet_keywords & jd_keywords
+        score += len(matched_jd) * 10.0
+
+    score += len(bullet_keywords) * 2.0
+    depth_terms = bullet_keywords & DEPTH_TERMS
+    score += len(depth_terms) * 5.0
+
+    metrics = _extract_metrics(text)
+    score += len(metrics) * 3.0
+    return round(score, 1)
+
+
 def score_bullet(
     slug: str,
     text: str,
-    profile: Profile,
-    agent: HackerRankHiringAgent,
+    jd_text: str = "",
 ) -> ScoredBullet:
-    """Compute HackerRank rubric value and line-density for an individual bullet."""
-    eval_result = agent.evaluate(text, candidate_name=profile.contact.name)
-    score = float(eval_result.get("total_score", 0.0))
+    """Compute rubric value and line-density for an individual bullet."""
+    score = score_bullet_text(text, jd_text=jd_text)
     lines = estimate_bullet_lines(text)
     density = score / lines if lines > 0 else 0.0
     return ScoredBullet(slug=slug, text=text, score=score, lines=lines, density=density)
@@ -77,16 +106,15 @@ def score_bullet(
 
 def score_and_rank_entries(
     profile: Profile,
-    agent: HackerRankHiringAgent,
+    jd_text: str = "",
 ) -> tuple[list[ScoredEntry], list[ScoredEntry]]:
-    """Score all experiences and projects, sorting bullets internally by descending HackerRank score."""
+    """Score all experiences and projects, sorting bullets internally by descending relevance score."""
     scored_experiences: list[ScoredEntry] = []
     for exp_slug, exp in profile.experiences.items():
-        bullets = [score_bullet(b_slug, b_text, profile, agent) for b_slug, b_text in exp.bullets.items()]
+        bullets = [score_bullet(b_slug, b_text, jd_text=jd_text) for b_slug, b_text in exp.bullets.items()]
         bullets.sort(key=lambda b: b.score, reverse=True)
         exp_text = f"{exp.role} {exp.org}"
-        header_eval = agent.evaluate(exp_text, candidate_name=profile.contact.name)
-        header_score = float(header_eval.get("total_score", 0.0))
+        header_score = score_bullet_text(exp_text, jd_text=jd_text)
         total_score = header_score + sum(b.score for b in bullets)
         scored_experiences.append(
             ScoredEntry(
@@ -101,11 +129,10 @@ def score_and_rank_entries(
 
     scored_projects: list[ScoredEntry] = []
     for proj_slug, proj in profile.projects.items():
-        bullets = [score_bullet(b_slug, b_text, profile, agent) for b_slug, b_text in proj.bullets.items()]
+        bullets = [score_bullet(b_slug, b_text, jd_text=jd_text) for b_slug, b_text in proj.bullets.items()]
         bullets.sort(key=lambda b: b.score, reverse=True)
         proj_text = f"{proj.name} {proj.tech}"
-        header_eval = agent.evaluate(proj_text, candidate_name=profile.contact.name)
-        header_score = float(header_eval.get("total_score", 0.0))
+        header_score = score_bullet_text(proj_text, jd_text=jd_text)
         total_score = header_score + sum(b.score for b in bullets)
         scored_projects.append(
             ScoredEntry(
@@ -118,7 +145,6 @@ def score_and_rank_entries(
             )
         )
 
-    # Sort projects descending by aggregate HackerRank value
     scored_projects.sort(key=lambda p: p.total_score, reverse=True)
     return scored_experiences, scored_projects
 
@@ -293,8 +319,7 @@ def generate_candidate_plans(
     role_name: str = "software_engineer",
 ) -> list[dict[str, Any]]:
     """Generate line-budgeted candidate plans using the knapsack solver."""
-    agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
-    experiences, projects = score_and_rank_entries(profile, agent)
+    experiences, projects = score_and_rank_entries(profile, jd_text=jd_text)
     experiences, projects = apply_selection_guardrails(experiences, projects, jd_text, role_name)
 
     candidates: list[dict[str, Any]] = []
@@ -345,7 +370,6 @@ def optimize_plan(
     arbitrary unranked candidate -- `apply` without --plan turns this return value directly
     into a delivered resume.
     """
-    agent = HackerRankHiringAgent(role_name=role_name, jd_text=jd_text)
     candidates = generate_candidate_plans(profile, jd_text, role_name=role_name)
     results: list[dict[str, Any]] = []
     failures: list[tuple[str, str]] = []
@@ -360,10 +384,13 @@ def optimize_plan(
             selection = parse_plan(json.dumps(cand_clean), profile)
             plain_text = selection_to_plain_text(selection, profile)
 
-            hr_eval = agent.evaluate(plain_text, candidate_name=profile.contact.name)
-            total_score = float(hr_eval.get("total_score", 0.0))
-            max_possible = int(hr_eval.get("max_possible", 100))
-            bonus = float(hr_eval.get("bonus_points", {}).get("total", 0.0))
+            eval_report = evaluate_resume_text(
+                resume_text=plain_text,
+                jd_text=jd_text,
+                candidate_name=profile.contact.name,
+            )
+            total_score = float(eval_report.overall_score)
+            max_possible = 100
 
             projs = list(cand_clean.get("projects", {}).keys())
             lines_used = cand.get("_lines", 35.0)
@@ -373,8 +400,10 @@ def optimize_plan(
                 "plan_dict": cand_clean,
                 "total_score": total_score,
                 "max_possible": max_possible,
-                "scores": hr_eval.get("scores", {}),
-                "bonus_points": bonus,
+                "role_alignment_score": eval_report.role_alignment_score,
+                "technical_depth_score": eval_report.technical_depth_score,
+                "impact_metrics_score": eval_report.impact_metrics_score,
+                "gate_compliance_score": eval_report.gate_compliance_score,
                 "lines_used": lines_used,
                 "summary": summary,
             }
@@ -383,8 +412,18 @@ def optimize_plan(
             if total_score > best_score:
                 best_score = total_score
                 best_plan = cand_clean
-                best_eval = hr_eval
-                best_eval["lines_used"] = lines_used
+                best_eval = {
+                    "role_title": role_name.replace("_", " ").title(),
+                    "total_score": total_score,
+                    "max_possible": max_possible,
+                    "role_alignment_score": eval_report.role_alignment_score,
+                    "technical_depth_score": eval_report.technical_depth_score,
+                    "impact_metrics_score": eval_report.impact_metrics_score,
+                    "gate_compliance_score": eval_report.gate_compliance_score,
+                    "matched_keywords": list(eval_report.matched_keywords),
+                    "missing_keywords": list(eval_report.missing_keywords),
+                    "lines_used": lines_used,
+                }
         except Exception as exc:
             # Recorded, then re-surfaced below (raise if total, warn if partial) -- never swallowed.
             failures.append((type(exc).__name__, str(exc)))
@@ -432,15 +471,15 @@ def format_optimization_report(
     best_eval: dict[str, Any],
     results: list[dict[str, Any]],
 ) -> str:
-    """Format the line-budgeted HackerRank optimization report and optimal plan."""
+    """Format the line-budgeted optimization report and optimal plan."""
     role_title = best_eval.get("role_title", "Software Engineer")
     total_score = best_eval.get("total_score", 0.0)
-    max_possible = best_eval.get("max_possible", 110)
+    max_possible = best_eval.get("max_possible", 100)
     lines_used = best_eval.get("lines_used", 35.0)
 
     lines = [
         "=" * 68,
-        f"HACKERRANK KNAPSACK OPTIMIZER REPORT: {role_title.upper()}",
+        f"KNAPSACK OPTIMIZER REPORT: {role_title.upper()}",
         "=" * 68,
         "Solved 1-page line knapsack across candidate configurations",
         f"Winning Plan Score: {total_score:.1f} / {max_possible} points",
@@ -470,13 +509,13 @@ def format_optimization_report(
 
     lines.append("-" * 68)
     lines.append("WINNING PLAN CATEGORY BREAKDOWN:")
-    for key, cat_data in best_eval.get("scores", {}).items():
-        score = cat_data.get("score", 0)
-        max_score = cat_data.get("max", 0)
-        evidence = cat_data.get("evidence", "")
-        lines.append(f"  • {key.replace('_', ' ').title():<30} {score:>4.1f} / {max_score} pts")
-        if evidence:
-            lines.append(f"    Evidence: {evidence}")
+    lines.append(f"  • Role Alignment:          {best_eval.get('role_alignment_score', 0):>2} / 40 pts")
+    lines.append(f"  • Technical Depth:         {best_eval.get('technical_depth_score', 0):>2} / 30 pts")
+    lines.append(f"  • Impact & Evidence:       {best_eval.get('impact_metrics_score', 0):>2} / 20 pts")
+    lines.append(f"  • Gate Compliance:         {best_eval.get('gate_compliance_score', 0):>2} / 10 pts")
+    matched = best_eval.get("matched_keywords", [])
+    if matched:
+        lines.append(f"  • Matched Competencies:    {', '.join(matched[:6])}")
 
     lines.append("-" * 68)
     lines.append("OPTIMAL PLAN JSON SELECTION (SORTED RELEVANCE ORDER):")
