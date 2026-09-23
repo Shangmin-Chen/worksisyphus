@@ -46,8 +46,7 @@ def load_profile(source: Path | str = DEFAULT_PROFILE_PATH) -> Profile:
     path = Path(source)
     if not path.is_file():
         raise FileNotFoundError(
-            f"Profile not found: {path}. If missing, recover from database with "
-            f"`uv run worksisyphus db export-profile`."
+            f"Profile not found: {path}. Ensure profile.json exists in the repository root or provide a valid path."
         )
 
     text = path.read_text(encoding="utf-8")

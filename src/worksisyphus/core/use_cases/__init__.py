@@ -14,6 +14,7 @@ from .application import (
     slugify,
     sorted_application_names,
     update_application_status,
+    verify_contact_block,
 )
 from .evaluator import (
     COMMON_TECH_TERMS,
@@ -57,4 +58,5 @@ __all__ = [
     "sorted_application_names",
     "tailor",
     "update_application_status",
+    "verify_contact_block",
 ]

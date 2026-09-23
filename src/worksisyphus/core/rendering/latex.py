@@ -68,9 +68,8 @@ def _heading(contact: Contact, config: CompilerConfig = DEFAULT_COMPILER_CONFIG)
         if not getattr(contact, field_name, "").strip():
             raise ValueError(
                 f"Cannot render a resume header: contact.{field_name} is empty. A resume "
-                f"missing it cannot be answered; fix profile.json (recover it with "
-                f"`uv run worksisyphus db export-profile --force`) rather than shipping "
-                f"a header without it."
+                f"missing it cannot be answered; fix profile.json by providing a valid contact.{field_name} "
+                f"rather than shipping a header without it."
             )
 
     if config.clickable_links:
