@@ -137,7 +137,7 @@
       }
     },
     "crime-mapper": {
-      "name": "Crime Analytics \\& Forecasting Platform / Crime-Mapper Boston",
+      "name": "Crime Analytics \\& Forecasting Platform",
       "tech": "Python, Streamlit, Prophet, Scikit-learn, GeoPandas",
       "date": "December 2024",
       "bullets": {
