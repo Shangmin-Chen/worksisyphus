@@ -15,7 +15,7 @@ All specifications are tracked with permanent sequential identifiers (`SPEC-XXX`
 | [**SPEC-003**](SPEC-003-hexagonal-architecture.md) | Hexagonal Architecture, Ports/Adapters & Legacy Topology | `Active` | 2026-09-21 | Architecture | Hexagonal Ports/Adapters/Core modularization, data flow, and dead layout tombstones. |
 | [**SPEC-004**](SPEC-004-agent-workflows-and-cli.md) | Agent Workflows, CLI Registry & Operational Rules | `Active` | 2026-09-13 | CLI / Workflows | Operational instructions for autonomous agents, command registry (live and retired). |
 | [**SPEC-005**](SPEC-005-documentation-drift.md) | Documentation Drift, Code Disagreements & Unmerged Branches | `Active` | 2026-09-13 | Quality / Drift | Comprehensive audit of divergence between prose documentation, code reality, and unmerged PRs. |
-| [**SPEC-006**](SPEC-006-ats-keyword-adaptation-and-compiler.md) | Truth-Preserving ATS Keyword Adaptation & Parameterized Compiler Architecture | `Accepted` | 2026-09-21 | Architecture / Compiler | Dynamic keyword alignment preserving ground truth facts, parameter-driven LaTeX compiler with mechanical no-GPA. |
+| [**SPEC-006**](SPEC-006-ats-keyword-adaptation-and-compiler.md) | Truth-Preserving ATS Keyword Adaptation & Configurable Compiler Architecture | `Active` | 2026-09-23 | Architecture / Compiler | Truth-preserving keyword alignment, configurable LaTeX compiler (`CompilerConfig`), density ladder, and mechanical GPA suppression. |
 
 ---
 

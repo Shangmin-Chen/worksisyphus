@@ -4,13 +4,13 @@
 |---|---|
 | **Spec ID** | `SPEC-006` |
 | **Title** | Truth-Preserving ATS Keyword Adaptation & Configurable Compiler Architecture |
-| **Status** | `Accepted` |
+| **Status** | `Active` |
 | **Author** | Simon Chen / Antigravity Agent Synthesis |
 | **Created** | 2026-09-21 |
-| **Updated** | 2026-09-21 |
+| **Updated** | 2026-09-23 |
 | **Supersedes** | None (Refines Invariant #4 in `SPEC-002`) |
 | **Superseded By** | None |
-| **Related Issues/PRs** | #74, #75, #76, #84 |
+| **Related Issues/PRs** | #74, #75, #76, #84, #90 |
 
 ---
 
@@ -113,22 +113,23 @@ The agent maps canonical items from `profile.json` to the target requirements:
   - *Adapted Output*: `"Architected low-latency streaming infrastructure using a lock-free SPSC event ring in Cython/C++17, benchmarked at 584ns per enqueue and 703ns per event drained."`
 
 ### 4.3 Deterministic ATS Keyword Scorer
-An offline mathematical scorer that measures exact and synonym keyword density:
-- Checks presence of required languages, frameworks, and domain phrases in the candidate text.
-- Provides an objective **Keyword Coverage Score (0–100%)** recorded in `meta.json`.
+An offline mathematical scorer that measures exact and synonym keyword density (`core/domain/ats_matcher.py`):
+- **Curated Knowledge Base (`KNOWN_TECH_TERMS`)**: A domain-specific dictionary of languages (`c++`, `python`, `rust`, etc.), frameworks (`react`, `fastapi`, `pytorch`, etc.), systems concepts (`lock-free`, `low-latency`, `spsc`, `distributed systems`), and cloud/infra tooling (`docker`, `k8s`, `terraform`).
+- **Synonym & Alias Normalization (`SYNONYM_MAP`)**: Bidirectional mapping handling real-world recruiter search query variations (e.g. `c++` $\leftrightarrow$ `cpp`, `k8s` $\leftrightarrow$ `kubernetes`, `golang` $\leftrightarrow$ `go`, `ci/cd` $\leftrightarrow$ `continuous integration`, `low-latency` $\leftrightarrow$ `low latency`, `lock-free` $\leftrightarrow$ `non-blocking`, `deep learning` $\leftrightarrow$ `neural networks`, `machine learning` $\leftrightarrow$ `ml`).
+- **Objective Keyword Coverage Score (0–100%)**: Evaluates extracted terms against the candidate resume and reports total keywords, matched keywords, missing keywords, and percentage match. Integrated directly into `worksisyphus evaluate` and `meta.json`.
 
 ### 4.4 Configurable Compiler (`CompilerConfig`)
 
-The compiler uses a clean configuration model:
+The compiler uses a clean configuration model defined in `core/domain/models.py`:
 
 ```python
-from enum import Enum
 from dataclasses import dataclass
+from enum import StrEnum
 
 
-class CourseworkMode(str, Enum):
+class CourseworkMode(StrEnum):
     FULL = "full"  # Relevant Coursework: course1, course2... (standard)
-    CONDENSED = "condensed"  # Compacted list (saves 1 line)
+    CONDENSED = "condensed"  # Compacted list of first 4 courses (saves 1 line)
     NONE = "none"  # Omit coursework entirely (saves 2 lines)
 
 
@@ -143,39 +144,55 @@ class CompilerConfig:
     # Formatting density toggles
     compact_skills: bool = False  # Combine skill categories into inline format
     compact_header: bool = False  # Inline contact details
+    enable_density_ladder: bool = False  # Progressively ladder layout toggles before trimming
+
+
+DEFAULT_COMPILER_CONFIG = CompilerConfig()
 ```
 
 ### 4.5 The Line-Fitting Density Ladder
 
-When compiling to the mandatory 1-page target:
+When compiling to the mandatory 1-page target with `enable_density_ladder=True`:
 1. **Level 0 (Standard Render)**:
    - `include_gpa = False`, `coursework_mode = FULL`, `compact_skills = False`.
 2. **Level 1 (Micro-Fitting — saves 1 line)**:
-   - If over 1 page by $\le 1$ line, set `coursework_mode = CONDENSED`.
+   - If over 1 page by $\le 1$ line, step down to `coursework_mode = CONDENSED`.
 3. **Level 2 (Compact Skills — saves 1–2 lines)**:
-   - If still over 1 page, set `compact_skills = True`.
+   - If still over 1 page, step to `compact_skills = True`.
 4. **Level 3 (Omit Coursework — saves 1–2 lines)**:
-   - If still over 1 page, set `coursework_mode = NONE`.
+   - If still over 1 page, step down to `coursework_mode = NONE`.
 5. **Level 4 (Deterministic Structural Trim)**:
    - If formatting toggles are exhausted and the document still exceeds 1 page, trim the lowest-ranked bullet or project from the bottom up.
+
+### 4.6 CLI Flags & Pipeline Integration
+
+The compilation pipeline and CLI commands (`apply` and `tailor`) expose explicit flags controlling the compiler:
+- `--include-gpa`: Emits GPA in the education section if present in `profile.json` (default: `False`).
+- `--compact-skills`: Formats technical skills into a single inline paragraph separated by `$|$`.
+- `--coursework {full,condensed,none}`: Sets the coursework rendering density (default: `full`).
+- `--density-ladder`: Enables the progressive formatting density ladder before trimming bullets or projects.
 
 ---
 
 ## 5. Migration & Rollout Plan
 
-1. **Step 1: Implement `CompilerConfig` & Generator Toggles**
-   - Add `CompilerConfig` to `core/rendering/latex.py` (or domain models).
-   - Update `_education()` in `latex.py` to conditionally render GPA based on `config.include_gpa` (default `False`).
-   - Add `coursework_mode` and `compact_skills` density toggles.
-   - Delete brittle `GPA_RE` regex checks in `gates.py`.
+1. **Step 1: Implement `CompilerConfig` & Generator Toggles** - `[Completed in PR #90]`
+   - Added `CompilerConfig`, `CourseworkMode`, and `DEFAULT_COMPILER_CONFIG` in `core/domain/models.py`.
+   - Updated `_education()`, `_skills()`, and `_school_subheading()` in `latex.py`.
+   - Verified faithful reproduction against Jake Ryan's template (`tests/test_renderer.py`).
+   - Replaced brittle `GPA_RE` regex checks in `gates.py` with compiler-level configuration check `NoGpaGate(compiler_config)`.
 
-2. **Step 2: Implement Offline ATS Keyword Scorer**
-   - Create `core/domain/ats_matcher.py` to extract keywords and compute keyword coverage percentage.
-   - Unit test scorer with fixture data.
+2. **Step 2: Implement Offline ATS Keyword Scorer** - `[Completed in PR #90]`
+   - Implemented `core/domain/ats_matcher.py` with `SYNONYM_MAP` and `KNOWN_TECH_TERMS`.
+   - Integrated into `evaluator.py` (`evaluate_pdf_against_jd`, `evaluate_resume_text`).
+   - Added unit test suite in `tests/test_ats_matcher.py`.
 
-3. **Step 3: Implement Job Link Ingestion**
-   - Add URL fetching and text extraction adapter.
+3. **Step 3: Implement Job Link Ingestion** - `[Next Phase / In Progress]`
+   - CLI accepts `--url <link>` and records the link into `meta.json`.
+   - Automated posting crawl and dynamic keyword extraction adapter scheduled for next phase.
 
-4. **Step 4: Update Documentation & Tests**
-   - Verify `pytest`, `mypy`, `ruff check`, and `ruff format --check .` pass with 100% clean status.
-   - Open Pull Request.
+4. **Step 4: Update Documentation & Tests** - `[Completed in PR #90]`
+   - Added `tests/test_compiler_config.py`, `tests/test_ats_matcher.py`, and updated `tests/test_cli.py`, `tests/test_pipeline.py`, and `tests/test_gates.py`.
+   - Verified `pytest`, `mypy`, `ruff check`, and `ruff format --check .` pass with 100% clean status.
+   - Merged in PR #90.
+
