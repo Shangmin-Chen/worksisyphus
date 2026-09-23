@@ -82,10 +82,6 @@ def _resolve_applications_dir(applications_dir: Path | None) -> Path:
     return applications_dir if applications_dir is not None else APPLICATIONS_DIR
 
 
-def _resolve_db_path(db_path: Path | None, applications_dir: Path) -> Path | None:
-    return Path(db_path) if db_path is not None else None
-
-
 @dataclass(frozen=True)
 class ContactCrossCheck:
     """Whether the contact block was verified against an external copy.
@@ -107,7 +103,7 @@ class ContactCrossCheck:
         }
 
 
-def cross_check_contact_against_db(
+def verify_contact_block(
     contact: Contact,
     db_path: Path | None = None,
     log: Log = _silent,
@@ -115,6 +111,10 @@ def cross_check_contact_against_db(
     """Validate contact in standalone filesystem mode."""
     validate_contact(contact)
     return ContactCrossCheck()
+
+
+# Backward-compatibility alias
+cross_check_contact_against_db = verify_contact_block
 
 
 def _read_meta(meta_file: Path) -> dict[str, Any]:
@@ -229,8 +229,7 @@ def apply(
     # Contact validation runs before anything is compiled or staged.
     active_profile = profile if profile is not None else load_profile(profile_path)
     validate_contact(active_profile.contact, source=str(profile_path))
-    resolved_db_path = _resolve_db_path(db_path, applications_dir)
-    contact_cross_check = cross_check_contact_against_db(active_profile.contact, resolved_db_path, log=log)
+    contact_cross_check = verify_contact_block(active_profile.contact, db_path, log=log)
 
     # Deterministic naming strictly derived from company and role (#34). The underscore is the
     # folder grammar's structural separator (it delimits the retry ordinal), so slugify must

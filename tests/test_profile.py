@@ -64,7 +64,7 @@ def test_missing_profile_raises_instead_of_falling_back(tmp_path, monkeypatch) -
 
     with pytest.raises(FileNotFoundError) as excinfo:
         load_profile()
-    assert "db export-profile" in str(excinfo.value)
+    assert "Ensure profile.json exists" in str(excinfo.value)
 
 
 VALID_CONTACT = Contact(

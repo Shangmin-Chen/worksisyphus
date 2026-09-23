@@ -25,6 +25,7 @@ from .core.use_cases.application import (
     slugify,
     sorted_application_names,
     update_application_status,
+    verify_contact_block,
 )
 
 sys.modules[__name__] = _module
@@ -49,4 +50,5 @@ __all__ = [
     "slugify",
     "sorted_application_names",
     "update_application_status",
+    "verify_contact_block",
 ]
