@@ -181,3 +181,38 @@ def test_failed_tailor_leaves_no_employer_pdf_in_destination(small_profile, monk
         tailor(_plan_text(), tex_dir=tmp_path / "tex", pdf_dir=dest_dir)
 
     assert not (dest_dir / "Simon_Chen_Resume.pdf").exists()
+
+
+def test_tailor_density_ladder_avoids_structural_trim(small_profile, monkeypatch, tmp_path) -> None:
+    from worksisyphus.core.domain.models import CompilerConfig
+
+    compiled: list[str] = []
+    pages_by_call = [2, 1]
+    log_lines: list[str] = []
+
+    def fake_compile(tex: str, name: str, tex_dir, pdf_dir) -> CompileResult:
+        compiled.append(tex)
+        (pdf_dir / f"{name}.pdf").write_bytes(b"%PDF-fake")
+        return CompileResult(
+            pdf_path=tmp_path / f"{name}.pdf",
+            tex_path=tmp_path / f"{name}.tex",
+            pages=pages_by_call[len(compiled) - 1],
+        )
+
+    monkeypatch.setattr(pipeline, "compile_tex", fake_compile)
+    monkeypatch.setattr(pipeline, "load_profile", lambda _path: small_profile)
+
+    config = CompilerConfig(enable_density_ladder=True)
+    result = tailor(
+        _plan_text(),
+        tex_dir=tmp_path / "tex",
+        pdf_dir=tmp_path,
+        config=config,
+        log=log_lines.append,
+    )
+
+    assert result.pages == 1
+    assert len(compiled) == 2
+    # Trimming was prevented by the density ladder
+    assert len(result.trimmed) == 0
+    assert any("density toggle: condensed coursework" in line for line in log_lines)

@@ -671,3 +671,69 @@ def test_cli_subparsers_documented() -> None:
         content = (root / doc_name).read_text(encoding="utf-8")
         for cmd in expected_commands:
             assert f"worksisyphus {cmd}" in content, f"Command '{cmd}' not documented in {doc_name}"
+
+
+def test_cli_apply_passes_compiler_config_flags(monkeypatch, tmp_path) -> None:
+    from worksisyphus.ats import ATSCheckResult
+    from worksisyphus.compiler import CompileResult
+    from worksisyphus.core.domain.models import CourseworkMode
+
+    recorded = {}
+
+    def fake_apply(plan_text, jd_text, company, role="", source_url="", config=None, **kwargs):
+        recorded["config"] = config
+        folder = tmp_path / "applications" / "2026-08-20_acme_swe"
+        folder.mkdir(parents=True, exist_ok=True)
+        pdf = folder / "Simon_Chen_Resume.pdf"
+        pdf.write_bytes(b"%PDF-fake")
+        return folder, CompileResult(pdf, folder / "Simon_Chen_Resume.tex", 1), ATSCheckResult(True, (), 1, 500, "text")
+
+    monkeypatch.setattr(cli, "apply_app", fake_apply)
+
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+    jd = tmp_path / "jd.txt"
+    jd.write_text("Backend engineer", encoding="utf-8")
+
+    ret = cli.main(
+        [
+            "apply",
+            "--company",
+            "Acme",
+            "--jd",
+            str(jd),
+            "--plan",
+            plan,
+            "--no-sync",
+            "--include-gpa",
+            "--compact-skills",
+            "--coursework",
+            "condensed",
+            "--density-ladder",
+        ]
+    )
+    assert ret == 0
+    cfg = recorded["config"]
+    assert cfg is not None
+    assert cfg.include_gpa is True
+    assert cfg.compact_skills is True
+    assert cfg.coursework_mode == CourseworkMode.CONDENSED
+    assert cfg.enable_density_ladder is True
+
+
+def test_cli_tailor_passes_compiler_config_flags(monkeypatch, tmp_path) -> None:
+    from worksisyphus.core.domain.models import CourseworkMode
+
+    recorded = {}
+
+    def fake_tailor(plan_text, pdf_dir=None, config=None, log=None):
+        recorded["config"] = config
+
+    monkeypatch.setattr(cli, "tailor", fake_tailor)
+
+    plan = _write_plan(tmp_path, {"projects": ["proj1"]})
+    ret = cli.main(["tailor", "--plan", plan, "--include-gpa", "--coursework", "none"])
+    assert ret == 0
+    cfg = recorded["config"]
+    assert cfg is not None
+    assert cfg.include_gpa is True
+    assert cfg.coursework_mode == CourseworkMode.NONE

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,33 @@ TAILORED_NAME = "Simon_Chen_Resume"
 
 class PlanError(ValueError):
     """The plan references something the profile does not contain."""
+
+
+class CourseworkMode(StrEnum):
+    """How the education coursework lines are rendered."""
+
+    FULL = "full"
+    CONDENSED = "condensed"
+    NONE = "none"
+
+
+@dataclass(frozen=True)
+class CompilerConfig:
+    """Configuration toggles for resume compilation and layout."""
+
+    # Content toggles
+    include_gpa: bool = False
+    coursework_mode: CourseworkMode = CourseworkMode.FULL
+    include_locations: bool = True
+    clickable_links: bool = True
+
+    # Formatting density toggles
+    compact_skills: bool = False
+    compact_header: bool = False
+    enable_density_ladder: bool = False
+
+
+DEFAULT_COMPILER_CONFIG = CompilerConfig()
 
 
 @dataclass(frozen=True)
@@ -29,13 +57,14 @@ class Contact:
 
 @dataclass(frozen=True)
 class Education:
-    """Educational institution, degree, timeline, and coursework."""
+    """Educational institution, degree, timeline, coursework, and optional GPA."""
 
     institution: str
     location: str
     degree: str
     date: str
     coursework: tuple[str, ...] = ()
+    gpa: str | None = None
 
 
 @dataclass(frozen=True)
@@ -116,6 +145,7 @@ def profile_to_dict(profile: Profile) -> dict[str, Any]:
                 "location": edu.location,
                 "degree": edu.degree,
                 "date": edu.date,
+                **({"gpa": edu.gpa} if edu.gpa is not None else {}),
                 "coursework": list(edu.coursework),
             }
             for edu in profile.education
