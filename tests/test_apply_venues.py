@@ -37,6 +37,15 @@ def _fake_run_gates(pdf_path: Path, **kwargs: object) -> tuple[tuple[GateResult,
     )
 
 
+@pytest.fixture(autouse=True)
+def _use_small_profile(small_profile: object, monkeypatch: pytest.MonkeyPatch) -> None:
+    import worksisyphus.adapters.inbound.cli.commands as cmd_module
+    import worksisyphus.core.use_cases.application as app_module
+
+    monkeypatch.setattr(cmd_module, "load_profile", lambda *a, **kw: small_profile)
+    monkeypatch.setattr(app_module, "load_profile", lambda *a, **kw: small_profile)
+
+
 def test_apply_with_url_fetches_and_compiles(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
