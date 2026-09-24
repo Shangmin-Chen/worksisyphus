@@ -1,232 +1,154 @@
-# SPEC-010: Raw Job Ingestion & ETL Posting Compiler
+# SPEC-010: Universal Job Ingestion, Agent Bridge & Dual-Venue Loading
 
 | Field | Value |
 |---|---|
 | **Spec ID** | `SPEC-010` |
-| **Title** | Raw Job Ingestion & ETL Posting Compiler |
+| **Title** | Universal Job Ingestion, Agent Bridge & Dual-Venue Loading |
 | **Status** | `Accepted` |
 | **Author** | Simon Chen & Antigravity |
 | **Created** | 2026-09-23 |
 | **Updated** | 2026-09-23 |
 | **Supersedes** | None |
 | **Superseded By** | None |
-| **Related Issues/PRs** | None (Foundational Intake Architecture) |
+| **Related Issues/PRs** | #98 |
 
 ---
 
 ## 1. Context & Problem Statement
 
-Historically, `worksisyphus apply` has been a passive resume compiler. Operators and autonomous agents are forced to manually open job postings in a browser, identify the company name and target role, copy the entire multi-paragraph job description, and pass it into the CLI via stdin (`--jd -`).
+Historically, `worksisyphus apply` has been a passive resume compiler requiring operators and agents to manually copy-paste multi-paragraph job descriptions into the CLI via stdin (`--jd -`). 
 
-To transform `worksisyphus` into an autonomous career engine, the system requires an automated ingestion layer. However, job postings across the web suffer from severe format entropy:
-- **Vendor Diversity**: Postings live across disparate applicant tracking systems (Greenhouse, Lever, Ashby, Workday) and custom corporate career portals.
-- **Payload Bloat**: Modern career pages frequently contain 100,000+ characters of minified JavaScript bundles, tracking pixels, navigation headers, and CSS stylesheets.
-- **LLM Paraphrasing & Hallucination Risks**: Forcing an LLM or chat agent to regenerate giant 10-page job descriptions into a terminal prompt risks lossy summarization, dropped requirements, shell-escaping syntax failures, and massive token waste.
+Early architectural drafts attempted to solve automated intake by reverse-engineering vendor-specific ATS endpoints (Greenhouse, Lever, Ashby JSON APIs) and writing fragile AST heuristics to parse form fields. This was rejected as over-engineered slop: vendor APIs frequently change schemas, fail on non-standard portals (Workday, Taleo, custom career sites), and ignore the natural intelligence of the autonomous agent operating the system.
 
-This specification defines the first decoupled stage of the ingestion architecture: **Raw Job Ingestion & the ETL Posting Compiler**. 
-Its scope is strictly limited to intake: fetching raw outside data, performing deterministic noise removal, preserving verbatim JD text via a file-based scratch bridge, and compiling raw data into a normalized, strongly-typed `JobPosting` domain object.
-
-Downstream consumers (Lead Vault tracking and `apply --url` resume generation) are deliberately decoupled and specified in SPEC-011.
+Instead, the modern intake architecture is an **agent-native dumb pipe**:
+1. **Universal Ingest**: A lightweight HTTP fetcher and HTML pre-cleaner that fetches *any* job URL, strips boilerplate markup, and writes clean text to scratch disk.
+2. **Agent in the Middle**: The autonomous agent (Gemini, Claude, Antigravity) reads the clean text, effortlessly extracting company, role, requirements, and screening questions.
+3. **Dual-Venue Loading**:
+   - **Venue 1 (Lead Vault)**: `worksisyphus track` records the opportunity in `leads/<stem>/` (`meta.json`, `jd.txt`, `questions.json`) for pipeline tracking and interview prep without compiling a resume.
+   - **Venue 2 (Resume Generation)**: `worksisyphus apply --url <url>` or `worksisyphus apply --lead <stem>` compiles a tailored, 1-page PDF directly into `applications/<stem>/`.
 
 ---
 
 ## 2. Invariants & Bounded Rules
 
-1. **Verbatim Text Preservation**: The source job description must be captured and preserved byte-for-byte. The ingestion engine and agent must never summarize, paraphrase, or truncate job requirements.
-2. **File-Based Scratch Bridge**: Giant multi-paragraph JD texts must never be piped as raw inline command-line arguments to avoid shell quoting breakage, buffer limits, and LLM output token exhaustion. Raw text flows from network to disk, and from disk to compiler.
-3. **Offline Testability (CI Invariant)**: Ingestion and ETL tests must execute 100% offline with zero internet access, zero API keys, and sub-second speed using pre-recorded fixtures in `tests/fixtures/postings/`.
-4. **Hexagonal Boundary Purity**: The core domain (`core/domain/`), resume compiler (`pipeline.py`), and LaTeX renderer (`latex.py`) remain completely network-free and decoupled from ingestion. Ingestion logic resides exclusively in `ports/ingestion.py` and `adapters/outbound/ingestion/`.
-5. **Namespace Safety**: Company and role identifiers extracted during ETL must strictly conform to `slugify` rules (no underscores, safe for filesystem folder names).
+1. **Universal Dumb Pipe**: The ingestion layer contains zero vendor-specific scraping heuristics, zero ATS API sniffing, and zero fragile DOM element selectors. It works identically for Greenhouse, Workday, Lever, Ashby, or a company blog post.
+2. **Agent-Mediated Extraction**: Identifying the hiring company, role title, and pre-screening questions is performed by the LLM agent reading the pre-cleaned text, not by brittle regexes or AST parsers.
+3. **Verbatim Text Preservation**: The pre-cleaner strips markup noise (`<script>`, `<style>`, `<nav>`, `<footer>`) but preserves the exact wording, bullets, and structural paragraphs of the job description.
+4. **File-Based Scratch Bridge**: Giant multi-paragraph JD texts flow from network to disk (`.worksisyphus/scratch/current_jd.txt`) and disk to compiler. They are never passed as giant inline shell arguments.
+5. **Venue 1 Isolation (The Lead Vault)**: Tracked opportunities live in `leads/<YYYY-MM-DD>_<stem>/`. They do not require a compiled PDF, preserving the invariant in `tests/test_consistency.py` that `applications/` only holds delivered, employer-facing resumes.
+6. **Promotion from Lead to Application**: A tracked lead can be promoted to a full application via `worksisyphus apply --lead <stem>`. This compiles the resume, copies screening questions, and updates the lead status to `"applied"`.
+7. **Offline Testability**: All tests execute 100% offline with zero internet access, zero external API keys, and sub-second execution speed.
 
 ---
 
-## 3. Proposed Architecture & Design
+## 3. Architecture & Data Flow
 
 ```
-   [ External Job URL ]
-             │
-             ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 1. Raw Fetcher Adapter (adapters/outbound/ingestion/http)   │
-  │ • urllib.request with standard browser User-Agent headers   │
-  │ • Redirect following & SSL handling                         │
-  │ • Explicit 10s timeout & 404/closed detection               │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 │ Raw bytes / text
-                                 ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 2. Pre-Cleaner & Scratch Bridge                             │
-  │ • Strips <script>, <style>, <svg>, <noscript>, comments     │
-  │ • html.unescape() for entities (&amp; -> &, &nbsp; -> ' ')  │
-  │ • Writes verbatim JD to `.worksisyphus/scratch/current_jd`  │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 │
-                                 ▼
-  ┌─────────────────────────────────────────────────────────────┐
-  │ 3. ETL Posting Compiler (adapters/outbound/ingestion/etl)   │
-  │ • Detects source: Greenhouse API / Lever / Ashby / HTML     │
-  │ • Extracts: Company, Role, Location                         │
-  │ • Extracts: Form Screening Questions (IDs, prompts, options)│
-  │ • Agent/CLI override support (--company, --role)            │
-  └──────────────────────────────┬──────────────────────────────┘
-                                 │
-                                 ▼
-                   `JobPosting` Domain Object
-  (company, role, jd_text, location, url, screening_questions, raw_payload)
-```
-
-### 3.1 Domain Models (`src/worksisyphus/core/domain/ingestion.py`)
-
-```python
-from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Any
-
-
-@dataclass(frozen=True)
-class ScreeningQuestion:
-    """A pre-screen question extracted from the job posting form."""
-
-    question_id: str
-    prompt: str
-    question_type: str  # "text" | "textarea" | "select" | "boolean" | "file"
-    required: bool
-    options: tuple[str, ...] = ()
-
-
-@dataclass(frozen=True)
-class RawJobPayload:
-    """Unprocessed network payload and metadata."""
-
-    url: str
-    raw_content: str
-    content_type: str  # "application/json" | "text/html"
-    source_hint: str  # "greenhouse" | "lever" | "ashby" | "generic"
-    fetched_at: str
-
-
-@dataclass(frozen=True)
-class JobPosting:
-    """Normalized, validated job opportunity ready for downstream consumption."""
-
-    company: str
-    role: str
-    jd_text: str
-    url: str
-    location: str = ""
-    source_type: str = "generic"
-    screening_questions: tuple[ScreeningQuestion, ...] = ()
-    raw_payload: dict[str, Any] = field(default_factory=dict)
-```
-
-### 3.2 Ports (`src/worksisyphus/ports/ingestion.py`)
-
-```python
-from typing import Protocol
-from ..core.domain.ingestion import JobPosting, RawJobPayload
-
-
-class RawFetcherPort(Protocol):
-    """Outbound port for fetching raw posting content from the web."""
-
-    def fetch(self, url: str, timeout: float = 10.0) -> RawJobPayload: ...
-
-
-class JobTransformerPort(Protocol):
-    """Port for compiling raw payloads into normalized JobPosting domain entities."""
-
-    def transform(
-        self,
-        raw: RawJobPayload,
-        company_override: str = "",
-        role_override: str = "",
-    ) -> JobPosting: ...
-```
-
-### 3.3 Outbound Adapters (`src/worksisyphus/adapters/outbound/ingestion/`)
-
-1. **`http_fetcher.py` (`RawFetcherPort`)**:
-   - Uses Python standard library `urllib.request`.
-   - Injects browser headers (`User-Agent: Mozilla/5.0...`, `Accept: application/json, text/html`).
-   - Automatically detects and routes ATS URLs:
-     - Greenhouse URLs (`boards.greenhouse.io/<company>/jobs/<id>`) are automatically routed to Greenhouse's unauthenticated JSON API (`boards-api.greenhouse.io/v1/boards/<company>/jobs/<id>`).
-     - Lever URLs (`jobs.lever.co/<company>/<id>`) are routed to Lever's public JSON API (`api.lever.co/v0/postings/<company>/<id>`).
-     - Ashby URLs (`jobs.ashbyhq.com/<company>/<id>`) fetch public JSON posting data.
-     - Custom URLs fetch raw HTML with redirect following.
-2. **`pre_cleaner.py`**:
-   - Parses HTML using stdlib `html.parser`.
-   - Strips non-content elements (`<script>`, `<style>`, `<svg>`, `<nav>`, `<footer>`).
-   - Converts structural tags (`<p>`, `<li>`, `<br>`, `<h1>`-`<h6>`) into clean line breaks.
-   - Runs `html.unescape()` to decode entities and normalizes unicode whitespace (`\xa0` $\rightarrow$ `' '`).
-3. **`scratch_bridge.py`**:
-   - Manages scratch files in `.worksisyphus/scratch/`.
-   - Saves verbatim JD text to `.worksisyphus/scratch/current_jd.txt` so agents and downstream commands inspect and read from disk without shell buffer limitations.
-4. **`etl_compiler.py` (`JobTransformerPort`)**:
-   - Transforms structured JSON or pre-cleaned text into `JobPosting`.
-   - Extracts and normalizes screening questions, preserving prompt text and option dropdowns.
-   - Fails closed if `company`, `role`, or `jd_text` are missing or empty.
-
-### 3.4 Inbound CLI Commands (`src/worksisyphus/adapters/inbound/cli/handlers/ingest.py`)
-
-The new `worksisyphus ingest` command group supports two modular actions:
-
-```bash
-# 1. Fetch raw URL, pre-clean, and write verbatim text to scratch
-uv run worksisyphus ingest fetch <url> [--output <file>]
-
-# 2. Compile scratch file or JSON into validated JobPosting
-uv run worksisyphus ingest compile --file <file> [--company <name>] [--role <role>]
-
-# 3. One-shot execution (fetch -> compile -> output summary)
-uv run worksisyphus ingest <url> [--json]
-```
-
-Example Output of `worksisyphus ingest <url>`:
-```text
-Company:   Stripe
-Role:      Software Engineer (Infrastructure)
-Location:  Seattle, WA / Remote
-Source:    greenhouse (https://boards.greenhouse.io/stripe/jobs/12345)
-JD Length: 1,280 words (saved to .worksisyphus/scratch/current_jd.txt)
-Questions: 3 screening questions extracted
-  1. [select] "Will you now or in the future require sponsorship?" (required)
-  2. [text]   "LinkedIn Profile" (optional)
-  3. [text]   "GitHub Profile" (optional)
+   [ External Job URL (Any Web Site) ]
+                 │
+                 ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ 1. Universal Fetcher (adapters/outbound/ingestion/http)     │
+   │ • stdlib urllib with browser User-Agent headers             │
+   │ • Redirect following, SSL handling, explicit 10s timeout    │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │ Raw HTML
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ 2. Pre-Cleaner & Scratch Bridge                             │
+   │ • Strips <script>, <style>, <nav>, <footer>, <header>       │
+   │ • Decodes entities (&amp; -> &, &nbsp; -> ' ')              │
+   │ • Writes verbatim text to `.worksisyphus/scratch/current_jd`│
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ 3. THE AGENT LAYER (Autonomous AI Operator)                 │
+   │ • Inspects `.worksisyphus/scratch/current_jd.txt`           │
+   │ • Identifies: Company, Role, Location, Screening Questions  │
+   │ • Chooses Venue 1 (Track Lead) or Venue 2 (Apply Resume)    │
+   └──────────────┬──────────────────────────────┬───────────────┘
+                  │                              │
+                  ▼                              ▼
+      [ Venue 1: Lead Vault ]        [ Venue 2: Resume Compiler ]
+        `worksisyphus track`            `worksisyphus apply`
+                  │                              │
+                  ▼                              ▼
+       `leads/<YYYY-MM-DD>_<stem>/`    `applications/<YYYY-MM-DD>_<stem>/`
+       ├── meta.json                   ├── meta.json
+       ├── jd.txt                      ├── jd.txt
+       └── questions.json (optional)   ├── plan.json
+                                       ├── Simon_Chen_Resume.pdf
+                                       └── questions.json (if promoted)
 ```
 
 ---
 
-## 4. Alternatives Considered & Trade-offs
+## 4. Component Design
 
-| Alternative | Pros | Cons | Decision |
-|---|---|---|---|
-| **Headless Browser (Playwright / Selenium)** | Handles dynamic JavaScript SPAs. | Heavy binary download (~200MB); slow startup (2-5s); violates lightweight repository footprint. | **Rejected**: Standard library `urllib` + public ATS APIs cover 95%+ of tech job boards. |
-| **Echoing Full JD Text Through LLM Prompt** | Agent can reformat text. | High token cost; risk of lossy paraphrasing/summarization; bash escaping breakage on huge strings. | **Rejected**: File-based scratch bridge guarantees 100% verbatim accuracy with zero token waste. |
-| **Monolithic Ingestion + Direct Apply** | Single command implementation. | Tightly couples network ingestion with LaTeX resume compilation; violates single responsibility. | **Rejected**: Decoupling ingestion (SPEC-010) from pipeline routing (SPEC-011) ensures modularity. |
+### 4.1 Ingestion Ports & Adapters
+
+- **`HttpRawFetcher` (`src/worksisyphus/adapters/outbound/ingestion/http_fetcher.py`)**:
+  - Implements `RawFetcherPort`.
+  - Performs standard HTTP GET requests using `urllib.request`.
+  - Uses browser headers to avoid trivial blocking.
+  - Decodes response content using declared charset or UTF-8.
+- **`PreCleaner` (`src/worksisyphus/adapters/outbound/ingestion/pre_cleaner.py`)**:
+  - Uses stdlib `html.parser.HTMLParser`.
+  - Strips `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, `<iframe>`.
+  - Normalizes line breaks for lists and paragraphs.
+  - Unescapes HTML entities.
+- **`ScratchBridge` (`src/worksisyphus/adapters/outbound/ingestion/scratch_bridge.py`)**:
+  - Saves verbatim text to `.worksisyphus/scratch/current_jd.txt`.
+
+### 4.2 Core Tracker Service (`src/worksisyphus/core/use_cases/tracker.py`)
+
+- `track_lead(company, jd_text, role, url, questions, leads_dir, when)`:
+  - Generates deterministic `<YYYY-MM-DD>_<comp_slug>_<role_slug>` folder stem.
+  - Handles same-day collisions by appending `_2`, `_3`.
+  - Writes `meta.json`, `jd.txt`, and optional `questions.json`.
+- `list_leads(leads_dir)`:
+  - Lists tracked leads in date-descending order.
+- `get_lead(stem_or_name, leads_dir)`:
+  - Retrieves folder path, metadata, and verbatim JD.
+- `update_lead_status(stem_or_name, status, leads_dir)`:
+  - Updates status in `meta.json` (e.g. `"tracked"` $\rightarrow$ `"applied"`).
+
+### 4.3 CLI Commands
+
+1. **Ingest (Dumb Pipe)**:
+   ```bash
+   uv run worksisyphus ingest <url> [--output <file>]
+   ```
+2. **Venue 1: Track Lead**:
+   ```bash
+   uv run worksisyphus track --company <Name> [--role <Role>] [--url <URL>] [--jd <file|->] [--questions <file>]
+   uv run worksisyphus leads
+   ```
+3. **Venue 2: Resume Compiler**:
+   ```bash
+   # Direct URL apply (fetches, cleans, and compiles 1-page resume)
+   uv run worksisyphus apply --company <Name> --url <URL> [--role <Role>]
+
+   # Lead promotion apply (reads from leads/ vault, compiles resume, marks applied)
+   uv run worksisyphus apply --lead <stem>
+   ```
 
 ---
 
-## 5. Verification & Testing Plan
+## 5. Verification & Testing
 
-1. **Frozen Fixture Tests**:
-   - `tests/fixtures/postings/` containing recorded real-world payloads:
-     - `greenhouse_stripe.json`
-     - `lever_palantir.json`
-     - `ashby_linear.json`
-     - `custom_html_posting.html`
-2. **Offline Unit & Integration Suite**:
-   - `test_http_fetcher.py`: Verifies browser headers, redirect following, and timeout handling with mock HTTP responses.
-   - `test_pre_cleaner.py`: Verifies HTML tag stripping, newline preservation, and unicode entity decoding.
-   - `test_etl_compiler.py`: Verifies exact extraction of company, role, verbatim JD, and screening questions from fixtures.
-   - `test_cli_ingest.py`: Verifies `ingest fetch`, `ingest compile`, and one-shot `ingest <url>` with mock adapters.
-3. **Quality Gates**:
-   - `uv run python -m pytest tests/ -q` passes 100% offline.
-   - `uv run ruff check .` and `uv run mypy src/ tests/` pass with zero errors.
+- `tests/test_pre_cleaner.py`: Verifies noise removal, structural line breaks, entity unescaping.
+- `tests/test_scratch_bridge.py`: Verifies scratch read/write operations and payload persistence.
+- `tests/test_http_fetcher.py`: Verifies HTTP fetch, error handling (404, timeouts, invalid protocols) with mock transport.
+- `tests/test_cli_ingest.py`: Verifies `worksisyphus ingest <url>` and custom output options.
+- `tests/test_tracker.py`: Verifies lead creation, collision handling, listing, status updates, and CLI `track`/`leads`.
+- `tests/test_apply_venues.py`: Verifies `apply --url <url>` and `apply --lead <stem>` promotion flow.
 
 ---
 
-## 6. Migration, Compatibility & Rollout
+## 6. Migration & Rollout
 
-- **Zero Impact on Existing Commands**: `worksisyphus apply`, `tailor`, `status`, and `compile` remain 100% unchanged.
-- **Gitignore Safety**: The scratch directory `.worksisyphus/scratch/` is added to `.gitignore` so temporary raw JD files are never tracked in version control.
-- **Paves the Way for SPEC-011**: Provides the authoritative intake engine that SPEC-011 will connect to the Lead Vault and `apply --url`.
+- Added `/leads/` to `.gitignore` to protect operator's private job lead repository.
+- Standard resume generation (`worksisyphus apply --company <C> --jd <file|->`) remains 100% backward compatible.
+- All quality gates (no GPA, banned content, ATS check, 1-page trim) remain strictly enforced.
