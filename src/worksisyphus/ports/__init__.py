@@ -1,7 +1,7 @@
 """Ports: Explicit interface boundaries (Protocols) decoupling Core from Adapters."""
 
 from .compiler import CompileError, CompileResult, CompilerPort
-from .ingestion import JobTransformerPort, RawFetcherPort
+from .ingestion import RawFetcherPort
 from .parser import ATSCheckResult, AtsExtractorPort
 
 __all__ = [
@@ -10,6 +10,5 @@ __all__ = [
     "CompileError",
     "CompileResult",
     "CompilerPort",
-    "JobTransformerPort",
     "RawFetcherPort",
 ]

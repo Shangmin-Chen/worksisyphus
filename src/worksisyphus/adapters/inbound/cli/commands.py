@@ -45,6 +45,9 @@ from .handlers import (
     tailor as tailor_handler,
 )
 from .handlers import (
+    track as track_handler,
+)
+from .handlers import (
     validate as validate_handler,
 )
 from .helpers import (
@@ -103,6 +106,8 @@ def build_parser() -> argparse.ArgumentParser:
     evaluate_handler.register(sub)
     optimize_handler.register(sub)
     ingest_handler.register(sub)
+    track_handler.register_track(sub)
+    track_handler.register_leads(sub)
 
     return parser
 

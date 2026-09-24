@@ -1,4 +1,4 @@
-"""Unit tests for HttpRawFetcher and ATS endpoint resolution."""
+"""Unit tests for HttpRawFetcher."""
 
 from __future__ import annotations
 
@@ -8,43 +8,7 @@ from typing import Any
 
 import pytest
 
-from worksisyphus.adapters.outbound.ingestion.http_fetcher import (
-    HttpRawFetcher,
-    resolve_ats_endpoint,
-)
-
-
-def test_resolve_ats_endpoint_greenhouse() -> None:
-    url = "https://boards.greenhouse.io/stripe/jobs/5123456"
-    api_url, hint = resolve_ats_endpoint(url)
-    assert api_url == "https://boards-api.greenhouse.io/v1/boards/stripe/jobs/5123456?questions=true"
-    assert hint == "greenhouse"
-
-    url_job_boards = "https://job-boards.greenhouse.io/stripe/jobs/5123456"
-    api_url2, hint2 = resolve_ats_endpoint(url_job_boards)
-    assert api_url2 == "https://boards-api.greenhouse.io/v1/boards/stripe/jobs/5123456?questions=true"
-    assert hint2 == "greenhouse"
-
-
-def test_resolve_ats_endpoint_lever() -> None:
-    url = "https://jobs.lever.co/palantir/575e0037-1234-4567-89ab-cdef01234567"
-    api_url, hint = resolve_ats_endpoint(url)
-    assert api_url == "https://api.lever.co/v0/postings/palantir/575e0037-1234-4567-89ab-cdef01234567"
-    assert hint == "lever"
-
-
-def test_resolve_ats_endpoint_ashby() -> None:
-    url = "https://jobs.ashbyhq.com/linear/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-    api_url, hint = resolve_ats_endpoint(url)
-    assert api_url == "https://api.ashbyhq.com/posting-api/job-board/linear/job/a1b2c3d4-e5f6-7890-abcd-ef1234567890"
-    assert hint == "ashby"
-
-
-def test_resolve_ats_endpoint_generic() -> None:
-    url = "https://careers.google.com/jobs/results/12345"
-    api_url, hint = resolve_ats_endpoint(url)
-    assert api_url == url
-    assert hint == "generic"
+from worksisyphus.adapters.outbound.ingestion.http_fetcher import HttpRawFetcher
 
 
 class _MockHeaders:
@@ -59,7 +23,7 @@ class _MockHeaders:
 
 
 class _MockResponse:
-    def __init__(self, content: bytes, content_type: str = "application/json") -> None:
+    def __init__(self, content: bytes, content_type: str = "text/html") -> None:
         self._stream = io.BytesIO(content)
         self.headers = _MockHeaders({"Content-Type": content_type})
 
@@ -76,21 +40,20 @@ class _MockResponse:
 def test_http_raw_fetcher_success() -> None:
     def mock_urlopen(req: Any, timeout: float = 10.0) -> _MockResponse:
         assert timeout == 10.0
-        return _MockResponse(b'{"title": "Staff Engineer"}', content_type="application/json")
+        return _MockResponse(b"<h1>Software Engineer</h1><p>We are hiring.</p>")
 
     fetcher = HttpRawFetcher(urlopen_fn=mock_urlopen)
-    payload = fetcher.fetch("https://boards.greenhouse.io/stripe/jobs/123")
+    payload = fetcher.fetch("https://stripe.com/jobs/123")
 
-    assert payload.url == "https://boards.greenhouse.io/stripe/jobs/123"
-    assert payload.source_hint == "greenhouse"
-    assert payload.content_type == "application/json"
-    assert '{"title": "Staff Engineer"}' in payload.raw_content
+    assert payload.url == "https://stripe.com/jobs/123"
+    assert "Software Engineer" in payload.raw_content
+    assert payload.content_type == "text/html"
 
 
 def test_http_raw_fetcher_404_raises_value_error() -> None:
     def mock_urlopen(req: Any, timeout: float = 10.0) -> Any:
         raise urllib.error.HTTPError(
-            url="https://example.com",
+            url="https://example.com/job",
             code=404,
             msg="Not Found",
             hdrs=_MockHeaders({}),  # type: ignore[arg-type]
