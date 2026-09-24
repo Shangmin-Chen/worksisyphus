@@ -1,0 +1,8 @@
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "title": "Product Engineer, Backend Systems",
+  "organizationName": "Linear",
+  "locationName": "San Francisco, CA / Remote",
+  "department": "Engineering",
+  "descriptionHtml": "<h2>The Role</h2><p>Linear is building the software that high-performing product teams use to build software.</p><p>We are looking for a Backend Systems Engineer to scale our real-time synchronization engine and GraphQL API services.</p><h3>Responsibilities</h3><ul><li>Scale real-time WebSocket sync engine supporting 100k+ concurrent users.</li><li>Optimize PostgreSQL database queries, connection pooling, and schema migrations.</li><li>Ensure sub-50ms API response times across global edge locations.</li></ul><h3>Requirements</h3><ul><li>3+ years of experience with TypeScript, Node.js, or Go in production environments.</li><li>Solid understanding of relational database indices, locking, and distributed caching with Redis.</li></ul>"
+}

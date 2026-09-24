@@ -76,6 +76,9 @@ uv run worksisyphus evaluate --plan <file|-> --jd <file|->  # score a plan again
 uv run worksisyphus evaluate --profile --jd <file|->  # evaluate the full profile.json canonical database directly
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find highest-scoring plan for a JD
 uv run worksisyphus backfill-evals [--overwrite]  # score applications that predate evaluation recording
+uv run worksisyphus ingest <url> [--json]           # fetch, pre-clean, scratch-bridge, and compile a job posting
+uv run worksisyphus ingest fetch <url> [--output <file>]  # fetch & pre-clean JD text to scratch disk
+uv run worksisyphus ingest compile --file <file>    # compile raw posting JSON or text into JobPosting entity
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run ruff check .                             # linter
 uv run ruff format --check .                    # code formatter check

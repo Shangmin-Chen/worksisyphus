@@ -33,6 +33,9 @@ from .handlers import (
     index as index_handler,
 )
 from .handlers import (
+    ingest as ingest_handler,
+)
+from .handlers import (
     optimize as optimize_handler,
 )
 from .handlers import (
@@ -99,6 +102,7 @@ def build_parser() -> argparse.ArgumentParser:
     backfill_handler.register(sub)
     evaluate_handler.register(sub)
     optimize_handler.register(sub)
+    ingest_handler.register(sub)
 
     return parser
 

@@ -1,0 +1,52 @@
+{
+  "id": 5123456,
+  "title": "Staff Software Engineer, Global Infrastructure",
+  "updated_at": "2026-09-20T12:00:00Z",
+  "requisition_id": "REQ-9876",
+  "location": {
+    "name": "Seattle, WA / Remote"
+  },
+  "content": "&lt;h2&gt;About Stripe&lt;/h2&gt;&lt;p&gt;Stripe is a financial infrastructure platform for the internet. Millions of companies use Stripe to accept payments, grow their revenue, and accelerate new business opportunities.&lt;/p&gt;&lt;h2&gt;What you&#39;ll do&lt;/h2&gt;&lt;p&gt;As an Infrastructure Engineer, you will build and scale reliable distributed systems capable of processing millions of transactions per second.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;Design high-throughput distributed storage and messaging pipelines using Kafka and Raft.&lt;/li&gt;&lt;li&gt;Optimize p99 latency across cross-regional database clusters.&lt;/li&gt;&lt;li&gt;Automate zero-downtime canary deployments in Kubernetes environments.&lt;/li&gt;&lt;/ul&gt;&lt;h2&gt;Qualifications&lt;/h2&gt;&lt;ul&gt;&lt;li&gt;5+ years building large-scale distributed systems in Go, Rust, or C++.&lt;/li&gt;&lt;li&gt;Deep understanding of distributed consensus, OS internals, and networking protocols.&lt;/li&gt;&lt;/ul&gt;",
+  "questions": [
+    {
+      "id": 101,
+      "name": "sponsorship_status",
+      "label": "Will you now or in the future require employment sponsorship?",
+      "required": true,
+      "fields": [
+        {
+          "name": "sponsorship_status",
+          "type": "multi_value_single_select",
+          "values": [
+            { "value": 1, "label": "No" },
+            { "value": 2, "label": "Yes" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 102,
+      "name": "linkedin_profile",
+      "label": "LinkedIn Profile URL",
+      "required": false,
+      "fields": [
+        {
+          "name": "linkedin_profile",
+          "type": "input_text"
+        }
+      ]
+    },
+    {
+      "id": 103,
+      "name": "resume",
+      "label": "Attach Resume / CV",
+      "required": true,
+      "fields": [
+        {
+          "name": "resume",
+          "type": "attachment"
+        }
+      ]
+    }
+  ]
+}

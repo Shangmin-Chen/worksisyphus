@@ -16,6 +16,11 @@ from .gates import (
     check_gpa_gate,
     check_latex_leak_gate,
 )
+from .ingestion import (
+    JobPosting,
+    RawJobPayload,
+    ScreeningQuestion,
+)
 from .models import (
     DEFAULT_PROFILE_PATH,
     REQUIRED_CONTACT_FIELDS,
@@ -53,10 +58,13 @@ __all__ = [
     "Education",
     "Experience",
     "GateResult",
+    "JobPosting",
     "Pick",
     "PlanError",
     "Profile",
     "Project",
+    "RawJobPayload",
+    "ScreeningQuestion",
     "Selection",
     "check_banned_content_gate",
     "check_density_gate",
