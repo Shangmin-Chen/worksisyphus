@@ -19,6 +19,7 @@ All specifications are tracked with permanent sequential identifiers (`SPEC-XXX`
 | [**SPEC-007**](SPEC-007-pruning-legacy-services-and-cli-modularization.md) | Pruning Legacy Services (Turso, HackerRank) and CLI Architecture Modularization | `Active` | 2026-09-23 | Architecture / Cleanup | Pruning of Turso cloud replication, requests dependency, and HackerRank evaluator in favor of local SQLite and modular CLI router. |
 | [**SPEC-008**](SPEC-008-pure-filesystem-architecture-and-sqlite-decommissioning.md) | Pure Filesystem Architecture & SQLite Decommissioning | `Active` | 2026-09-23 | Architecture / Persistence | Decommissioning of SQLite persistence layer in favor of pure, standalone filesystem architecture (`applications/` and `profile.json`). |
 | [**SPEC-009**](SPEC-009-canonical-heading-overflow-and-ghost-reference-remediation.md) | Canonical Heading Overflow Prevention and Ghost Reference Remediation | `Active` | 2026-09-23 | Reliability / Bugfix | Resolution of canonical project heading horizontal overflow (crime-mapper) and remediation of ghost SQLite CLI error messages. |
+| [**SPEC-010**](SPEC-010-raw-job-ingestion-and-etl-compiler.md) | Raw Job Ingestion & ETL Posting Compiler | `Accepted` | 2026-09-23 | Architecture / Ingestion | Decoupled raw job intake engine, verbatim pre-cleaning scratch bridge, and structured ETL posting compiler. |
 
 ---
 
@@ -35,6 +36,6 @@ All specifications are tracked with permanent sequential identifiers (`SPEC-XXX`
 
 ## Operating Guidelines
 
-1. **Sequential Incremental IDs**: Next available spec ID is **`SPEC-010`**.
+1. **Sequential Incremental IDs**: Next available spec ID is **`SPEC-011`**.
 2. **Never Rewrite Past Decisions**: Prior specs are immutable records of design rationale at their creation time. When requirements shift or architecture evolves, create a new spec and mark the predecessor as `Superseded`.
 3. **Skill Reference**: See [`.agents/skills/spec-authoring/SKILL.md`](file://../../.agents/skills/spec-authoring/SKILL.md) for templates and authoring guidelines.
