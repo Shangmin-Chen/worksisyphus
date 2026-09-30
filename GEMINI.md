@@ -76,6 +76,10 @@ uv run worksisyphus evaluate --plan <file|-> --jd <file|->  # score a plan again
 uv run worksisyphus evaluate --profile --jd <file|->  # evaluate the full profile.json canonical database directly
 uv run worksisyphus optimize --jd <file|-> [--role <role>] [--output <file>]  # combinatorially find highest-scoring plan for a JD
 uv run worksisyphus backfill-evals [--overwrite]  # score applications that predate evaluation recording
+uv run worksisyphus ingest <url> [--output <file>]  # fetch, strip HTML noise, and write verbatim JD to scratch
+uv run worksisyphus track --company <name> [--role <role>] [--url <url>] [--jd <file|->] [--questions <file>]  # track opportunity in leads/ vault
+uv run worksisyphus leads                           # list all tracked opportunities in the leads/ vault
+uv run worksisyphus apply --lead <stem>             # promote tracked lead to application and compile 1-page resume
 uv run python -m pytest tests/ -q               # test suite (no network, no pdflatex needed)
 uv run ruff check .                             # linter
 uv run ruff format --check .                    # code formatter check
